@@ -1,0 +1,16 @@
+# Unity YAML diff and merge configuration
+# Add this to your global ~/.gitconfig or project .git/config
+
+[diff "unity"]
+    # Use prefab-tool to normalize before diffing
+    # This eliminates noise from Unity's non-deterministic serialization
+    textconv = prefab-tool git-textconv
+    # Cache the textconv output for better performance
+    cachetextconv = true
+
+[merge "unity"]
+    # Use prefab-tool for 3-way merge of Unity YAML files
+    name = Unity YAML Merge (prefab-tool)
+    driver = prefab-tool merge %O %A %B -o %A --path %P
+    # Try the custom merge before falling back to default
+    recursive = binary

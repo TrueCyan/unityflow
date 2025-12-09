@@ -305,32 +305,44 @@ def validate(
 @click.option(
     "--path",
     "-p",
-    "query_path",
-    help="JSON path to query (e.g., 'gameObjects/*/name')",
+    "query_path_str",
+    help="Path to query (e.g., 'gameObjects/*/name', 'components/*/type')",
 )
 @click.option(
     "--format",
     "output_format",
-    type=click.Choice(["text", "json", "yaml"]),
+    type=click.Choice(["text", "json"]),
     default="text",
     help="Output format (default: text)",
 )
 def query(
     file: Path,
-    query_path: str | None,
+    query_path_str: str | None,
     output_format: str,
 ) -> None:
     """Query data from a Unity YAML file.
+
+    Path syntax:
+        gameObjects/*/name      - all GameObject names
+        gameObjects/12345/name  - specific GameObject's name
+        components/*/type       - all component types
+        components/*/localPosition - all positions
 
     Examples:
 
         # List all GameObjects
         prefab-tool query Player.prefab --path "gameObjects/*/name"
 
-        # Get component types
+        # Get all component types as JSON
         prefab-tool query Player.prefab --path "components/*/type" --format json
+
+        # Show summary (no path)
+        prefab-tool query Player.prefab
     """
     from prefab_tool.parser import UnityYAMLDocument
+    from prefab_tool.query import query_path as do_query
+    from prefab_tool.formats import get_summary
+    import json
 
     try:
         doc = UnityYAMLDocument.load(file)
@@ -338,33 +350,223 @@ def query(
         click.echo(f"Error: Failed to load {file}: {e}", err=True)
         sys.exit(1)
 
-    if not query_path:
+    if not query_path_str:
         # Show summary
-        click.echo(f"File: {file}")
-        click.echo(f"Objects: {len(doc.objects)}")
-        click.echo()
-        click.echo("Objects by type:")
-
-        type_counts: dict[str, int] = {}
-        for obj in doc.objects:
-            type_counts[obj.class_name] = type_counts.get(obj.class_name, 0) + 1
-
-        for type_name, count in sorted(type_counts.items()):
-            click.echo(f"  {type_name}: {count}")
+        summary = get_summary(doc)
+        if output_format == "json":
+            click.echo(json.dumps(summary, indent=2))
+        else:
+            s = summary["summary"]
+            click.echo(f"File: {file}")
+            click.echo(f"GameObjects: {s['totalGameObjects']}")
+            click.echo(f"Components: {s['totalComponents']}")
+            click.echo()
+            click.echo("Types:")
+            for type_name, count in sorted(s["typeCounts"].items()):
+                click.echo(f"  {type_name}: {count}")
+            if s["hierarchy"]:
+                click.echo()
+                click.echo("Hierarchy:")
+                for h in s["hierarchy"][:20]:
+                    click.echo(f"  {h}")
+                if len(s["hierarchy"]) > 20:
+                    click.echo(f"  ... and {len(s['hierarchy']) - 20} more")
         return
 
-    # TODO: Implement path-based querying
-    click.echo("Error: Path-based querying not yet fully implemented", err=True)
-    click.echo("Showing document summary instead...")
-    click.echo()
+    # Execute query
+    results = do_query(doc, query_path_str)
 
-    for obj in doc.objects[:10]:  # Show first 10
-        content = obj.get_content()
-        name = content.get("m_Name", "<unnamed>") if content else "<no data>"
-        click.echo(f"  [{obj.class_name}] fileID={obj.file_id} name={name}")
+    if not results:
+        click.echo(f"No results for path: {query_path_str}")
+        return
 
-    if len(doc.objects) > 10:
-        click.echo(f"  ... and {len(doc.objects) - 10} more objects")
+    if output_format == "json":
+        output = [{"path": r.path, "value": r.value} for r in results]
+        click.echo(json.dumps(output, indent=2))
+    else:
+        for r in results:
+            if isinstance(r.value, (dict, list)):
+                click.echo(f"{r.path}: {json.dumps(r.value)}")
+            else:
+                click.echo(f"{r.path}: {r.value}")
+
+
+@main.command()
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    help="Output file path",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json"]),
+    default="json",
+    help="Output format (default: json)",
+)
+@click.option(
+    "--no-raw",
+    is_flag=True,
+    help="Exclude _rawFields (smaller output, may lose round-trip fidelity)",
+)
+@click.option(
+    "--indent",
+    type=int,
+    default=2,
+    help="JSON indentation (default: 2)",
+)
+def export(
+    file: Path,
+    output: Path | None,
+    output_format: str,
+    no_raw: bool,
+    indent: int,
+) -> None:
+    """Export a Unity YAML file to JSON format.
+
+    The JSON format is designed for LLM manipulation:
+    - Structured gameObjects and components sections
+    - _rawFields preserves unknown fields for round-trip fidelity
+
+    Examples:
+
+        # Export to JSON
+        prefab-tool export Player.prefab -o player.json
+
+        # Export to stdout
+        prefab-tool export Player.prefab
+
+        # Compact output without raw fields
+        prefab-tool export Player.prefab --no-raw --indent 0
+    """
+    from prefab_tool.formats import export_file_to_json
+
+    try:
+        json_str = export_file_to_json(
+            file,
+            output_path=output,
+            include_raw=not no_raw,
+            indent=indent,
+        )
+    except Exception as e:
+        click.echo(f"Error: Failed to export {file}: {e}", err=True)
+        sys.exit(1)
+
+    if output:
+        click.echo(f"Exported: {file} -> {output}")
+    else:
+        click.echo(json_str)
+
+
+@main.command(name="set")
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--path",
+    "-p",
+    "set_path",
+    required=True,
+    help="Path to the value to set (e.g., 'components/12345/localPosition')",
+)
+@click.option(
+    "--value",
+    "-v",
+    required=True,
+    help="Value to set (JSON format for complex values)",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    help="Output file (default: modify in place)",
+)
+def set_value_cmd(
+    file: Path,
+    set_path: str,
+    value: str,
+    output: Path | None,
+) -> None:
+    """Set a value at a specific path in a Unity YAML file.
+
+    This enables surgical editing of prefab data.
+
+    Examples:
+
+        # Set position
+        prefab-tool set Player.prefab \\
+            --path "components/12345/localPosition" \\
+            --value '{"x": 0, "y": 5, "z": 0}'
+
+        # Set a simple value
+        prefab-tool set Player.prefab \\
+            --path "gameObjects/12345/name" \\
+            --value '"NewName"'
+
+        # Save to a new file
+        prefab-tool set Player.prefab \\
+            --path "components/12345/localScale" \\
+            --value '{"x": 2, "y": 2, "z": 2}' \\
+            -o Player_modified.prefab
+    """
+    from prefab_tool.parser import UnityYAMLDocument
+    from prefab_tool.query import set_value
+    import json
+
+    try:
+        doc = UnityYAMLDocument.load(file)
+    except Exception as e:
+        click.echo(f"Error: Failed to load {file}: {e}", err=True)
+        sys.exit(1)
+
+    # Parse the value
+    try:
+        parsed_value = json.loads(value)
+    except json.JSONDecodeError:
+        # Try as raw string
+        parsed_value = value
+
+    # Set the value
+    if set_value(doc, set_path, parsed_value):
+        output_path = output or file
+        doc.save(output_path)
+        click.echo(f"Set {set_path} = {value}")
+        if output:
+            click.echo(f"Saved to: {output}")
+    else:
+        click.echo(f"Error: Path not found: {set_path}", err=True)
+        sys.exit(1)
+
+
+@main.command(name="git-textconv")
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+def git_textconv(file: Path) -> None:
+    """Output normalized content for git diff textconv.
+
+    This command is designed to be used as a git textconv filter.
+    It outputs the normalized YAML to stdout for git to compare.
+
+    Setup in .gitconfig:
+
+        [diff "unity"]
+            textconv = prefab-tool git-textconv
+
+    Setup in .gitattributes:
+
+        *.prefab diff=unity
+        *.unity diff=unity
+        *.asset diff=unity
+    """
+    normalizer = UnityPrefabNormalizer()
+
+    try:
+        content = normalizer.normalize_file(file)
+        # Output to stdout without trailing message
+        sys.stdout.write(content)
+    except Exception as e:
+        # On error, output original file content so git can still diff
+        click.echo(f"# Error normalizing: {e}", err=True)
+        sys.stdout.write(file.read_text(encoding="utf-8"))
 
 
 @main.command(name="merge")
@@ -393,21 +595,27 @@ def merge_files(
 
     This command is designed to work as a git merge driver.
 
-    BASE is the common ancestor file.
-    OURS is the current branch version.
-    THEIRS is the version being merged.
+    BASE is the common ancestor file (%O).
+    OURS is the current branch version (%A).
+    THEIRS is the version being merged (%B).
 
-    Examples:
+    Exit codes:
+        0 = merge successful
+        1 = conflict (manual resolution needed)
 
-        # Manual merge
-        prefab-tool merge base.prefab ours.prefab theirs.prefab -o merged.prefab
+    Setup in .gitconfig:
 
-        # Git merge driver usage (in .gitconfig):
-        # [merge "unityyamlmerge"]
-        #     driver = prefab-tool merge %O %A %B -o %A --path %P
+        [merge "unity"]
+            name = Unity YAML Merge
+            driver = prefab-tool merge %O %A %B -o %A --path %P
+
+    Setup in .gitattributes:
+
+        *.prefab merge=unity
+        *.unity merge=unity
+        *.asset merge=unity
     """
-    # TODO: Implement proper semantic merge
-    # For now, normalize and use line-based merge
+    from prefab_tool.merge import three_way_merge
 
     normalizer = UnityPrefabNormalizer()
 
@@ -419,46 +627,19 @@ def merge_files(
         click.echo(f"Error: Failed to normalize files: {e}", err=True)
         sys.exit(1)
 
-    # Simple line-based 3-way merge
-    import difflib
-
-    base_lines = base_content.splitlines(keepends=True)
-    ours_lines = ours_content.splitlines(keepends=True)
-    theirs_lines = theirs_content.splitlines(keepends=True)
-
-    # Use SequenceMatcher for basic merge
-    # This is a simplified merge - production would need semantic merge
-    if ours_content == theirs_content:
-        # No conflict - both sides made same changes
-        result = ours_content
-        has_conflict = False
-    elif ours_content == base_content:
-        # We didn't change, take theirs
-        result = theirs_content
-        has_conflict = False
-    elif theirs_content == base_content:
-        # They didn't change, keep ours
-        result = ours_content
-        has_conflict = False
-    else:
-        # Both sides changed - try diff3-style merge
-        # For now, just report conflict
-        click.echo(
-            "Warning: Both branches modified the file. Manual resolution may be needed.",
-            err=True,
-        )
-        # Take ours for now and exit with conflict status
-        result = ours_content
-        has_conflict = True
+    # Perform 3-way merge
+    result, has_conflict = three_way_merge(base_content, ours_content, theirs_content)
 
     output_path = output or ours
     output_path.write_text(result, encoding="utf-8", newline="\n")
 
+    display_path = file_path or str(output_path)
+
     if has_conflict:
-        click.echo(f"Conflict: {file_path or ours}", err=True)
+        click.echo(f"Conflict: {display_path} (manual resolution needed)", err=True)
         sys.exit(1)
     else:
-        click.echo(f"Merged: {file_path or ours}")
+        # Silent success for git integration (git expects no output on success)
         sys.exit(0)
 
 

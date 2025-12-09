@@ -1,0 +1,14 @@
+# Unity YAML files - use prefab-tool for diff and merge
+*.prefab diff=unity merge=unity text eol=lf
+*.unity diff=unity merge=unity text eol=lf
+*.asset diff=unity merge=unity text eol=lf
+*.mat diff=unity merge=unity text eol=lf
+*.controller diff=unity merge=unity text eol=lf
+*.anim diff=unity merge=unity text eol=lf
+
+# Unity meta files - treat as text
+*.meta text eol=lf
+
+# Other Unity binary files
+*.cubemap binary
+*.unitypackage binary

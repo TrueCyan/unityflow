@@ -224,6 +224,117 @@ class TestQueryCommand:
         assert "not yet" in result.output.lower() or "BasicPrefab" in result.output
 
 
+class TestGitTextconvCommand:
+    """Tests for the git-textconv command."""
+
+    def test_git_textconv_output(self, runner):
+        """Test git-textconv outputs normalized content."""
+        result = runner.invoke(
+            main,
+            ["git-textconv", str(FIXTURES_DIR / "basic_prefab.prefab")],
+        )
+
+        assert result.exit_code == 0
+        assert "%YAML 1.1" in result.output
+        assert "GameObject" in result.output
+
+    def test_git_textconv_normalized(self, runner):
+        """Test that git-textconv produces normalized output."""
+        # Use the unsorted prefab - output should be sorted
+        result = runner.invoke(
+            main,
+            ["git-textconv", str(FIXTURES_DIR / "unsorted_prefab.prefab")],
+        )
+
+        assert result.exit_code == 0
+        # The normalized output should have documents in fileID order
+        assert "%YAML 1.1" in result.output
+
+
+class TestMergeCommand:
+    """Tests for the merge command."""
+
+    def test_merge_identical_files(self, runner, tmp_path):
+        """Test merging identical files."""
+        # Create test files
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: Test
+"""
+        base = tmp_path / "base.prefab"
+        ours = tmp_path / "ours.prefab"
+        theirs = tmp_path / "theirs.prefab"
+
+        base.write_text(content)
+        ours.write_text(content)
+        theirs.write_text(content)
+
+        result = runner.invoke(
+            main,
+            ["merge", str(base), str(ours), str(theirs)],
+        )
+
+        assert result.exit_code == 0
+
+    def test_merge_only_theirs_changed(self, runner, tmp_path):
+        """Test merge when only theirs changed."""
+        base_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: Original
+"""
+        theirs_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: Modified
+"""
+        base = tmp_path / "base.prefab"
+        ours = tmp_path / "ours.prefab"
+        theirs = tmp_path / "theirs.prefab"
+
+        base.write_text(base_content)
+        ours.write_text(base_content)  # Ours is same as base
+        theirs.write_text(theirs_content)
+
+        result = runner.invoke(
+            main,
+            ["merge", str(base), str(ours), str(theirs)],
+        )
+
+        assert result.exit_code == 0
+        # Ours should be updated with theirs' content
+        assert "Modified" in ours.read_text()
+
+    def test_merge_with_output_option(self, runner, tmp_path):
+        """Test merge with explicit output file."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: Test
+"""
+        base = tmp_path / "base.prefab"
+        ours = tmp_path / "ours.prefab"
+        theirs = tmp_path / "theirs.prefab"
+        output = tmp_path / "merged.prefab"
+
+        base.write_text(content)
+        ours.write_text(content)
+        theirs.write_text(content)
+
+        result = runner.invoke(
+            main,
+            ["merge", str(base), str(ours), str(theirs), "-o", str(output)],
+        )
+
+        assert result.exit_code == 0
+        assert output.exists()
+
+
 class TestVersionOption:
     """Tests for version option."""
 
