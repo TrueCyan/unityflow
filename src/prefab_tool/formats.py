@@ -13,6 +13,8 @@ from typing import Any
 
 from prefab_tool.parser import UnityYAMLDocument, UnityYAMLObject, CLASS_IDS
 
+# Reverse mapping: class name -> class ID
+CLASS_NAME_TO_ID = {name: id for id, name in CLASS_IDS.items()}
 
 # Fields that are represented in the structured format (not raw)
 STRUCTURED_FIELDS = {
@@ -366,6 +368,438 @@ def export_file_to_json(
         Path(output_path).write_text(json_str, encoding="utf-8")
 
     return json_str
+
+
+def import_from_json(prefab_json: PrefabJSON) -> UnityYAMLDocument:
+    """Import a PrefabJSON back to UnityYAMLDocument.
+
+    This enables round-trip conversion: YAML -> JSON -> YAML
+    LLMs can modify the JSON and this function converts it back to Unity YAML.
+
+    Args:
+        prefab_json: The PrefabJSON object to convert
+
+    Returns:
+        UnityYAMLDocument ready to be saved
+    """
+    doc = UnityYAMLDocument()
+
+    # Import GameObjects (class_id = 1)
+    for file_id_str, go_data in prefab_json.game_objects.items():
+        file_id = int(file_id_str)
+        raw_fields = prefab_json.raw_fields.get(file_id_str, {})
+        obj = _import_game_object(file_id, go_data, raw_fields)
+        doc.objects.append(obj)
+
+    # Import Components
+    for file_id_str, comp_data in prefab_json.components.items():
+        file_id = int(file_id_str)
+        raw_fields = prefab_json.raw_fields.get(file_id_str, {})
+        obj = _import_component(file_id, comp_data, raw_fields)
+        doc.objects.append(obj)
+
+    # Sort by file_id for consistent output
+    doc.objects.sort(key=lambda o: o.file_id)
+
+    return doc
+
+
+def _import_game_object(
+    file_id: int, data: dict[str, Any], raw_fields: dict[str, Any]
+) -> UnityYAMLObject:
+    """Import a GameObject from JSON format."""
+    content: dict[str, Any] = {}
+
+    # Default Unity fields
+    content["m_ObjectHideFlags"] = raw_fields.get("m_ObjectHideFlags", 0)
+    content["m_CorrespondingSourceObject"] = {"fileID": 0}
+    content["m_PrefabInstance"] = {"fileID": 0}
+    content["m_PrefabAsset"] = {"fileID": 0}
+    content["serializedVersion"] = raw_fields.get("serializedVersion", 6)
+
+    # Component references
+    components = data.get("components", [])
+    if components:
+        content["m_Component"] = [
+            {"component": {"fileID": int(c)}} for c in components
+        ]
+    else:
+        content["m_Component"] = []
+
+    # Core fields from JSON
+    content["m_Layer"] = data.get("layer", 0)
+    content["m_Name"] = data.get("name", "")
+    content["m_TagString"] = data.get("tag", "Untagged")
+
+    # Restore raw fields that aren't structured
+    for key in ["m_Icon", "m_NavMeshLayer", "m_StaticEditorFlags"]:
+        if key in raw_fields:
+            content[key] = raw_fields[key]
+        else:
+            # Default values
+            if key == "m_Icon":
+                content[key] = {"fileID": 0}
+            else:
+                content[key] = 0
+
+    # isActive: bool -> 1/0
+    is_active = data.get("isActive", True)
+    content["m_IsActive"] = 1 if is_active else 0
+
+    # Merge any additional raw fields
+    for key, value in raw_fields.items():
+        if key not in content:
+            content[key] = value
+
+    return UnityYAMLObject(
+        class_id=1,
+        file_id=file_id,
+        data={"GameObject": content},
+        stripped=False,
+    )
+
+
+def _import_component(
+    file_id: int, data: dict[str, Any], raw_fields: dict[str, Any]
+) -> UnityYAMLObject:
+    """Import a component from JSON format."""
+    class_id = data.get("classId", 0)
+    comp_type = data.get("type", "")
+
+    # Determine class_id if not provided
+    if class_id == 0 and comp_type:
+        class_id = CLASS_NAME_TO_ID.get(comp_type, 0)
+
+    # Get the root key (class name)
+    root_key = CLASS_IDS.get(class_id, comp_type or f"Unknown{class_id}")
+
+    # Build content based on component type
+    if class_id == 4:  # Transform
+        content = _import_transform(data, raw_fields)
+    elif class_id == 224:  # RectTransform
+        content = _import_rect_transform(data, raw_fields)
+    elif class_id == 114:  # MonoBehaviour
+        content = _import_monobehaviour(data, raw_fields)
+    elif class_id == 1001:  # PrefabInstance
+        content = _import_prefab_instance(data, raw_fields)
+    else:
+        content = _import_generic_component(data, raw_fields)
+
+    return UnityYAMLObject(
+        class_id=class_id,
+        file_id=file_id,
+        data={root_key: content},
+        stripped=False,
+    )
+
+
+def _import_transform(
+    data: dict[str, Any], raw_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Import Transform-specific fields."""
+    content: dict[str, Any] = {}
+
+    # Default Unity fields
+    content["m_ObjectHideFlags"] = raw_fields.get("m_ObjectHideFlags", 0)
+    content["m_CorrespondingSourceObject"] = {"fileID": 0}
+    content["m_PrefabInstance"] = {"fileID": 0}
+    content["m_PrefabAsset"] = {"fileID": 0}
+
+    # GameObject reference
+    if "gameObject" in data:
+        content["m_GameObject"] = {"fileID": int(data["gameObject"])}
+    else:
+        content["m_GameObject"] = {"fileID": 0}
+
+    content["serializedVersion"] = raw_fields.get("serializedVersion", 2)
+
+    # Transform properties
+    if "localRotation" in data:
+        content["m_LocalRotation"] = _import_vector(data["localRotation"], include_w=True)
+    else:
+        content["m_LocalRotation"] = {"x": 0, "y": 0, "z": 0, "w": 1}
+
+    if "localPosition" in data:
+        content["m_LocalPosition"] = _import_vector(data["localPosition"])
+    else:
+        content["m_LocalPosition"] = {"x": 0, "y": 0, "z": 0}
+
+    if "localScale" in data:
+        content["m_LocalScale"] = _import_vector(data["localScale"])
+    else:
+        content["m_LocalScale"] = {"x": 1, "y": 1, "z": 1}
+
+    # Raw fields like m_ConstrainProportionsScale
+    if "m_ConstrainProportionsScale" in raw_fields:
+        content["m_ConstrainProportionsScale"] = raw_fields["m_ConstrainProportionsScale"]
+    else:
+        content["m_ConstrainProportionsScale"] = 0
+
+    # Children references
+    if "children" in data and data["children"]:
+        content["m_Children"] = [{"fileID": int(c)} for c in data["children"]]
+    else:
+        content["m_Children"] = []
+
+    # Parent reference
+    if "parent" in data and data["parent"]:
+        content["m_Father"] = {"fileID": int(data["parent"])}
+    else:
+        content["m_Father"] = {"fileID": 0}
+
+    # Euler angles hint
+    if "m_LocalEulerAnglesHint" in raw_fields:
+        content["m_LocalEulerAnglesHint"] = raw_fields["m_LocalEulerAnglesHint"]
+    else:
+        content["m_LocalEulerAnglesHint"] = {"x": 0, "y": 0, "z": 0}
+
+    # Merge any additional raw fields
+    for key, value in raw_fields.items():
+        if key not in content:
+            content[key] = value
+
+    return content
+
+
+def _import_rect_transform(
+    data: dict[str, Any], raw_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Import RectTransform-specific fields (extends Transform)."""
+    # Start with Transform fields
+    content = _import_transform(data, raw_fields)
+
+    # RectTransform-specific fields from raw_fields or defaults
+    rect_fields = [
+        "m_AnchorMin", "m_AnchorMax", "m_AnchoredPosition",
+        "m_SizeDelta", "m_Pivot"
+    ]
+
+    for field in rect_fields:
+        if field in raw_fields:
+            content[field] = raw_fields[field]
+
+    return content
+
+
+def _import_monobehaviour(
+    data: dict[str, Any], raw_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Import MonoBehaviour-specific fields."""
+    content: dict[str, Any] = {}
+
+    # Default Unity fields
+    content["m_ObjectHideFlags"] = raw_fields.get("m_ObjectHideFlags", 0)
+    content["m_CorrespondingSourceObject"] = {"fileID": 0}
+    content["m_PrefabInstance"] = {"fileID": 0}
+    content["m_PrefabAsset"] = {"fileID": 0}
+
+    # GameObject reference
+    if "gameObject" in data:
+        content["m_GameObject"] = {"fileID": int(data["gameObject"])}
+    else:
+        content["m_GameObject"] = {"fileID": 0}
+
+    # Enabled state
+    enabled = data.get("enabled", True)
+    content["m_Enabled"] = 1 if enabled else 0
+
+    # Editor fields
+    content["m_EditorHideFlags"] = raw_fields.get("m_EditorHideFlags", 0)
+    content["m_EditorClassIdentifier"] = raw_fields.get("m_EditorClassIdentifier", "")
+
+    # Script reference
+    if "scriptRef" in data:
+        script_ref = data["scriptRef"]
+        content["m_Script"] = {
+            "fileID": script_ref.get("fileID", 0),
+            "guid": script_ref.get("guid", ""),
+            "type": script_ref.get("type", 0),
+        }
+    elif "m_Script" in raw_fields:
+        content["m_Script"] = raw_fields["m_Script"]
+    else:
+        content["m_Script"] = {"fileID": 0}
+
+    # Custom properties
+    properties = data.get("properties", {})
+    for key, value in properties.items():
+        content[key] = _import_value(value)
+
+    # Merge additional raw fields
+    for key, value in raw_fields.items():
+        if key not in content:
+            content[key] = value
+
+    return content
+
+
+def _import_prefab_instance(
+    data: dict[str, Any], raw_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Import PrefabInstance-specific fields."""
+    content: dict[str, Any] = {}
+
+    # Default Unity fields
+    content["m_ObjectHideFlags"] = raw_fields.get("m_ObjectHideFlags", 0)
+    content["m_CorrespondingSourceObject"] = {"fileID": 0}
+    content["m_PrefabInstance"] = {"fileID": 0}
+    content["m_PrefabAsset"] = {"fileID": 0}
+
+    # Source prefab
+    if "sourcePrefab" in data:
+        src = data["sourcePrefab"]
+        content["m_SourcePrefab"] = {
+            "fileID": src.get("fileID", 0),
+            "guid": src.get("guid", ""),
+            "type": src.get("type", 2),
+        }
+    elif "m_SourcePrefab" in raw_fields:
+        content["m_SourcePrefab"] = raw_fields["m_SourcePrefab"]
+
+    # Modifications
+    modification: dict[str, Any] = {}
+
+    # TransformParent
+    if "m_Modification" in raw_fields and "m_TransformParent" in raw_fields["m_Modification"]:
+        modification["m_TransformParent"] = raw_fields["m_Modification"]["m_TransformParent"]
+    else:
+        modification["m_TransformParent"] = {"fileID": 0}
+
+    # Modifications list
+    if "modifications" in data:
+        mods_list = []
+        for mod in data["modifications"]:
+            target = mod.get("target", {})
+            mods_list.append({
+                "target": {
+                    "fileID": target.get("fileID", 0),
+                    "guid": target.get("guid", ""),
+                },
+                "propertyPath": mod.get("propertyPath", ""),
+                "value": mod.get("value"),
+                "objectReference": mod.get("objectReference", {"fileID": 0}),
+            })
+        modification["m_Modifications"] = mods_list
+    elif "m_Modification" in raw_fields and "m_Modifications" in raw_fields["m_Modification"]:
+        modification["m_Modifications"] = raw_fields["m_Modification"]["m_Modifications"]
+    else:
+        modification["m_Modifications"] = []
+
+    # RemovedComponents and RemovedGameObjects
+    if "m_Modification" in raw_fields:
+        for key in ["m_RemovedComponents", "m_RemovedGameObjects", "m_AddedComponents", "m_AddedGameObjects"]:
+            if key in raw_fields["m_Modification"]:
+                modification[key] = raw_fields["m_Modification"][key]
+
+    if "m_RemovedComponents" not in modification:
+        modification["m_RemovedComponents"] = []
+    if "m_RemovedGameObjects" not in modification:
+        modification["m_RemovedGameObjects"] = []
+
+    content["m_Modification"] = modification
+
+    # Merge additional raw fields
+    for key, value in raw_fields.items():
+        if key not in content and key != "m_Modification":
+            content[key] = value
+
+    return content
+
+
+def _import_generic_component(
+    data: dict[str, Any], raw_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Import a generic component's fields."""
+    content: dict[str, Any] = {}
+
+    # Default Unity fields
+    content["m_ObjectHideFlags"] = raw_fields.get("m_ObjectHideFlags", 0)
+    content["m_CorrespondingSourceObject"] = {"fileID": 0}
+    content["m_PrefabInstance"] = {"fileID": 0}
+    content["m_PrefabAsset"] = {"fileID": 0}
+
+    # GameObject reference
+    if "gameObject" in data:
+        content["m_GameObject"] = {"fileID": int(data["gameObject"])}
+    else:
+        content["m_GameObject"] = {"fileID": 0}
+
+    # Convert exported fields back to Unity format
+    skip_keys = {"type", "classId", "gameObject"}
+
+    for key, value in data.items():
+        if key in skip_keys:
+            continue
+
+        # Convert camelCase back to m_PascalCase
+        if key[0].islower() and not key.startswith("m_"):
+            unity_key = "m_" + key[0].upper() + key[1:]
+        else:
+            unity_key = key
+
+        content[unity_key] = _import_value(value)
+
+    # Merge raw fields
+    for key, value in raw_fields.items():
+        if key not in content:
+            content[key] = value
+
+    return content
+
+
+def _import_vector(v: dict[str, Any], include_w: bool = False) -> dict[str, Any]:
+    """Import a vector from JSON."""
+    result = {
+        "x": v.get("x", 0),
+        "y": v.get("y", 0),
+        "z": v.get("z", 0),
+    }
+    if include_w or "w" in v:
+        result["w"] = v.get("w", 1)
+    return result
+
+
+def _import_value(value: Any) -> Any:
+    """Import a generic value, converting JSON types back to Unity format."""
+    if isinstance(value, dict):
+        # Check if it's a reference
+        if "fileID" in value:
+            ref: dict[str, Any] = {"fileID": value["fileID"]}
+            if value.get("guid"):
+                ref["guid"] = value["guid"]
+            if value.get("type") is not None:
+                ref["type"] = value["type"]
+            return ref
+        # Recursive import
+        return {k: _import_value(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [_import_value(item) for item in value]
+    else:
+        return value
+
+
+def import_file_from_json(
+    input_path: str | Path,
+    output_path: str | Path | None = None,
+) -> UnityYAMLDocument:
+    """Import a JSON file back to Unity YAML format.
+
+    Args:
+        input_path: Path to the JSON file
+        output_path: Optional path to save the Unity YAML output
+
+    Returns:
+        UnityYAMLDocument object
+    """
+    input_path = Path(input_path)
+    json_str = input_path.read_text(encoding="utf-8")
+    prefab_json = PrefabJSON.from_json(json_str)
+    doc = import_from_json(prefab_json)
+
+    if output_path:
+        doc.save(output_path)
+
+    return doc
 
 
 def get_summary(doc: UnityYAMLDocument) -> dict[str, Any]:

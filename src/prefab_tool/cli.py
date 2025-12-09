@@ -460,6 +460,45 @@ def export(
         click.echo(json_str)
 
 
+@main.command(name="import")
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    help="Output file path (required)",
+    required=True,
+)
+def import_json(
+    file: Path,
+    output: Path,
+) -> None:
+    """Import a JSON file back to Unity YAML format.
+
+    This enables round-trip conversion: YAML -> JSON (edit) -> YAML
+    LLMs can modify the JSON and this command converts it back.
+
+    Examples:
+
+        # Import JSON to prefab
+        prefab-tool import player.json -o Player.prefab
+
+        # Round-trip workflow
+        prefab-tool export Player.prefab -o player.json
+        # ... edit player.json ...
+        prefab-tool import player.json -o Player.prefab
+    """
+    from prefab_tool.formats import import_file_from_json
+
+    try:
+        doc = import_file_from_json(file, output_path=output)
+        click.echo(f"Imported: {file} -> {output}")
+        click.echo(f"  Objects: {len(doc.objects)}")
+    except Exception as e:
+        click.echo(f"Error: Failed to import {file}: {e}", err=True)
+        sys.exit(1)
+
+
 @main.command(name="set")
 @click.argument("file", type=click.Path(exists=True, path_type=Path))
 @click.option(

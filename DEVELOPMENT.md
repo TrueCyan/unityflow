@@ -76,6 +76,30 @@ json_str = prefab_json.to_json()
 }
 ```
 
+**JSON 가져오기 (역변환) (`formats.py`)** ✅
+```python
+from prefab_tool.formats import import_from_json, import_file_from_json
+
+# PrefabJSON 객체에서 가져오기
+doc = import_from_json(prefab_json)
+doc.save("modified.prefab")
+
+# 파일에서 직접 가져오기
+doc = import_file_from_json("player.json", output_path="Player.prefab")
+```
+
+라운드트립 워크플로우:
+```bash
+# 1. Unity YAML → JSON 내보내기
+prefab-tool export Player.prefab -o player.json
+
+# 2. JSON 수정 (LLM 또는 스크립트)
+# ... player.json 편집 ...
+
+# 3. JSON → Unity YAML 가져오기
+prefab-tool import player.json -o Player.prefab
+```
+
 **경로 기반 쿼리 (`query.py`)**
 ```python
 from prefab_tool.query import query_path, set_value, get_value
@@ -128,6 +152,9 @@ prefab-tool query input.prefab --path "gameObjects/*/name"
 # JSON 내보내기
 prefab-tool export input.prefab -o output.json
 
+# JSON 가져오기 (역변환)
+prefab-tool import input.json -o output.prefab
+
 # 값 수정
 prefab-tool set input.prefab "gameObjects/100000/m_Name" "NewName" -o output.prefab
 
@@ -176,23 +203,7 @@ prefab-tool/
 
 ### 높은 우선순위
 
-#### 1. JSON → Unity YAML 역변환
-현재 JSON 내보내기만 지원. LLM이 수정한 JSON을 다시 Unity YAML로 변환하는 기능 필요.
-
-```python
-# 목표 API
-from prefab_tool.formats import import_from_json
-
-doc = import_from_json(prefab_json)
-doc.save("modified.prefab")
-```
-
-구현 시 고려사항:
-- `_rawFields` 복원
-- Unity 특수 타입 (Vector, Quaternion, Color) 처리
-- fileID 참조 무결성 검증
-
-#### 2. 증분 정규화
+#### 1. 증분 정규화
 대규모 프로젝트에서 모든 파일을 정규화하면 시간이 오래 걸림.
 변경된 파일만 정규화하는 기능 필요.
 
@@ -201,7 +212,7 @@ prefab-tool normalize --changed-only  # Git status 기반
 prefab-tool normalize --since HEAD~5  # 커밋 기반
 ```
 
-#### 3. Pre-commit Hook 통합
+#### 2. Pre-commit Hook 통합
 ```yaml
 # .pre-commit-config.yaml
 repos:
@@ -215,20 +226,20 @@ repos:
 
 ### 중간 우선순위
 
-#### 4. 씬 파일 최적화
+#### 3. 씬 파일 최적화
 씬 파일은 프리팹보다 훨씬 크고 복잡함. 추가 최적화 필요:
 - 스트리밍 파싱 (메모리 효율)
 - 병렬 처리
 - 청크 기반 정규화
 
-#### 5. 바이너리 에셋 참조 추적
+#### 4. 바이너리 에셋 참조 추적
 프리팹이 참조하는 바이너리 에셋(텍스처, 메시 등) 추적:
 ```bash
 prefab-tool deps Player.prefab
 # 출력: Textures/player.png, Meshes/player.fbx, ...
 ```
 
-#### 6. 통계 및 분석
+#### 5. 통계 및 분석
 ```bash
 prefab-tool stats Assets/
 # 출력:
@@ -240,17 +251,17 @@ prefab-tool stats Assets/
 
 ### 낮은 우선순위
 
-#### 7. GUI 도구
+#### 6. GUI 도구
 - VS Code 확장
 - Unity Editor 통합
 - 웹 기반 뷰어
 
-#### 8. 협업 기능
+#### 7. 협업 기능
 - 프리팹 잠금 (Lock)
 - 변경 알림
 - 리뷰 도구
 
-#### 9. 추가 포맷 지원
+#### 8. 추가 포맷 지원
 - ScriptableObject (.asset)
 - AnimationClip (.anim)
 - Material (.mat)
