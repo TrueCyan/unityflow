@@ -1,22 +1,14 @@
-"""Fast Unity YAML Parser using rapidyaml.
+"""Unity YAML Parser using rapidyaml.
 
-Provides 10-50x faster parsing than ruamel.yaml for Unity YAML files.
-Falls back to standard parser if rapidyaml is not installed.
+Provides fast parsing for Unity YAML files using the rapidyaml library.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
-try:
-    import ryml
-    RYML_AVAILABLE = True
-except ImportError:
-    RYML_AVAILABLE = False
-
+import ryml
 
 # Unity YAML header pattern
 UNITY_HEADER = """%YAML 1.1
@@ -100,9 +92,6 @@ def fast_parse_yaml(content: str) -> dict[str, Any]:
     Returns:
         Parsed Python dictionary
     """
-    if not RYML_AVAILABLE:
-        raise ImportError("rapidyaml is not installed. Install with: pip install rapidyaml")
-
     tree = ryml.parse_in_arena(content.encode('utf-8'))
     return _to_python(tree, tree.root_id())
 
@@ -116,9 +105,6 @@ def fast_parse_unity_yaml(content: str) -> list[tuple[int, int, bool, dict[str, 
     Returns:
         List of (class_id, file_id, stripped, data) tuples
     """
-    if not RYML_AVAILABLE:
-        raise ImportError("rapidyaml is not installed. Install with: pip install rapidyaml")
-
     lines = content.split("\n")
 
     # Find all document boundaries
@@ -165,76 +151,6 @@ def fast_parse_unity_yaml(content: str) -> list[tuple[int, int, bool, dict[str, 
         results.append((class_id, file_id, stripped, data))
 
     return results
-
-
-def fast_dump_yaml(data: dict[str, Any], indent: int = 2) -> str:
-    """Dump Python dict to YAML string using rapidyaml.
-
-    Note: For Unity YAML output, we still use ruamel.yaml for proper
-    formatting and comment preservation. This function is for simple cases.
-    """
-    if not RYML_AVAILABLE:
-        raise ImportError("rapidyaml is not installed. Install with: pip install rapidyaml")
-
-    # For now, use a simple YAML dumper
-    # ryml's emit is more complex to use, so we build the string manually
-    return _dump_value(data, indent, 0)
-
-
-def _dump_value(value: Any, indent: int, level: int) -> str:
-    """Recursively dump a value to YAML string."""
-    prefix = " " * (indent * level)
-
-    if value is None:
-        return "null"
-    elif isinstance(value, bool):
-        return "1" if value else "0"  # Unity style
-    elif isinstance(value, int):
-        return str(value)
-    elif isinstance(value, float):
-        return str(value)
-    elif isinstance(value, str):
-        # Check if needs quoting
-        if not value or value in ("true", "false", "null", "yes", "no", "on", "off"):
-            return f'"{value}"'
-        if any(c in value for c in ":{}\n\"'"):
-            return f'"{value}"'
-        return value
-    elif isinstance(value, dict):
-        if not value:
-            return "{}"
-        lines = []
-        for k, v in value.items():
-            if isinstance(v, (dict, list)) and v:
-                lines.append(f"{prefix}{k}:")
-                lines.append(_dump_value(v, indent, level + 1))
-            else:
-                lines.append(f"{prefix}{k}: {_dump_value(v, indent, level + 1)}")
-        return "\n".join(lines)
-    elif isinstance(value, list):
-        if not value:
-            return "[]"
-        lines = []
-        for item in value:
-            if isinstance(item, dict) and item:
-                # Flow style for simple references
-                if set(item.keys()) <= {"fileID", "guid", "type"}:
-                    flow = "{" + ", ".join(f"{k}: {_dump_value(v, 0, 0)}" for k, v in item.items()) + "}"
-                    lines.append(f"{prefix}- {flow}")
-                else:
-                    item_lines = _dump_value(item, indent, level + 1).split("\n")
-                    lines.append(f"{prefix}-")
-                    lines.extend(item_lines)
-            else:
-                lines.append(f"{prefix}- {_dump_value(item, indent, level + 1)}")
-        return "\n".join(lines)
-    else:
-        return str(value)
-
-
-def is_available() -> bool:
-    """Check if the fast parser is available."""
-    return RYML_AVAILABLE
 
 
 def fast_dump_unity_object(data: dict[str, Any]) -> str:

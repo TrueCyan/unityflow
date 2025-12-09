@@ -16,8 +16,6 @@ import struct
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml.comments import CommentedMap, CommentedSeq
-
 from prefab_tool.parser import UnityYAMLDocument, UnityYAMLObject
 
 
@@ -132,15 +130,15 @@ class UnityPrefabNormalizer:
 
         # Sort m_Modifications array
         mods = modification.get("m_Modifications")
-        if isinstance(mods, (list, CommentedSeq)) and mods:
+        if isinstance(mods, list) and mods:
             sorted_mods = self._sort_modification_list(list(mods))
-            # Replace contents in place to preserve CommentedSeq type
+            # Replace contents in place
             mods.clear()
             mods.extend(sorted_mods)
 
         # Sort m_RemovedComponents
         removed = modification.get("m_RemovedComponents")
-        if isinstance(removed, (list, CommentedSeq)) and removed:
+        if isinstance(removed, list) and removed:
             sorted_removed = sorted(
                 removed,
                 key=lambda r: self._get_modification_sort_key(r, "target"),
@@ -150,7 +148,7 @@ class UnityPrefabNormalizer:
 
         # Sort m_AddedComponents
         added = modification.get("m_AddedComponents")
-        if isinstance(added, (list, CommentedSeq)) and added:
+        if isinstance(added, list) and added:
             sorted_added = sorted(
                 added,
                 key=lambda a: self._get_modification_sort_key(a, "targetCorrespondingSourceObject"),
@@ -226,7 +224,7 @@ class UnityPrefabNormalizer:
                 )
             return value
 
-        elif isinstance(value, (list, CommentedSeq)):
+        elif isinstance(value, list):
             # Sort order-independent arrays (like m_Component, m_Children)
             if parent_key in ORDER_INDEPENDENT_ARRAYS and value:
                 self._sort_reference_array(value)
@@ -275,7 +273,7 @@ class UnityPrefabNormalizer:
             z /= length
             w /= length
 
-        # Update in place to preserve CommentedMap type
+        # Update in place
         if self.use_hex_floats:
             q["x"] = self._float_to_hex(x)
             q["y"] = self._float_to_hex(y)

@@ -3,11 +3,7 @@
 Handles Unity's custom YAML 1.1 dialect with:
 - Custom tag namespace (!u! -> tag:unity3d.com,2011:)
 - Multi-document files with !u!{ClassID} &{fileID} anchors
-- Preserves formatting for round-trip fidelity
-
-Supports two backends:
-- rapidyaml (fast): 10-50x faster, recommended for large files
-- ruamel.yaml (slow): Full YAML 1.1 support with comment preservation
+- Fast parsing using rapidyaml backend
 """
 
 from __future__ import annotations
@@ -17,24 +13,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
-from ruamel.yaml import YAML
-from ruamel.yaml.comments import CommentedMap
-
-# Try to import fast parser
-try:
-    from prefab_tool.fast_parser import (
-        fast_parse_unity_yaml,
-        fast_dump_unity_object,
-        RYML_AVAILABLE,
-    )
-except ImportError:
-    RYML_AVAILABLE = False
-    fast_parse_unity_yaml = None  # type: ignore
-    fast_dump_unity_object = None  # type: ignore
-
-# Default to fast backend if available
-_USE_FAST_BACKEND = RYML_AVAILABLE
-
+from prefab_tool.fast_parser import (
+    fast_parse_unity_yaml,
+    fast_dump_unity_object,
+)
 
 # Unity YAML header pattern
 UNITY_HEADER = """%YAML 1.1
@@ -67,53 +49,9 @@ CLASS_IDS = {
 }
 
 
-def _dict_to_commented_map(data: Any) -> CommentedMap:
-    """Convert a plain dict to CommentedMap recursively."""
-    if isinstance(data, dict):
-        result = CommentedMap()
-        for k, v in data.items():
-            result[k] = _dict_to_commented_map(v)
-        return result
-    elif isinstance(data, list):
-        return [_dict_to_commented_map(item) for item in data]
-    else:
-        return data
-
-
-def _commented_map_to_dict(data: Any) -> Any:
-    """Convert a CommentedMap to plain dict recursively."""
-    if isinstance(data, dict):
-        return {k: _commented_map_to_dict(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [_commented_map_to_dict(item) for item in data]
-    else:
-        return data
-
-
-def set_parser_backend(use_fast: bool = True) -> None:
-    """Set the parser backend.
-
-    Args:
-        use_fast: If True, use rapidyaml (fast). If False, use ruamel.yaml (slow).
-    """
-    global _USE_FAST_BACKEND
-    if use_fast and not RYML_AVAILABLE:
-        raise ImportError(
-            "rapidyaml is not installed. Install with: pip install prefab-tool[fast]"
-        )
-    _USE_FAST_BACKEND = use_fast
-
-
 def get_parser_backend() -> str:
     """Get the current parser backend name."""
-    if _USE_FAST_BACKEND:
-        return "rapidyaml"
-    return "ruamel.yaml"
-
-
-def is_fast_backend_available() -> bool:
-    """Check if the fast backend (rapidyaml) is available."""
-    return RYML_AVAILABLE
+    return "rapidyaml"
 
 
 @dataclass
@@ -122,7 +60,7 @@ class UnityYAMLObject:
 
     class_id: int
     file_id: int
-    data: CommentedMap
+    data: dict[str, Any]
     stripped: bool = False
 
     @property
@@ -199,112 +137,21 @@ class UnityYAMLDocument:
         """Parse Unity YAML content from a string."""
         doc = cls()
 
-        # Use fast backend if available
-        if _USE_FAST_BACKEND and fast_parse_unity_yaml is not None:
-            return cls._parse_fast(content)
-
-        return cls._parse_slow(content)
-
-    @classmethod
-    def _parse_fast(cls, content: str) -> UnityYAMLDocument:
-        """Parse using rapidyaml (fast backend)."""
-        doc = cls()
-
         parsed = fast_parse_unity_yaml(content)
 
         for class_id, file_id, stripped, data in parsed:
-            # Convert plain dict to CommentedMap for API compatibility
-            commented_data = _dict_to_commented_map(data)
-
             obj = UnityYAMLObject(
                 class_id=class_id,
                 file_id=file_id,
-                data=commented_data,
+                data=data,
                 stripped=stripped,
             )
             doc.objects.append(obj)
 
         return doc
 
-    @classmethod
-    def _parse_slow(cls, content: str) -> UnityYAMLDocument:
-        """Parse using ruamel.yaml (slow backend, full YAML 1.1 support)."""
-        doc = cls()
-
-        # Skip the header and find all document boundaries
-        lines = content.split("\n")
-
-        # Find all document start positions
-        doc_starts: list[tuple[int, int, int, bool]] = []  # (line_idx, class_id, file_id, stripped)
-
-        for i, line in enumerate(lines):
-            match = DOCUMENT_HEADER_PATTERN.match(line)
-            if match:
-                class_id = int(match.group(1))
-                file_id = int(match.group(2))
-                stripped = "stripped" in line
-                doc_starts.append((i, class_id, file_id, stripped))
-
-        if not doc_starts:
-            return doc
-
-        # Parse each document
-        yaml = YAML()
-        yaml.preserve_quotes = True
-
-        for idx, (start_line, class_id, file_id, stripped) in enumerate(doc_starts):
-            # Determine end of this document
-            if idx + 1 < len(doc_starts):
-                end_line = doc_starts[idx + 1][0]
-            else:
-                end_line = len(lines)
-
-            # Extract document content (skip the --- header line)
-            doc_content = "\n".join(lines[start_line + 1:end_line])
-
-            if not doc_content.strip():
-                # Empty document
-                obj = UnityYAMLObject(
-                    class_id=class_id,
-                    file_id=file_id,
-                    data=CommentedMap(),
-                    stripped=stripped,
-                )
-            else:
-                try:
-                    data = yaml.load(doc_content)
-                    if data is None:
-                        data = CommentedMap()
-                    elif not isinstance(data, CommentedMap):
-                        # Wrap primitive values
-                        wrapped = CommentedMap()
-                        wrapped["value"] = data
-                        data = wrapped
-
-                    obj = UnityYAMLObject(
-                        class_id=class_id,
-                        file_id=file_id,
-                        data=data,
-                        stripped=stripped,
-                    )
-                except Exception as e:
-                    raise ValueError(
-                        f"Failed to parse document at line {start_line + 1} "
-                        f"(class_id={class_id}, file_id={file_id}): {e}"
-                    ) from e
-
-            doc.objects.append(obj)
-
-        return doc
-
     def dump(self) -> str:
         """Serialize the document back to Unity YAML format."""
-        if _USE_FAST_BACKEND and fast_dump_unity_object is not None:
-            return self._dump_fast()
-        return self._dump_slow()
-
-    def _dump_fast(self) -> str:
-        """Dump using fast string-based serialization."""
         output_lines = [UNITY_HEADER.rstrip()]
 
         for obj in self.objects:
@@ -316,40 +163,7 @@ class UnityYAMLDocument:
 
             # Serialize document content
             if obj.data:
-                # Convert CommentedMap to plain dict for fast dump
-                plain_data = _commented_map_to_dict(obj.data)
-                content = fast_dump_unity_object(plain_data)
-                if content:
-                    output_lines.append(content)
-
-        # Unity uses LF line endings
-        return "\n".join(output_lines) + "\n"
-
-    def _dump_slow(self) -> str:
-        """Dump using ruamel.yaml (slower, but full YAML 1.1 support)."""
-        yaml = YAML()
-        yaml.default_flow_style = None
-        yaml.preserve_quotes = True
-        yaml.indent(mapping=2, sequence=2, offset=0)
-        yaml.width = 1000  # Avoid line wrapping
-
-        output_lines = [UNITY_HEADER.rstrip()]
-
-        for obj in self.objects:
-            # Write document header
-            header = f"--- !u!{obj.class_id} &{obj.file_id}"
-            if obj.stripped:
-                header += " stripped"
-            output_lines.append(header)
-
-            # Serialize document content
-            if obj.data:
-                from io import StringIO
-                stream = StringIO()
-                yaml.dump(obj.data, stream)
-                content = stream.getvalue()
-                # Remove trailing newline to avoid extra blank lines
-                content = content.rstrip("\n")
+                content = fast_dump_unity_object(obj.data)
                 if content:
                     output_lines.append(content)
 
@@ -391,7 +205,7 @@ def create_file_reference(
     file_id: int,
     guid: str | None = None,
     ref_type: int | None = None,
-) -> CommentedMap:
+) -> dict[str, Any]:
     """Create a Unity file reference.
 
     Args:
@@ -400,10 +214,9 @@ def create_file_reference(
         ref_type: Optional type (usually 2 for assets, 3 for scripts)
 
     Returns:
-        CommentedMap with the reference
+        Dictionary with the reference
     """
-    ref = CommentedMap()
-    ref["fileID"] = file_id
+    ref: dict[str, Any] = {"fileID": file_id}
     if guid is not None:
         ref["guid"] = guid
     if ref_type is not None:

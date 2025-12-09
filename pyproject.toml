@@ -28,14 +28,11 @@ classifiers = [
 
 dependencies = [
     "unityparser>=4.0.0",
-    "ruamel.yaml>=0.18.0",
+    "rapidyaml>=0.10.0",
     "click>=8.0.0",
 ]
 
 [project.optional-dependencies]
-fast = [
-    "rapidyaml>=0.10.0",
-]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -43,7 +40,7 @@ dev = [
     "ruff>=0.1.0",
 ]
 all = [
-    "prefab-tool[fast,dev]",
+    "prefab-tool[dev]",
 ]
 
 [project.scripts]
