@@ -5,7 +5,7 @@
 Unity YAML 파일(프리팹, 씬, 에셋)의 결정적 직렬화를 위한 도구입니다.
 Unity의 비결정적 직렬화로 인한 VCS 노이즈를 제거하여 Git diff/merge를 개선합니다.
 
-## 구현 완료 (Phase 1-4)
+## 구현 완료 (Phase 1-5)
 
 ### Phase 1: Python 프로토타입 ✅
 
@@ -109,6 +109,54 @@ from prefab_tool.parser import get_parser_backend
 print(get_parser_backend())  # "rapidyaml"
 ```
 
+### Phase 5: 증분 정규화 ✅
+
+**Git 연동 유틸리티 (`git_utils.py`)**
+- Git 저장소 감지 및 루트 경로 조회
+- 변경된 파일 목록 조회 (staged, unstaged, untracked)
+- 특정 커밋 이후 변경된 파일 목록 조회
+- Unity 파일 확장자 필터링
+
+**배치 정규화 CLI 옵션**
+```bash
+# 변경된 파일만 정규화 (Git status 기반)
+prefab-tool normalize --changed-only
+
+# 스테이징된 파일만 정규화
+prefab-tool normalize --changed-only --staged-only
+
+# 특정 커밋 이후 변경된 파일 정규화
+prefab-tool normalize --since HEAD~5
+prefab-tool normalize --since main
+
+# 패턴으로 필터링
+prefab-tool normalize --changed-only --pattern "Assets/Prefabs/**/*.prefab"
+
+# 드라이런 (변경 없이 대상 파일만 확인)
+prefab-tool normalize --changed-only --dry-run
+
+# 여러 파일 직접 지정
+prefab-tool normalize *.prefab
+```
+
+**API 사용법**
+```python
+from prefab_tool import (
+    get_changed_files,
+    get_files_changed_since,
+    is_git_repository,
+    get_repo_root,
+)
+
+# 변경된 Unity 파일 목록
+changed = get_changed_files()
+changed = get_changed_files(staged_only=True)
+
+# 특정 커밋 이후 변경된 파일
+changed = get_files_changed_since("HEAD~5")
+changed = get_files_changed_since("main")
+```
+
 ## CLI 명령어
 
 ```bash
@@ -141,7 +189,7 @@ prefab-tool merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 ## 테스트
 
 ```bash
-# 전체 테스트 (108개)
+# 전체 테스트 (137개)
 pytest tests/
 
 # 커버리지
@@ -162,6 +210,7 @@ prefab-tool/
 │   ├── merge.py         # 3-way 병합
 │   ├── formats.py       # JSON 내보내기
 │   ├── query.py         # 경로 기반 쿼리
+│   ├── git_utils.py     # Git 연동 유틸리티
 │   └── cli.py           # CLI 인터페이스
 ├── tests/
 │   ├── fixtures/        # 테스트용 프리팹
@@ -192,16 +241,7 @@ doc.save("modified.prefab")
 - Unity 특수 타입 (Vector, Quaternion, Color) 처리
 - fileID 참조 무결성 검증
 
-#### 2. 증분 정규화
-대규모 프로젝트에서 모든 파일을 정규화하면 시간이 오래 걸림.
-변경된 파일만 정규화하는 기능 필요.
-
-```bash
-prefab-tool normalize --changed-only  # Git status 기반
-prefab-tool normalize --since HEAD~5  # 커밋 기반
-```
-
-#### 3. Pre-commit Hook 통합
+#### 2. Pre-commit Hook 통합
 ```yaml
 # .pre-commit-config.yaml
 repos:
@@ -215,20 +255,20 @@ repos:
 
 ### 중간 우선순위
 
-#### 4. 씬 파일 최적화
+#### 3. 씬 파일 최적화
 씬 파일은 프리팹보다 훨씬 크고 복잡함. 추가 최적화 필요:
 - 스트리밍 파싱 (메모리 효율)
 - 병렬 처리
 - 청크 기반 정규화
 
-#### 5. 바이너리 에셋 참조 추적
+#### 4. 바이너리 에셋 참조 추적
 프리팹이 참조하는 바이너리 에셋(텍스처, 메시 등) 추적:
 ```bash
 prefab-tool deps Player.prefab
 # 출력: Textures/player.png, Meshes/player.fbx, ...
 ```
 
-#### 6. 통계 및 분석
+#### 5. 통계 및 분석
 ```bash
 prefab-tool stats Assets/
 # 출력:
@@ -240,17 +280,17 @@ prefab-tool stats Assets/
 
 ### 낮은 우선순위
 
-#### 7. GUI 도구
+#### 6. GUI 도구
 - VS Code 확장
 - Unity Editor 통합
 - 웹 기반 뷰어
 
-#### 8. 협업 기능
+#### 7. 협업 기능
 - 프리팹 잠금 (Lock)
 - 변경 알림
 - 리뷰 도구
 
-#### 9. 추가 포맷 지원
+#### 8. 추가 포맷 지원
 - ScriptableObject (.asset)
 - AnimationClip (.anim)
 - Material (.mat)

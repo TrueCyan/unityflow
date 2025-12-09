@@ -12,6 +12,13 @@ import click
 
 from prefab_tool import __version__
 from prefab_tool.diff import DiffFormat, PrefabDiff
+from prefab_tool.git_utils import (
+    UNITY_EXTENSIONS,
+    get_changed_files,
+    get_files_changed_since,
+    get_repo_root,
+    is_git_repository,
+)
 from prefab_tool.normalizer import UnityPrefabNormalizer
 from prefab_tool.validator import PrefabValidator
 
@@ -28,17 +35,43 @@ def main() -> None:
 
 
 @main.command()
-@click.argument("input_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("input_files", nargs=-1, type=click.Path(exists=True, path_type=Path))
 @click.option(
     "-o",
     "--output",
     type=click.Path(path_type=Path),
-    help="Output file path (default: overwrite input or stdout with --stdout)",
+    help="Output file path (only for single file, default: overwrite input)",
 )
 @click.option(
     "--stdout",
     is_flag=True,
-    help="Write to stdout instead of file",
+    help="Write to stdout instead of file (only for single file)",
+)
+@click.option(
+    "--changed-only",
+    is_flag=True,
+    help="Normalize only files changed in git working tree",
+)
+@click.option(
+    "--staged-only",
+    is_flag=True,
+    help="Normalize only staged files (use with --changed-only)",
+)
+@click.option(
+    "--since",
+    "since_ref",
+    type=str,
+    help="Normalize files changed since git reference (e.g., HEAD~5, main, v1.0)",
+)
+@click.option(
+    "--pattern",
+    type=str,
+    help="Filter files by glob pattern (e.g., 'Assets/Prefabs/**/*.prefab')",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show files that would be normalized without making changes",
 )
 @click.option(
     "--no-sort-documents",
@@ -79,9 +112,14 @@ def main() -> None:
     help="Output format (default: yaml)",
 )
 def normalize(
-    input_file: Path,
+    input_files: tuple[Path, ...],
     output: Path | None,
     stdout: bool,
+    changed_only: bool,
+    staged_only: bool,
+    since_ref: str | None,
+    pattern: str | None,
+    dry_run: bool,
     no_sort_documents: bool,
     no_sort_modifications: bool,
     no_normalize_floats: bool,
@@ -90,21 +128,118 @@ def normalize(
     precision: int,
     output_format: str,
 ) -> None:
-    """Normalize a Unity YAML file for deterministic serialization.
+    """Normalize Unity YAML files for deterministic serialization.
 
-    INPUT_FILE is the path to the prefab, scene, or asset file.
+    INPUT_FILES are paths to prefab, scene, or asset files.
 
     Examples:
 
         # Normalize in place
         prefab-tool normalize Player.prefab
 
+        # Normalize multiple files
+        prefab-tool normalize *.prefab
+
         # Normalize to a new file
         prefab-tool normalize Player.prefab -o Player.normalized.prefab
 
         # Output to stdout
         prefab-tool normalize Player.prefab --stdout
+
+    Incremental normalization (requires git):
+
+        # Normalize changed files only
+        prefab-tool normalize --changed-only
+
+        # Normalize staged files only
+        prefab-tool normalize --changed-only --staged-only
+
+        # Normalize files changed since a commit
+        prefab-tool normalize --since HEAD~5
+
+        # Normalize files changed since a branch
+        prefab-tool normalize --since main
+
+        # Filter by pattern
+        prefab-tool normalize --changed-only --pattern "Assets/Prefabs/**/*.prefab"
+
+        # Dry run to see what would be normalized
+        prefab-tool normalize --changed-only --dry-run
     """
+    # Collect files to normalize
+    files_to_normalize: list[Path] = []
+
+    # Git-based file selection
+    if changed_only or since_ref:
+        if not is_git_repository():
+            click.echo("Error: Not in a git repository", err=True)
+            sys.exit(1)
+
+        if changed_only:
+            files_to_normalize = get_changed_files(
+                staged_only=staged_only,
+                include_untracked=not staged_only,
+            )
+        elif since_ref:
+            files_to_normalize = get_files_changed_since(since_ref)
+
+        # Apply pattern filter (use PurePath.match for glob-style patterns)
+        if pattern and files_to_normalize:
+            repo_root = get_repo_root()
+            filtered = []
+            for f in files_to_normalize:
+                try:
+                    rel_path = f.relative_to(repo_root) if repo_root else f
+                    # PurePath.match supports ** glob patterns
+                    if rel_path.match(pattern):
+                        filtered.append(f)
+                except ValueError:
+                    pass
+            files_to_normalize = filtered
+
+    # Explicit file arguments
+    if input_files:
+        explicit_files = list(input_files)
+        # Apply pattern filter to explicit files too
+        if pattern:
+            explicit_files = [f for f in explicit_files if f.match(pattern)]
+        files_to_normalize.extend(explicit_files)
+
+    # No files to process
+    if not files_to_normalize:
+        if changed_only:
+            click.echo("No changed Unity files found")
+        elif since_ref:
+            click.echo(f"No changed Unity files since {since_ref}")
+        else:
+            click.echo("Error: No input files specified", err=True)
+            click.echo("Use --changed-only, --since, or provide file paths", err=True)
+            sys.exit(1)
+        return
+
+    # Remove duplicates and sort
+    files_to_normalize = sorted(set(files_to_normalize))
+
+    # Dry run mode
+    if dry_run:
+        click.echo(f"Would normalize {len(files_to_normalize)} file(s):")
+        for f in files_to_normalize:
+            click.echo(f"  {f}")
+        return
+
+    # Validate options for batch mode
+    if len(files_to_normalize) > 1:
+        if output:
+            click.echo("Error: --output cannot be used with multiple files", err=True)
+            sys.exit(1)
+        if stdout:
+            click.echo("Error: --stdout cannot be used with multiple files", err=True)
+            sys.exit(1)
+
+    if output_format == "json":
+        click.echo("Error: JSON format not yet implemented", err=True)
+        sys.exit(1)
+
     normalizer = UnityPrefabNormalizer(
         sort_documents=not no_sort_documents,
         sort_modifications=not no_sort_modifications,
@@ -114,25 +249,33 @@ def normalize(
         float_precision=precision,
     )
 
-    try:
-        content = normalizer.normalize_file(input_file)
-    except Exception as e:
-        click.echo(f"Error: Failed to normalize {input_file}: {e}", err=True)
-        sys.exit(1)
+    # Process files
+    success_count = 0
+    error_count = 0
 
-    if output_format == "json":
-        # TODO: Implement JSON export
-        click.echo("Error: JSON format not yet implemented", err=True)
-        sys.exit(1)
+    for input_file in files_to_normalize:
+        try:
+            content = normalizer.normalize_file(input_file)
 
-    if stdout:
-        click.echo(content, nl=False)
-    elif output:
-        output.write_text(content, encoding="utf-8", newline="\n")
-        click.echo(f"Normalized: {input_file} -> {output}")
-    else:
-        input_file.write_text(content, encoding="utf-8", newline="\n")
-        click.echo(f"Normalized: {input_file}")
+            if stdout:
+                click.echo(content, nl=False)
+            elif output:
+                output.write_text(content, encoding="utf-8", newline="\n")
+                click.echo(f"Normalized: {input_file} -> {output}")
+            else:
+                input_file.write_text(content, encoding="utf-8", newline="\n")
+                click.echo(f"Normalized: {input_file}")
+
+            success_count += 1
+
+        except Exception as e:
+            click.echo(f"Error: Failed to normalize {input_file}: {e}", err=True)
+            error_count += 1
+
+    # Summary for batch mode
+    if len(files_to_normalize) > 1:
+        click.echo()
+        click.echo(f"Completed: {success_count} normalized, {error_count} failed")
 
 
 @main.command()
