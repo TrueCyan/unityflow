@@ -13,10 +13,10 @@ Unity YAML 파일(프리팹, 씬, 에셋)의 결정적 직렬화 도구입니다
 
 ## 설치
 
-### pip를 이용한 설치
+### GitHub에서 설치
 
 ```bash
-pip install prefab-tool
+pip install git+https://github.com/TrueCyan/prefab-tool.git
 ```
 
 ### 소스에서 설치
@@ -24,12 +24,14 @@ pip install prefab-tool
 ```bash
 git clone https://github.com/TrueCyan/prefab-tool
 cd prefab-tool
-pip install -e .
+pip install .
 ```
 
 ### 개발 환경 설치
 
 ```bash
+git clone https://github.com/TrueCyan/prefab-tool
+cd prefab-tool
 pip install -e ".[dev]"
 ```
 
