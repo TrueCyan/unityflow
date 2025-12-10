@@ -181,7 +181,97 @@ changed = get_files_changed_since("HEAD~5")
 changed = get_files_changed_since("main")
 ```
 
-### Phase 6: Pre-commit Hook 통합 ✅
+### Phase 6: 확장된 파일 형식 지원 ✅
+
+**지원되는 Unity YAML 파일 형식 (24개)**
+
+| 카테고리 | 확장자 |
+|---------|--------|
+| Core | `.prefab`, `.unity`, `.asset` |
+| Animation | `.anim`, `.controller`, `.overrideController`, `.playable`, `.mask`, `.signal` |
+| Rendering | `.mat`, `.renderTexture`, `.flare`, `.shadervariants`, `.spriteatlas`, `.cubemap` |
+| Physics | `.physicMaterial`, `.physicsMaterial2D` |
+| Terrain | `.terrainlayer`, `.brush` |
+| Audio | `.mixer` |
+| UI/Editor | `.guiskin`, `.fontsettings`, `.preset`, `.giparams` |
+
+**카테고리별 확장자 집합**
+```python
+from prefab_tool import (
+    UNITY_EXTENSIONS,          # 모든 확장자
+    UNITY_CORE_EXTENSIONS,     # Core
+    UNITY_ANIMATION_EXTENSIONS, # Animation
+    UNITY_RENDERING_EXTENSIONS, # Rendering
+    UNITY_PHYSICS_EXTENSIONS,   # Physics
+    UNITY_TERRAIN_EXTENSIONS,   # Terrain
+    UNITY_AUDIO_EXTENSIONS,     # Audio
+    UNITY_UI_EXTENSIONS,        # UI/Editor
+)
+```
+
+### Phase 7: 대용량 파일 최적화 ✅
+
+**스트리밍 파싱**
+
+10MB 이상의 대용량 파일을 메모리 효율적으로 처리:
+
+```python
+from prefab_tool.parser import UnityYAMLDocument
+
+# 자동 선택 (파일 크기에 따라 최적의 방법 선택)
+doc = UnityYAMLDocument.load_auto("LargeScene.unity")
+
+# 강제 스트리밍 모드
+doc = UnityYAMLDocument.load_streaming("LargeScene.unity")
+
+# 진행 상황 콜백
+def on_progress(current, total):
+    print(f"Progress: {current}/{total}")
+
+doc = UnityYAMLDocument.load_auto("LargeScene.unity", progress_callback=on_progress)
+```
+
+**스트리밍 저장**
+
+대용량 문서를 메모리 효율적으로 저장:
+
+```python
+# 일반 저장
+doc.save("output.prefab")
+
+# 스트리밍 저장 (대용량 파일에 권장)
+doc.save_streaming("output.prefab")
+```
+
+**파일 통계 조회**
+
+전체 파싱 없이 빠르게 파일 정보 확인:
+
+```python
+stats = UnityYAMLDocument.get_stats("LargeScene.unity")
+print(f"Size: {stats['file_size_mb']} MB")
+print(f"Documents: {stats['document_count']}")
+print(f"Large file: {stats['is_large_file']}")
+```
+
+**CLI 지원**
+
+```bash
+# 파일 통계 조회
+prefab-tool stats Boss.unity
+prefab-tool stats *.prefab --format json
+
+# 진행 상황 표시
+prefab-tool normalize --changed-only --progress
+
+# 병렬 처리 (4개 워커)
+prefab-tool normalize *.prefab --parallel 4
+
+# 진행 상황 + 병렬 처리
+prefab-tool normalize *.prefab --parallel 4 --progress
+```
+
+### Phase 8: Pre-commit Hook 통합 ✅
 
 **pre-commit 프레임워크 지원 (`.pre-commit-hooks.yaml`)**
 
@@ -244,6 +334,13 @@ pre-commit run --all-files
 # 정규화
 prefab-tool normalize input.prefab -o output.prefab
 prefab-tool normalize input.prefab --in-place
+prefab-tool normalize *.prefab --progress              # 진행 상황 표시
+prefab-tool normalize *.prefab --parallel 4            # 병렬 처리
+prefab-tool normalize *.prefab --parallel 4 --progress # 병렬 + 진행 상황
+
+# 파일 통계 (대용량 파일 분석)
+prefab-tool stats Boss.unity
+prefab-tool stats *.prefab --format json
 
 # 비교
 prefab-tool diff file1.prefab file2.prefab
@@ -313,55 +410,45 @@ prefab-tool/
 
 ### 중간 우선순위
 
-#### 1. 씬 파일 최적화
-씬 파일은 프리팹보다 훨씬 크고 복잡함. 추가 최적화 필요:
-- 스트리밍 파싱 (메모리 효율)
-- 병렬 처리
-- 청크 기반 정규화
-
-#### 2. 바이너리 에셋 참조 추적
+#### 1. 바이너리 에셋 참조 추적
 프리팹이 참조하는 바이너리 에셋(텍스처, 메시 등) 추적:
 ```bash
 prefab-tool deps Player.prefab
 # 출력: Textures/player.png, Meshes/player.fbx, ...
 ```
 
-#### 3. 통계 및 분석
+#### 2. 프로젝트 전체 통계
 ```bash
-prefab-tool stats Assets/
+prefab-tool stats --recursive Assets/
 # 출력:
-# Total prefabs: 1,234
-# Total GameObjects: 45,678
-# Most used components: Transform (100%), SpriteRenderer (45%), ...
-# Largest prefabs: Boss.prefab (2.3MB), ...
+# Total files: 1,234
+# Total size: 456 MB
+# By type: .prefab (500), .unity (50), .asset (684)
+# Largest files: Boss.unity (25MB), MainScene.unity (18MB), ...
 ```
 
 ### 낮은 우선순위
 
-#### 4. GUI 도구
+#### 3. GUI 도구
 - VS Code 확장
 - Unity Editor 통합
 - 웹 기반 뷰어
 
-#### 5. 협업 기능
+#### 4. 협업 기능
 - 프리팹 잠금 (Lock)
 - 변경 알림
 - 리뷰 도구
-
-#### 6. 추가 포맷 지원
-- ScriptableObject (.asset)
-- AnimationClip (.anim)
-- Material (.mat)
 
 ---
 
 ## 알려진 제한사항
 
 1. **YAML 1.1 특수 케이스**: 일부 극단적인 YAML 1.1 구문이 다르게 처리될 수 있음 (Unity 파일에서는 거의 발생하지 않음)
-2. **대용량 파일**: 100MB 이상 파일은 메모리 사용량 주의
+2. **대용량 파일**: 10MB 이상 파일은 자동으로 스트리밍 모드 사용. 1GB 이상 파일은 처리 시간이 오래 걸릴 수 있음
 3. **바이너리 데이터**: base64 인코딩된 바이너리는 정규화하지 않음
 4. **Unity 버전**: Unity 2019+ 테스트됨, 이전 버전은 미확인
 5. **rapidyaml 필수**: rapidyaml 라이브러리가 설치되어야 함 (기본 종속성)
+6. **병렬 처리**: `--parallel` 옵션 사용 시 파일별로 별도 프로세스가 생성되므로 파일이 적을 경우 오버헤드가 발생할 수 있음
 
 ---
 

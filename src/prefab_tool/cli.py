@@ -6,7 +6,9 @@ Provides commands for normalizing, diffing, and validating Unity YAML files.
 from __future__ import annotations
 
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import Callable
 
 import click
 
@@ -21,6 +23,57 @@ from prefab_tool.git_utils import (
 )
 from prefab_tool.normalizer import UnityPrefabNormalizer
 from prefab_tool.validator import PrefabValidator
+
+
+def _normalize_single_file(args: tuple) -> tuple[Path, bool, str]:
+    """Normalize a single file (for parallel processing).
+
+    Args:
+        args: Tuple of (file_path, normalizer_kwargs)
+
+    Returns:
+        Tuple of (file_path, success, message)
+    """
+    file_path, kwargs = args
+    try:
+        normalizer = UnityPrefabNormalizer(**kwargs)
+        content = normalizer.normalize_file(file_path)
+        file_path.write_text(content, encoding="utf-8", newline="\n")
+        return (file_path, True, "")
+    except Exception as e:
+        return (file_path, False, str(e))
+
+
+def create_progress_bar(
+    total: int,
+    label: str = "Processing",
+    show_eta: bool = True,
+) -> tuple[Callable[[int, int], None], Callable[[], None]]:
+    """Create a progress bar and return update/close callbacks.
+
+    Args:
+        total: Total number of items
+        label: Progress bar label
+        show_eta: Whether to show ETA
+
+    Returns:
+        Tuple of (update_callback, close_callback)
+    """
+    bar = click.progressbar(
+        length=total,
+        label=label,
+        show_eta=show_eta,
+        show_percent=True,
+    )
+    bar.__enter__()
+
+    def update(current: int, total: int) -> None:
+        bar.update(1)
+
+    def close() -> None:
+        bar.__exit__(None, None, None)
+
+    return update, close
 
 
 @click.group()
@@ -111,6 +164,24 @@ def main() -> None:
     default="yaml",
     help="Output format (default: yaml)",
 )
+@click.option(
+    "--progress",
+    is_flag=True,
+    help="Show progress bar for batch processing",
+)
+@click.option(
+    "--parallel",
+    "-j",
+    "parallel_jobs",
+    type=int,
+    default=1,
+    help="Number of parallel jobs for batch processing (default: 1)",
+)
+@click.option(
+    "--in-place",
+    is_flag=True,
+    help="Modify files in place (same as not specifying -o)",
+)
 def normalize(
     input_files: tuple[Path, ...],
     output: Path | None,
@@ -127,6 +198,9 @@ def normalize(
     no_normalize_quaternions: bool,
     precision: int,
     output_format: str,
+    progress: bool,
+    parallel_jobs: int,
+    in_place: bool,
 ) -> None:
     """Normalize Unity YAML files for deterministic serialization.
 
@@ -240,37 +314,90 @@ def normalize(
         click.echo("Error: JSON format not yet implemented", err=True)
         sys.exit(1)
 
-    normalizer = UnityPrefabNormalizer(
-        sort_documents=not no_sort_documents,
-        sort_modifications=not no_sort_modifications,
-        normalize_floats=not no_normalize_floats,
-        use_hex_floats=hex_floats,
-        normalize_quaternions=not no_normalize_quaternions,
-        float_precision=precision,
-    )
+    normalizer_kwargs = {
+        "sort_documents": not no_sort_documents,
+        "sort_modifications": not no_sort_modifications,
+        "normalize_floats": not no_normalize_floats,
+        "use_hex_floats": hex_floats,
+        "normalize_quaternions": not no_normalize_quaternions,
+        "float_precision": precision,
+    }
+
+    normalizer = UnityPrefabNormalizer(**normalizer_kwargs)
 
     # Process files
     success_count = 0
     error_count = 0
 
-    for input_file in files_to_normalize:
-        try:
-            content = normalizer.normalize_file(input_file)
+    # Parallel processing for batch mode
+    if parallel_jobs > 1 and len(files_to_normalize) > 1 and not stdout and not output:
+        click.echo(f"Processing {len(files_to_normalize)} files with {parallel_jobs} parallel workers...")
 
-            if stdout:
-                click.echo(content, nl=False)
-            elif output:
-                output.write_text(content, encoding="utf-8", newline="\n")
-                click.echo(f"Normalized: {input_file} -> {output}")
+        tasks = [(f, normalizer_kwargs) for f in files_to_normalize]
+
+        with ProcessPoolExecutor(max_workers=parallel_jobs) as executor:
+            futures = {executor.submit(_normalize_single_file, task): task[0] for task in tasks}
+
+            if progress:
+                with click.progressbar(
+                    length=len(files_to_normalize),
+                    label="Normalizing",
+                    show_eta=True,
+                    show_percent=True,
+                ) as bar:
+                    for future in as_completed(futures):
+                        file_path, success, error_msg = future.result()
+                        if success:
+                            success_count += 1
+                        else:
+                            error_count += 1
+                            click.echo(f"\nError: {file_path}: {error_msg}", err=True)
+                        bar.update(1)
             else:
-                input_file.write_text(content, encoding="utf-8", newline="\n")
-                click.echo(f"Normalized: {input_file}")
+                for future in as_completed(futures):
+                    file_path, success, error_msg = future.result()
+                    if success:
+                        success_count += 1
+                        click.echo(f"Normalized: {file_path}")
+                    else:
+                        error_count += 1
+                        click.echo(f"Error: {file_path}: {error_msg}", err=True)
 
-            success_count += 1
+    # Sequential processing
+    else:
+        if progress and len(files_to_normalize) > 1:
+            files_iter = click.progressbar(
+                files_to_normalize,
+                label="Normalizing",
+                show_eta=True,
+                show_percent=True,
+            )
+        else:
+            files_iter = files_to_normalize
 
-        except Exception as e:
-            click.echo(f"Error: Failed to normalize {input_file}: {e}", err=True)
-            error_count += 1
+        for input_file in files_iter:
+            try:
+                content = normalizer.normalize_file(input_file)
+
+                if stdout:
+                    click.echo(content, nl=False)
+                elif output:
+                    output.write_text(content, encoding="utf-8", newline="\n")
+                    if not progress:
+                        click.echo(f"Normalized: {input_file} -> {output}")
+                else:
+                    input_file.write_text(content, encoding="utf-8", newline="\n")
+                    if not progress:
+                        click.echo(f"Normalized: {input_file}")
+
+                success_count += 1
+
+            except Exception as e:
+                if progress:
+                    click.echo(f"\nError: Failed to normalize {input_file}: {e}", err=True)
+                else:
+                    click.echo(f"Error: Failed to normalize {input_file}: {e}", err=True)
+                error_count += 1
 
     # Summary for batch mode
     if len(files_to_normalize) > 1:
@@ -972,6 +1099,68 @@ def merge_files(
     else:
         # Silent success for git integration (git expects no output on success)
         sys.exit(0)
+
+
+@main.command(name="stats")
+@click.argument("files", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+def stats(
+    files: tuple[Path, ...],
+    output_format: str,
+) -> None:
+    """Show statistics for Unity YAML files.
+
+    This is a fast operation that scans file headers without full parsing.
+    Useful for analyzing large files before processing.
+
+    Examples:
+
+        # Show stats for a single file
+        prefab-tool stats Boss.unity
+
+        # Show stats for multiple files
+        prefab-tool stats *.prefab
+
+        # Output as JSON
+        prefab-tool stats Boss.unity --format json
+    """
+    from prefab_tool.parser import UnityYAMLDocument, CLASS_IDS
+    import json
+
+    all_stats = []
+
+    for file in files:
+        file_stats = UnityYAMLDocument.get_stats(file)
+        file_stats["path"] = str(file)
+
+        # Map class IDs to names
+        class_names = {}
+        for class_id, count in file_stats["class_counts"].items():
+            name = CLASS_IDS.get(class_id, f"Unknown({class_id})")
+            class_names[name] = count
+        file_stats["class_names"] = class_names
+
+        all_stats.append(file_stats)
+
+    if output_format == "json":
+        click.echo(json.dumps(all_stats, indent=2))
+    else:
+        for stats in all_stats:
+            click.echo(f"File: {stats['path']}")
+            click.echo(f"  Size: {stats['file_size_mb']:.2f} MB ({stats['file_size']:,} bytes)")
+            click.echo(f"  Documents: {stats['document_count']}")
+            if stats["is_large_file"]:
+                click.echo("  Status: Large file (streaming mode recommended)")
+            click.echo("  Types:")
+            for name, count in sorted(stats["class_names"].items(), key=lambda x: -x[1]):
+                click.echo(f"    {name}: {count}")
+            click.echo()
 
 
 if __name__ == "__main__":

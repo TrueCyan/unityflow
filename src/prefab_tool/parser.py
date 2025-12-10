@@ -14,8 +14,14 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from prefab_tool.fast_parser import (
+    LARGE_FILE_THRESHOLD,
+    ProgressCallback,
     fast_parse_unity_yaml,
     fast_dump_unity_object,
+    get_file_stats,
+    iter_dump_unity_object,
+    iter_parse_unity_yaml,
+    stream_parse_unity_yaml_file,
 )
 
 # Unity YAML header pattern
@@ -124,20 +130,105 @@ class UnityYAMLDocument:
         return self.get_by_class_id(1001)
 
     @classmethod
-    def load(cls, path: str | Path) -> UnityYAMLDocument:
-        """Load a Unity YAML file from disk."""
+    def load(
+        cls,
+        path: str | Path,
+        progress_callback: ProgressCallback | None = None,
+    ) -> UnityYAMLDocument:
+        """Load a Unity YAML file from disk.
+
+        Args:
+            path: Path to the Unity YAML file
+            progress_callback: Optional callback for progress reporting
+
+        Returns:
+            Parsed UnityYAMLDocument
+        """
         path = Path(path)
         content = path.read_text(encoding="utf-8")
-        doc = cls.parse(content)
+        doc = cls.parse(content, progress_callback)
         doc.source_path = path
         return doc
 
     @classmethod
-    def parse(cls, content: str) -> UnityYAMLDocument:
-        """Parse Unity YAML content from a string."""
+    def load_streaming(
+        cls,
+        path: str | Path,
+        progress_callback: ProgressCallback | None = None,
+    ) -> UnityYAMLDocument:
+        """Load a large Unity YAML file using streaming mode.
+
+        This method is optimized for large files (10MB+) and uses less memory
+        by processing the file in chunks.
+
+        Args:
+            path: Path to the Unity YAML file
+            progress_callback: Optional callback for progress reporting (bytes_read, total_bytes)
+
+        Returns:
+            Parsed UnityYAMLDocument
+        """
+        path = Path(path)
+        doc = cls()
+        doc.source_path = path
+
+        for class_id, file_id, stripped, data in stream_parse_unity_yaml_file(
+            path, progress_callback=progress_callback
+        ):
+            obj = UnityYAMLObject(
+                class_id=class_id,
+                file_id=file_id,
+                data=data,
+                stripped=stripped,
+            )
+            doc.objects.append(obj)
+
+        return doc
+
+    @classmethod
+    def load_auto(
+        cls,
+        path: str | Path,
+        progress_callback: ProgressCallback | None = None,
+    ) -> UnityYAMLDocument:
+        """Load a Unity YAML file, automatically choosing the best method.
+
+        For files smaller than 10MB, uses the standard load method.
+        For larger files, uses streaming mode for better memory efficiency.
+
+        Args:
+            path: Path to the Unity YAML file
+            progress_callback: Optional callback for progress reporting
+
+        Returns:
+            Parsed UnityYAMLDocument
+        """
+        path = Path(path)
+        file_size = path.stat().st_size
+
+        if file_size >= LARGE_FILE_THRESHOLD:
+            return cls.load_streaming(path, progress_callback)
+        else:
+            return cls.load(path, progress_callback)
+
+    @classmethod
+    def parse(
+        cls,
+        content: str,
+        progress_callback: ProgressCallback | None = None,
+    ) -> UnityYAMLDocument:
+        """Parse Unity YAML content from a string.
+
+        Args:
+            content: Unity YAML content string
+            progress_callback: Optional callback for progress reporting
+
+        Returns:
+            Parsed UnityYAMLDocument
+        """
         doc = cls()
 
-        parsed = fast_parse_unity_yaml(content)
+        parsed = fast_parse_unity_yaml(content, progress_callback)
 
         for class_id, file_id, stripped, data in parsed:
             obj = UnityYAMLObject(
@@ -149,6 +240,33 @@ class UnityYAMLDocument:
             doc.objects.append(obj)
 
         return doc
+
+    @classmethod
+    def iter_parse(
+        cls,
+        content: str,
+        progress_callback: ProgressCallback | None = None,
+    ) -> Iterator[UnityYAMLObject]:
+        """Parse Unity YAML content, yielding objects one at a time.
+
+        This is a memory-efficient generator version for processing large content.
+
+        Args:
+            content: Unity YAML content string
+            progress_callback: Optional callback for progress reporting
+
+        Yields:
+            UnityYAMLObject instances
+        """
+        for class_id, file_id, stripped, data in iter_parse_unity_yaml(
+            content, progress_callback
+        ):
+            yield UnityYAMLObject(
+                class_id=class_id,
+                file_id=file_id,
+                data=data,
+                stripped=stripped,
+            )
 
     def dump(self) -> str:
         """Serialize the document back to Unity YAML format."""
@@ -170,11 +288,66 @@ class UnityYAMLDocument:
         # Unity uses LF line endings
         return "\n".join(output_lines) + "\n"
 
+    def iter_dump(self) -> Iterator[str]:
+        """Serialize the document, yielding lines one at a time.
+
+        This is a memory-efficient generator version for large documents.
+
+        Yields:
+            YAML lines as strings
+        """
+        yield UNITY_HEADER.rstrip()
+
+        for obj in self.objects:
+            # Write document header
+            header = f"--- !u!{obj.class_id} &{obj.file_id}"
+            if obj.stripped:
+                header += " stripped"
+            yield header
+
+            # Serialize document content
+            if obj.data:
+                yield from iter_dump_unity_object(obj.data)
+
     def save(self, path: str | Path) -> None:
         """Save the document to a file."""
         path = Path(path)
         content = self.dump()
         path.write_text(content, encoding="utf-8", newline="\n")
+
+    def save_streaming(self, path: str | Path) -> None:
+        """Save the document to a file using streaming mode.
+
+        This is more memory-efficient for large documents as it writes
+        line by line instead of building the entire content in memory.
+
+        Args:
+            path: Output file path
+        """
+        path = Path(path)
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            for line in self.iter_dump():
+                f.write(line)
+                f.write("\n")
+
+    @staticmethod
+    def get_stats(path: str | Path) -> dict[str, Any]:
+        """Get statistics about a Unity YAML file without fully parsing it.
+
+        This is a fast operation that only scans document headers.
+
+        Args:
+            path: Path to the Unity YAML file
+
+        Returns:
+            Dictionary with file statistics including:
+            - file_size: Size in bytes
+            - file_size_mb: Size in megabytes
+            - document_count: Number of YAML documents
+            - class_counts: Count of each class type
+            - is_large_file: Whether the file exceeds the large file threshold
+        """
+        return get_file_stats(path)
 
 
 def parse_file_reference(ref: dict[str, Any] | None) -> tuple[int, str | None, int | None] | None:
