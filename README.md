@@ -109,35 +109,31 @@ prefab-tool find-refs Textures/player.png
 
 ## Git 통합 설정
 
-### Pre-commit 훅 설치
+Unity 프로젝트 루트에서 단일 명령어로 Git 통합을 설정할 수 있습니다:
 
 ```bash
-# pre-commit 프레임워크 사용 (권장)
-prefab-tool install-hooks --pre-commit
+# 기본 설정 (diff/merge 드라이버 + .gitattributes)
+prefab-tool setup
 
-# 네이티브 git hook 사용
-prefab-tool install-hooks --git-hooks
+# pre-commit 훅도 함께 설치
+prefab-tool setup --with-hooks
+
+# 글로벌 설정 (모든 저장소에 적용)
+prefab-tool setup --global
 ```
 
-### Git Diff 드라이버 설정
+이 명령어는 다음을 자동으로 수행합니다:
+- Git diff 드라이버 설정 (정규화된 diff 출력)
+- Git merge 드라이버 설정 (Unity 파일 3-way 병합)
+- `.gitattributes` 파일 생성/업데이트
 
-`.gitconfig`에 추가:
+### 수동 설정 (선택사항)
+
+수동으로 설정하려면 `.gitconfig`에 추가:
 ```ini
 [diff "unity"]
     textconv = prefab-tool git-textconv
-```
 
-`.gitattributes`에 추가:
-```
-*.prefab diff=unity
-*.unity diff=unity
-*.asset diff=unity
-```
-
-### Git Merge 드라이버 설정
-
-`.gitconfig`에 추가:
-```ini
 [merge "unity"]
     name = Unity YAML Merge
     driver = prefab-tool merge %O %A %B -o %A --path %P
@@ -145,9 +141,9 @@ prefab-tool install-hooks --git-hooks
 
 `.gitattributes`에 추가:
 ```
-*.prefab merge=unity
-*.unity merge=unity
-*.asset merge=unity
+*.prefab diff=unity merge=unity text eol=lf
+*.unity diff=unity merge=unity text eol=lf
+*.asset diff=unity merge=unity text eol=lf
 ```
 
 ## Python API 사용법
@@ -225,6 +221,7 @@ doc.save("MyObject.prefab")
 ## CLI 명령어 요약
 
 ```bash
+prefab-tool setup       # Git 통합 설정 (단일 명령어)
 prefab-tool normalize   # Unity YAML 파일 정규화
 prefab-tool validate    # 구조적 무결성 검증
 prefab-tool diff        # 두 파일 비교
@@ -236,8 +233,6 @@ prefab-tool import      # JSON에서 가져오기
 prefab-tool deps        # 에셋 의존성 분석
 prefab-tool find-refs   # 역참조 검색
 prefab-tool stats       # 파일 통계 조회
-prefab-tool git-textconv    # Git textconv 드라이버
-prefab-tool install-hooks   # Pre-commit 훅 설치
 ```
 
 전체 옵션은 `prefab-tool <command> --help`로 확인하세요.

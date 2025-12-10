@@ -1477,5 +1477,221 @@ def find_refs(
             click.echo(f"    {len(refs)} reference(s)")
 
 
+@main.command(name="setup")
+@click.option(
+    "--global",
+    "use_global",
+    is_flag=True,
+    help="Configure globally (~/.gitconfig) instead of locally",
+)
+@click.option(
+    "--with-hooks",
+    is_flag=True,
+    help="Also install pre-commit hooks (native git hooks)",
+)
+@click.option(
+    "--with-pre-commit",
+    is_flag=True,
+    help="Also install pre-commit framework hooks",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite existing configuration",
+)
+def setup(
+    use_global: bool,
+    with_hooks: bool,
+    with_pre_commit: bool,
+    force: bool,
+) -> None:
+    """Set up Git integration with a single command.
+
+    Configures git diff/merge drivers and .gitattributes for Unity files.
+    Run this from your Unity project root.
+
+    Examples:
+
+        # Basic setup (local to current repo)
+        prefab-tool setup
+
+        # Global setup (applies to all repos)
+        prefab-tool setup --global
+
+        # Setup with pre-commit hooks
+        prefab-tool setup --with-hooks
+
+        # Setup with pre-commit framework
+        prefab-tool setup --with-pre-commit
+    """
+    import subprocess
+
+    click.echo("=== prefab-tool Git Integration Setup ===")
+    click.echo()
+
+    # Check if we're in a git repo (required for local setup)
+    if not use_global and not is_git_repository():
+        click.echo("Error: Not in a git repository", err=True)
+        click.echo("Run from your Unity project root, or use --global", err=True)
+        sys.exit(1)
+
+    repo_root = get_repo_root() if not use_global else None
+
+    # Determine git config scope
+    if use_global:
+        click.echo("Setting up GLOBAL git configuration...")
+        git_config_cmd = ["git", "config", "--global"]
+    else:
+        click.echo("Setting up LOCAL git configuration...")
+        git_config_cmd = ["git", "config"]
+
+    # Configure diff driver
+    click.echo("  Configuring diff driver...")
+    subprocess.run([*git_config_cmd, "diff.unity.textconv", "prefab-tool git-textconv"], check=True)
+    subprocess.run([*git_config_cmd, "diff.unity.cachetextconv", "true"], check=True)
+
+    # Configure merge driver
+    click.echo("  Configuring merge driver...")
+    subprocess.run([*git_config_cmd, "merge.unity.name", "Unity YAML Merge (prefab-tool)"], check=True)
+    subprocess.run([*git_config_cmd, "merge.unity.driver", "prefab-tool merge %O %A %B -o %A --path %P"], check=True)
+    subprocess.run([*git_config_cmd, "merge.unity.recursive", "binary"], check=True)
+
+    click.echo()
+
+    # Setup .gitattributes (only for local setup)
+    if not use_global and repo_root:
+        gitattributes_path = repo_root / ".gitattributes"
+        gitattributes_content = """\
+# Unity YAML files - use prefab-tool for diff and merge
+*.prefab diff=unity merge=unity text eol=lf
+*.unity diff=unity merge=unity text eol=lf
+*.asset diff=unity merge=unity text eol=lf
+*.mat diff=unity merge=unity text eol=lf
+*.controller diff=unity merge=unity text eol=lf
+*.anim diff=unity merge=unity text eol=lf
+*.overrideController diff=unity merge=unity text eol=lf
+*.playable diff=unity merge=unity text eol=lf
+*.mask diff=unity merge=unity text eol=lf
+*.signal diff=unity merge=unity text eol=lf
+*.renderTexture diff=unity merge=unity text eol=lf
+*.flare diff=unity merge=unity text eol=lf
+*.shadervariants diff=unity merge=unity text eol=lf
+*.spriteatlas diff=unity merge=unity text eol=lf
+*.cubemap diff=unity merge=unity text eol=lf
+*.physicMaterial diff=unity merge=unity text eol=lf
+*.physicsMaterial2D diff=unity merge=unity text eol=lf
+*.terrainlayer diff=unity merge=unity text eol=lf
+*.brush diff=unity merge=unity text eol=lf
+*.mixer diff=unity merge=unity text eol=lf
+*.guiskin diff=unity merge=unity text eol=lf
+*.fontsettings diff=unity merge=unity text eol=lf
+*.preset diff=unity merge=unity text eol=lf
+*.giparams diff=unity merge=unity text eol=lf
+
+# Unity meta files
+*.meta text eol=lf
+"""
+
+        if gitattributes_path.exists():
+            existing = gitattributes_path.read_text()
+            if "diff=unity" in existing:
+                click.echo("  .gitattributes already configured")
+            else:
+                click.echo("  Appending to .gitattributes...")
+                with open(gitattributes_path, "a") as f:
+                    f.write("\n" + gitattributes_content)
+        else:
+            click.echo("  Creating .gitattributes...")
+            gitattributes_path.write_text(gitattributes_content)
+
+    # Install hooks if requested
+    if with_hooks and repo_root:
+        click.echo()
+        click.echo("Installing git pre-commit hook...")
+        hooks_dir = repo_root / ".git" / "hooks"
+        hook_path = hooks_dir / "pre-commit"
+
+        if hook_path.exists() and not force:
+            click.echo(f"  Warning: Hook already exists at {hook_path}", err=True)
+            click.echo("  Use --force to overwrite", err=True)
+        else:
+            hook_content = """\
+#!/bin/bash
+# prefab-tool pre-commit hook
+# Automatically normalize Unity YAML files before commit
+
+set -e
+
+# Get list of staged Unity files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\\.(prefab|unity|asset)$' || true)
+
+if [ -n "$STAGED_FILES" ]; then
+    echo "Normalizing Unity files..."
+
+    for file in $STAGED_FILES; do
+        if [ -f "$file" ]; then
+            prefab-tool normalize "$file" --in-place
+            git add "$file"
+        fi
+    done
+
+    echo "Unity files normalized."
+fi
+"""
+            hook_path.write_text(hook_content)
+            hook_path.chmod(0o755)
+            click.echo(f"  Created: {hook_path}")
+
+    if with_pre_commit and repo_root:
+        click.echo()
+        click.echo("Setting up pre-commit framework...")
+
+        # Check if pre-commit is installed
+        try:
+            subprocess.run(["pre-commit", "--version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            click.echo("  Error: pre-commit is not installed", err=True)
+            click.echo("  Install it with: pip install pre-commit", err=True)
+            sys.exit(1)
+
+        config_path = repo_root / ".pre-commit-config.yaml"
+        config_content = """\
+# See https://pre-commit.com for more information
+repos:
+  # Unity Prefab Normalizer
+  - repo: https://github.com/TrueCyan/prefab-tool
+    rev: v0.1.0
+    hooks:
+      - id: prefab-normalize
+      # - id: prefab-validate  # Optional: add validation
+"""
+
+        if config_path.exists() and not force:
+            existing = config_path.read_text()
+            if "prefab-tool" in existing:
+                click.echo("  pre-commit already configured for prefab-tool")
+            else:
+                click.echo("  Warning: .pre-commit-config.yaml exists", err=True)
+                click.echo("  Use --force to overwrite", err=True)
+        else:
+            config_path.write_text(config_content)
+            click.echo(f"  Created: {config_path}")
+
+            try:
+                subprocess.run(["pre-commit", "install"], cwd=repo_root, check=True)
+                click.echo("  Installed pre-commit hooks")
+            except subprocess.CalledProcessError:
+                click.echo("  Warning: Failed to run 'pre-commit install'", err=True)
+
+    click.echo()
+    click.echo("=== Setup Complete ===")
+    click.echo()
+    click.echo("Git is now configured to use prefab-tool for Unity files.")
+    click.echo()
+    click.echo("Test with:")
+    click.echo("  git diff HEAD~1 -- '*.prefab'")
+    click.echo()
+
+
 if __name__ == "__main__":
     main()
