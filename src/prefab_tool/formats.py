@@ -13,6 +13,282 @@ from typing import Any
 
 from prefab_tool.parser import UnityYAMLDocument, UnityYAMLObject, CLASS_IDS
 
+
+# =============================================================================
+# RectTransform Editor <-> File Format Conversion Utilities
+# =============================================================================
+
+@dataclass
+class RectTransformEditorValues:
+    """Values as shown in Unity Editor Inspector.
+
+    For stretch mode (anchorMin != anchorMax):
+        - left, right, top, bottom: offsets from anchor edges
+    For anchored mode (anchorMin == anchorMax):
+        - pos_x, pos_y: position relative to anchor
+        - width, height: size of the rect
+    """
+    # Anchors (same for both modes)
+    anchor_min_x: float = 0.5
+    anchor_min_y: float = 0.5
+    anchor_max_x: float = 0.5
+    anchor_max_y: float = 0.5
+
+    # Pivot
+    pivot_x: float = 0.5
+    pivot_y: float = 0.5
+
+    # Position (Z is always stored directly)
+    pos_z: float = 0
+
+    # Stretch mode values (when anchorMin != anchorMax on that axis)
+    left: float | None = None
+    right: float | None = None
+    top: float | None = None
+    bottom: float | None = None
+
+    # Anchored mode values (when anchorMin == anchorMax on that axis)
+    pos_x: float | None = None
+    pos_y: float | None = None
+    width: float | None = None
+    height: float | None = None
+
+    @property
+    def is_stretch_horizontal(self) -> bool:
+        """Check if horizontal axis is in stretch mode."""
+        return self.anchor_min_x != self.anchor_max_x
+
+    @property
+    def is_stretch_vertical(self) -> bool:
+        """Check if vertical axis is in stretch mode."""
+        return self.anchor_min_y != self.anchor_max_y
+
+
+@dataclass
+class RectTransformFileValues:
+    """Values as stored in Unity YAML file."""
+    anchor_min: dict[str, float]  # {x, y}
+    anchor_max: dict[str, float]  # {x, y}
+    anchored_position: dict[str, float]  # {x, y}
+    size_delta: dict[str, float]  # {x, y}
+    pivot: dict[str, float]  # {x, y}
+    local_position_z: float = 0
+
+
+def editor_to_file_values(editor: RectTransformEditorValues) -> RectTransformFileValues:
+    """Convert Unity Editor values to file format values.
+
+    This handles the complex conversion between what you see in the Inspector
+    and what gets stored in the .prefab/.unity file.
+
+    The conversion formulas:
+    - For stretch mode (anchorMin != anchorMax):
+        offsetMin = (left, bottom)
+        offsetMax = (-right, -top)
+        anchoredPosition = (offsetMin + offsetMax) / 2
+        sizeDelta = offsetMax - offsetMin
+
+    - For anchored mode (anchorMin == anchorMax):
+        anchoredPosition = (pos_x, pos_y)
+        sizeDelta = (width, height)
+    """
+    # Determine mode for each axis
+    stretch_h = editor.is_stretch_horizontal
+    stretch_v = editor.is_stretch_vertical
+
+    # Calculate anchored position and size delta
+    if stretch_h:
+        # Horizontal stretch mode
+        left = editor.left or 0
+        right = editor.right or 0
+        offset_min_x = left
+        offset_max_x = -right
+        anchored_x = (offset_min_x + offset_max_x) / 2
+        size_delta_x = offset_max_x - offset_min_x
+    else:
+        # Horizontal anchored mode
+        anchored_x = editor.pos_x or 0
+        size_delta_x = editor.width or 100
+
+    if stretch_v:
+        # Vertical stretch mode
+        bottom = editor.bottom or 0
+        top = editor.top or 0
+        offset_min_y = bottom
+        offset_max_y = -top
+        anchored_y = (offset_min_y + offset_max_y) / 2
+        size_delta_y = offset_max_y - offset_min_y
+    else:
+        # Vertical anchored mode
+        anchored_y = editor.pos_y or 0
+        size_delta_y = editor.height or 100
+
+    return RectTransformFileValues(
+        anchor_min={"x": editor.anchor_min_x, "y": editor.anchor_min_y},
+        anchor_max={"x": editor.anchor_max_x, "y": editor.anchor_max_y},
+        anchored_position={"x": anchored_x, "y": anchored_y},
+        size_delta={"x": size_delta_x, "y": size_delta_y},
+        pivot={"x": editor.pivot_x, "y": editor.pivot_y},
+        local_position_z=editor.pos_z,
+    )
+
+
+def file_to_editor_values(file_vals: RectTransformFileValues) -> RectTransformEditorValues:
+    """Convert file format values to Unity Editor values.
+
+    The conversion formulas:
+    - offsetMin = anchoredPosition - sizeDelta * pivot
+    - offsetMax = anchoredPosition + sizeDelta * (1 - pivot)
+
+    For stretch mode:
+        left = offsetMin.x
+        right = -offsetMax.x
+        bottom = offsetMin.y
+        top = -offsetMax.y
+
+    For anchored mode:
+        pos_x = anchoredPosition.x
+        pos_y = anchoredPosition.y
+        width = sizeDelta.x
+        height = sizeDelta.y
+    """
+    anchor_min_x = file_vals.anchor_min.get("x", 0.5)
+    anchor_min_y = file_vals.anchor_min.get("y", 0.5)
+    anchor_max_x = file_vals.anchor_max.get("x", 0.5)
+    anchor_max_y = file_vals.anchor_max.get("y", 0.5)
+
+    pivot_x = file_vals.pivot.get("x", 0.5)
+    pivot_y = file_vals.pivot.get("y", 0.5)
+
+    anchored_x = file_vals.anchored_position.get("x", 0)
+    anchored_y = file_vals.anchored_position.get("y", 0)
+
+    size_delta_x = file_vals.size_delta.get("x", 100)
+    size_delta_y = file_vals.size_delta.get("y", 100)
+
+    # Calculate offset values
+    offset_min_x = anchored_x - size_delta_x * pivot_x
+    offset_max_x = anchored_x + size_delta_x * (1 - pivot_x)
+    offset_min_y = anchored_y - size_delta_y * pivot_y
+    offset_max_y = anchored_y + size_delta_y * (1 - pivot_y)
+
+    editor = RectTransformEditorValues(
+        anchor_min_x=anchor_min_x,
+        anchor_min_y=anchor_min_y,
+        anchor_max_x=anchor_max_x,
+        anchor_max_y=anchor_max_y,
+        pivot_x=pivot_x,
+        pivot_y=pivot_y,
+        pos_z=file_vals.local_position_z,
+    )
+
+    # Determine mode and set appropriate values
+    stretch_h = anchor_min_x != anchor_max_x
+    stretch_v = anchor_min_y != anchor_max_y
+
+    if stretch_h:
+        editor.left = offset_min_x
+        editor.right = -offset_max_x
+    else:
+        editor.pos_x = anchored_x
+        editor.width = size_delta_x
+
+    if stretch_v:
+        editor.bottom = offset_min_y
+        editor.top = -offset_max_y
+    else:
+        editor.pos_y = anchored_y
+        editor.height = size_delta_y
+
+    return editor
+
+
+def create_rect_transform_file_values(
+    anchor_preset: str = "center",
+    pivot: tuple[float, float] = (0.5, 0.5),
+    pos_x: float = 0,
+    pos_y: float = 0,
+    pos_z: float = 0,
+    width: float = 100,
+    height: float = 100,
+    left: float = 0,
+    right: float = 0,
+    top: float = 0,
+    bottom: float = 0,
+) -> RectTransformFileValues:
+    """Create RectTransform file values from common parameters.
+
+    Args:
+        anchor_preset: Preset name for anchor position:
+            - "center": anchors at center (0.5, 0.5)
+            - "top-left", "top-center", "top-right"
+            - "middle-left", "middle-center", "middle-right"
+            - "bottom-left", "bottom-center", "bottom-right"
+            - "stretch-top", "stretch-middle", "stretch-bottom" (horizontal stretch)
+            - "stretch-left", "stretch-center", "stretch-right" (vertical stretch)
+            - "stretch-all": full stretch (0,0) to (1,1)
+        pivot: Pivot point (x, y), default center
+        pos_x, pos_y, pos_z: Position (for anchored mode)
+        width, height: Size (for anchored mode)
+        left, right, top, bottom: Offsets (for stretch mode)
+
+    Returns:
+        RectTransformFileValues ready for use
+    """
+    # Anchor presets mapping
+    presets = {
+        # Single point anchors
+        "top-left": ((0, 1), (0, 1)),
+        "top-center": ((0.5, 1), (0.5, 1)),
+        "top-right": ((1, 1), (1, 1)),
+        "middle-left": ((0, 0.5), (0, 0.5)),
+        "center": ((0.5, 0.5), (0.5, 0.5)),
+        "middle-center": ((0.5, 0.5), (0.5, 0.5)),
+        "middle-right": ((1, 0.5), (1, 0.5)),
+        "bottom-left": ((0, 0), (0, 0)),
+        "bottom-center": ((0.5, 0), (0.5, 0)),
+        "bottom-right": ((1, 0), (1, 0)),
+        # Horizontal stretch
+        "stretch-top": ((0, 1), (1, 1)),
+        "stretch-middle": ((0, 0.5), (1, 0.5)),
+        "stretch-bottom": ((0, 0), (1, 0)),
+        # Vertical stretch
+        "stretch-left": ((0, 0), (0, 1)),
+        "stretch-center": ((0.5, 0), (0.5, 1)),
+        "stretch-right": ((1, 0), (1, 1)),
+        # Full stretch
+        "stretch-all": ((0, 0), (1, 1)),
+    }
+
+    anchor_min, anchor_max = presets.get(anchor_preset, ((0.5, 0.5), (0.5, 0.5)))
+
+    editor = RectTransformEditorValues(
+        anchor_min_x=anchor_min[0],
+        anchor_min_y=anchor_min[1],
+        anchor_max_x=anchor_max[0],
+        anchor_max_y=anchor_max[1],
+        pivot_x=pivot[0],
+        pivot_y=pivot[1],
+        pos_z=pos_z,
+    )
+
+    # Set values based on stretch mode
+    if editor.is_stretch_horizontal:
+        editor.left = left
+        editor.right = right
+    else:
+        editor.pos_x = pos_x
+        editor.width = width
+
+    if editor.is_stretch_vertical:
+        editor.top = top
+        editor.bottom = bottom
+    else:
+        editor.pos_y = pos_y
+        editor.height = height
+
+    return editor_to_file_values(editor)
+
 # Reverse mapping: class name -> class ID
 CLASS_NAME_TO_ID = {name: id for id, name in CLASS_IDS.items()}
 
@@ -158,6 +434,8 @@ def _export_component(obj: UnityYAMLObject, content: dict[str, Any]) -> dict[str
     # Type-specific export
     if obj.class_id == 4:  # Transform
         result.update(_export_transform(content))
+    elif obj.class_id == 224:  # RectTransform
+        result.update(_export_rect_transform(content))
     elif obj.class_id == 114:  # MonoBehaviour
         result.update(_export_monobehaviour(content))
     elif obj.class_id == 1001:  # PrefabInstance
@@ -194,6 +472,69 @@ def _export_transform(content: dict[str, Any]) -> dict[str, Any]:
             for c in children
             if isinstance(c, dict) and c.get("fileID", 0) != 0
         ]
+
+    return result
+
+
+def _export_rect_transform(content: dict[str, Any]) -> dict[str, Any]:
+    """Export RectTransform-specific fields.
+
+    Exports both the raw file values and the computed editor values
+    for easier manipulation by LLMs.
+    """
+    # Start with Transform fields
+    result = _export_transform(content)
+
+    # Extract RectTransform-specific fields
+    anchor_min = content.get("m_AnchorMin", {"x": 0.5, "y": 0.5})
+    anchor_max = content.get("m_AnchorMax", {"x": 0.5, "y": 0.5})
+    anchored_position = content.get("m_AnchoredPosition", {"x": 0, "y": 0})
+    size_delta = content.get("m_SizeDelta", {"x": 100, "y": 100})
+    pivot = content.get("m_Pivot", {"x": 0.5, "y": 0.5})
+    local_position = content.get("m_LocalPosition", {"x": 0, "y": 0, "z": 0})
+
+    # Export raw file values (what's stored in the file)
+    result["rectTransform"] = {
+        "anchorMin": {"x": float(anchor_min.get("x", 0.5)), "y": float(anchor_min.get("y", 0.5))},
+        "anchorMax": {"x": float(anchor_max.get("x", 0.5)), "y": float(anchor_max.get("y", 0.5))},
+        "anchoredPosition": {"x": float(anchored_position.get("x", 0)), "y": float(anchored_position.get("y", 0))},
+        "sizeDelta": {"x": float(size_delta.get("x", 100)), "y": float(size_delta.get("y", 100))},
+        "pivot": {"x": float(pivot.get("x", 0.5)), "y": float(pivot.get("y", 0.5))},
+    }
+
+    # Convert to editor values for easier understanding
+    file_vals = RectTransformFileValues(
+        anchor_min=anchor_min,
+        anchor_max=anchor_max,
+        anchored_position=anchored_position,
+        size_delta=size_delta,
+        pivot=pivot,
+        local_position_z=float(local_position.get("z", 0)),
+    )
+    editor_vals = file_to_editor_values(file_vals)
+
+    # Export editor values (what you see in Unity Inspector)
+    result["editorValues"] = {
+        "anchorMin": {"x": editor_vals.anchor_min_x, "y": editor_vals.anchor_min_y},
+        "anchorMax": {"x": editor_vals.anchor_max_x, "y": editor_vals.anchor_max_y},
+        "pivot": {"x": editor_vals.pivot_x, "y": editor_vals.pivot_y},
+        "posZ": editor_vals.pos_z,
+    }
+
+    # Add mode-specific values
+    if editor_vals.is_stretch_horizontal:
+        result["editorValues"]["left"] = editor_vals.left
+        result["editorValues"]["right"] = editor_vals.right
+    else:
+        result["editorValues"]["posX"] = editor_vals.pos_x
+        result["editorValues"]["width"] = editor_vals.width
+
+    if editor_vals.is_stretch_vertical:
+        result["editorValues"]["top"] = editor_vals.top
+        result["editorValues"]["bottom"] = editor_vals.bottom
+    else:
+        result["editorValues"]["posY"] = editor_vals.pos_y
+        result["editorValues"]["height"] = editor_vals.height
 
     return result
 
@@ -335,6 +676,11 @@ def _get_structured_fields_for_class(class_id: int) -> set[str]:
     """Get the set of structured fields for a class ID."""
     if class_id == 4:  # Transform
         return {"m_LocalPosition", "m_LocalRotation", "m_LocalScale", "m_Children", "m_Father", "m_GameObject"}
+    elif class_id == 224:  # RectTransform
+        return {
+            "m_LocalPosition", "m_LocalRotation", "m_LocalScale", "m_Children", "m_Father", "m_GameObject",
+            "m_AnchorMin", "m_AnchorMax", "m_AnchoredPosition", "m_SizeDelta", "m_Pivot"
+        }
     elif class_id == 114:  # MonoBehaviour
         return {"m_Script", "m_Enabled", "m_GameObject"}
     elif class_id == 1001:  # PrefabInstance
@@ -564,19 +910,73 @@ def _import_transform(
 def _import_rect_transform(
     data: dict[str, Any], raw_fields: dict[str, Any]
 ) -> dict[str, Any]:
-    """Import RectTransform-specific fields (extends Transform)."""
+    """Import RectTransform-specific fields (extends Transform).
+
+    Supports three ways to specify RectTransform values:
+    1. From editorValues (what you see in Unity Inspector - recommended for LLMs)
+    2. From rectTransform (raw file values)
+    3. From raw_fields (fallback for round-trip)
+    """
     # Start with Transform fields
     content = _import_transform(data, raw_fields)
 
-    # RectTransform-specific fields from raw_fields or defaults
-    rect_fields = [
-        "m_AnchorMin", "m_AnchorMax", "m_AnchoredPosition",
-        "m_SizeDelta", "m_Pivot"
-    ]
+    # Priority 1: Import from editorValues (easiest for LLMs)
+    if "editorValues" in data:
+        editor = data["editorValues"]
 
-    for field in rect_fields:
-        if field in raw_fields:
-            content[field] = raw_fields[field]
+        # Build editor values object
+        editor_vals = RectTransformEditorValues(
+            anchor_min_x=editor.get("anchorMin", {}).get("x", 0.5),
+            anchor_min_y=editor.get("anchorMin", {}).get("y", 0.5),
+            anchor_max_x=editor.get("anchorMax", {}).get("x", 0.5),
+            anchor_max_y=editor.get("anchorMax", {}).get("y", 0.5),
+            pivot_x=editor.get("pivot", {}).get("x", 0.5),
+            pivot_y=editor.get("pivot", {}).get("y", 0.5),
+            pos_z=editor.get("posZ", 0),
+            left=editor.get("left"),
+            right=editor.get("right"),
+            top=editor.get("top"),
+            bottom=editor.get("bottom"),
+            pos_x=editor.get("posX"),
+            pos_y=editor.get("posY"),
+            width=editor.get("width"),
+            height=editor.get("height"),
+        )
+
+        # Convert to file values
+        file_vals = editor_to_file_values(editor_vals)
+
+        content["m_AnchorMin"] = file_vals.anchor_min
+        content["m_AnchorMax"] = file_vals.anchor_max
+        content["m_AnchoredPosition"] = file_vals.anchored_position
+        content["m_SizeDelta"] = file_vals.size_delta
+        content["m_Pivot"] = file_vals.pivot
+        content["m_LocalPosition"]["z"] = file_vals.local_position_z
+
+    # Priority 2: Import from rectTransform (raw file values)
+    elif "rectTransform" in data:
+        rt = data["rectTransform"]
+        content["m_AnchorMin"] = rt.get("anchorMin", {"x": 0.5, "y": 0.5})
+        content["m_AnchorMax"] = rt.get("anchorMax", {"x": 0.5, "y": 0.5})
+        content["m_AnchoredPosition"] = rt.get("anchoredPosition", {"x": 0, "y": 0})
+        content["m_SizeDelta"] = rt.get("sizeDelta", {"x": 100, "y": 100})
+        content["m_Pivot"] = rt.get("pivot", {"x": 0.5, "y": 0.5})
+
+    # Priority 3: Fallback to raw_fields
+    else:
+        rect_fields = [
+            ("m_AnchorMin", {"x": 0.5, "y": 0.5}),
+            ("m_AnchorMax", {"x": 0.5, "y": 0.5}),
+            ("m_AnchoredPosition", {"x": 0, "y": 0}),
+            ("m_SizeDelta", {"x": 100, "y": 100}),
+            ("m_Pivot", {"x": 0.5, "y": 0.5}),
+        ]
+
+        for field, default in rect_fields:
+            if field in raw_fields:
+                content[field] = raw_fields[field]
+            elif field not in content:
+                content[field] = default
 
     return content
 

@@ -8,7 +8,9 @@ Handles Unity's custom YAML 1.1 dialect with:
 
 from __future__ import annotations
 
+import random
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -128,6 +130,46 @@ class UnityYAMLDocument:
     def get_prefab_instances(self) -> list[UnityYAMLObject]:
         """Get all PrefabInstance objects."""
         return self.get_by_class_id(1001)
+
+    def get_rect_transforms(self) -> list[UnityYAMLObject]:
+        """Get all RectTransform objects."""
+        return self.get_by_class_id(224)
+
+    def get_all_file_ids(self) -> set[int]:
+        """Get all fileIDs in this document."""
+        return {obj.file_id for obj in self.objects}
+
+    def add_object(self, obj: UnityYAMLObject) -> None:
+        """Add a new object to the document.
+
+        Args:
+            obj: The UnityYAMLObject to add
+        """
+        self.objects.append(obj)
+
+    def remove_object(self, file_id: int) -> bool:
+        """Remove an object by its fileID.
+
+        Args:
+            file_id: The fileID of the object to remove
+
+        Returns:
+            True if removed, False if not found
+        """
+        for i, obj in enumerate(self.objects):
+            if obj.file_id == file_id:
+                self.objects.pop(i)
+                return True
+        return False
+
+    def generate_unique_file_id(self) -> int:
+        """Generate a unique fileID for this document.
+
+        Returns:
+            A fileID that doesn't conflict with existing objects
+        """
+        existing = self.get_all_file_ids()
+        return generate_file_id(existing)
 
     @classmethod
     def load(
@@ -395,3 +437,246 @@ def create_file_reference(
     if ref_type is not None:
         ref["type"] = ref_type
     return ref
+
+
+# Global counter for fileID generation (ensures uniqueness within a session)
+_file_id_counter = 0
+
+
+def generate_file_id(existing_ids: set[int] | None = None) -> int:
+    """Generate a unique fileID for a new Unity object.
+
+    Unity uses large integers for fileIDs. This function generates IDs
+    that are unique and follow Unity's conventions.
+
+    Args:
+        existing_ids: Optional set of existing fileIDs to avoid collisions
+
+    Returns:
+        A unique fileID (large positive integer)
+    """
+    global _file_id_counter
+    _file_id_counter += 1
+
+    # Generate a unique ID based on timestamp + counter + random
+    # Unity typically uses large numbers (10+ digits)
+    timestamp_part = int(time.time() * 1000) % 10000000000
+    random_part = random.randint(1000000, 9999999)
+    file_id = timestamp_part * 10000000 + random_part + _file_id_counter
+
+    # Ensure uniqueness if existing_ids provided
+    if existing_ids:
+        while file_id in existing_ids:
+            _file_id_counter += 1
+            random_part = random.randint(1000000, 9999999)
+            file_id = timestamp_part * 10000000 + random_part + _file_id_counter
+
+    return file_id
+
+
+def create_game_object(
+    name: str,
+    file_id: int | None = None,
+    layer: int = 0,
+    tag: str = "Untagged",
+    is_active: bool = True,
+    components: list[int] | None = None,
+) -> UnityYAMLObject:
+    """Create a new GameObject object.
+
+    Args:
+        name: Name of the GameObject
+        file_id: Optional fileID (generated if not provided)
+        layer: Layer number (default: 0)
+        tag: Tag string (default: "Untagged")
+        is_active: Whether the object is active (default: True)
+        components: List of component fileIDs
+
+    Returns:
+        UnityYAMLObject representing the GameObject
+    """
+    if file_id is None:
+        file_id = generate_file_id()
+
+    content = {
+        "m_ObjectHideFlags": 0,
+        "m_CorrespondingSourceObject": {"fileID": 0},
+        "m_PrefabInstance": {"fileID": 0},
+        "m_PrefabAsset": {"fileID": 0},
+        "serializedVersion": 6,
+        "m_Component": [{"component": {"fileID": c}} for c in (components or [])],
+        "m_Layer": layer,
+        "m_Name": name,
+        "m_TagString": tag,
+        "m_Icon": {"fileID": 0},
+        "m_NavMeshLayer": 0,
+        "m_StaticEditorFlags": 0,
+        "m_IsActive": 1 if is_active else 0,
+    }
+
+    return UnityYAMLObject(
+        class_id=1,
+        file_id=file_id,
+        data={"GameObject": content},
+        stripped=False,
+    )
+
+
+def create_transform(
+    game_object_id: int,
+    file_id: int | None = None,
+    position: dict[str, float] | None = None,
+    rotation: dict[str, float] | None = None,
+    scale: dict[str, float] | None = None,
+    parent_id: int = 0,
+    children_ids: list[int] | None = None,
+) -> UnityYAMLObject:
+    """Create a new Transform component.
+
+    Args:
+        game_object_id: fileID of the parent GameObject
+        file_id: Optional fileID (generated if not provided)
+        position: Local position {x, y, z} (default: origin)
+        rotation: Local rotation quaternion {x, y, z, w} (default: identity)
+        scale: Local scale {x, y, z} (default: 1,1,1)
+        parent_id: fileID of parent Transform (0 for root)
+        children_ids: List of children Transform fileIDs
+
+    Returns:
+        UnityYAMLObject representing the Transform
+    """
+    if file_id is None:
+        file_id = generate_file_id()
+
+    content = {
+        "m_ObjectHideFlags": 0,
+        "m_CorrespondingSourceObject": {"fileID": 0},
+        "m_PrefabInstance": {"fileID": 0},
+        "m_PrefabAsset": {"fileID": 0},
+        "m_GameObject": {"fileID": game_object_id},
+        "serializedVersion": 2,
+        "m_LocalRotation": rotation or {"x": 0, "y": 0, "z": 0, "w": 1},
+        "m_LocalPosition": position or {"x": 0, "y": 0, "z": 0},
+        "m_LocalScale": scale or {"x": 1, "y": 1, "z": 1},
+        "m_ConstrainProportionsScale": 0,
+        "m_Children": [{"fileID": c} for c in (children_ids or [])],
+        "m_Father": {"fileID": parent_id},
+        "m_LocalEulerAnglesHint": {"x": 0, "y": 0, "z": 0},
+    }
+
+    return UnityYAMLObject(
+        class_id=4,
+        file_id=file_id,
+        data={"Transform": content},
+        stripped=False,
+    )
+
+
+def create_rect_transform(
+    game_object_id: int,
+    file_id: int | None = None,
+    position: dict[str, float] | None = None,
+    rotation: dict[str, float] | None = None,
+    scale: dict[str, float] | None = None,
+    parent_id: int = 0,
+    children_ids: list[int] | None = None,
+    anchor_min: dict[str, float] | None = None,
+    anchor_max: dict[str, float] | None = None,
+    anchored_position: dict[str, float] | None = None,
+    size_delta: dict[str, float] | None = None,
+    pivot: dict[str, float] | None = None,
+) -> UnityYAMLObject:
+    """Create a new RectTransform component for UI elements.
+
+    Args:
+        game_object_id: fileID of the parent GameObject
+        file_id: Optional fileID (generated if not provided)
+        position: Local position {x, y, z} (default: origin)
+        rotation: Local rotation quaternion {x, y, z, w} (default: identity)
+        scale: Local scale {x, y, z} (default: 1,1,1)
+        parent_id: fileID of parent RectTransform (0 for root)
+        children_ids: List of children RectTransform fileIDs
+        anchor_min: Anchor min point {x, y} (default: {0.5, 0.5})
+        anchor_max: Anchor max point {x, y} (default: {0.5, 0.5})
+        anchored_position: Position relative to anchors {x, y} (default: origin)
+        size_delta: Size delta from anchored rect {x, y} (default: {100, 100})
+        pivot: Pivot point {x, y} (default: center {0.5, 0.5})
+
+    Returns:
+        UnityYAMLObject representing the RectTransform
+    """
+    if file_id is None:
+        file_id = generate_file_id()
+
+    content = {
+        "m_ObjectHideFlags": 0,
+        "m_CorrespondingSourceObject": {"fileID": 0},
+        "m_PrefabInstance": {"fileID": 0},
+        "m_PrefabAsset": {"fileID": 0},
+        "m_GameObject": {"fileID": game_object_id},
+        "m_LocalRotation": rotation or {"x": 0, "y": 0, "z": 0, "w": 1},
+        "m_LocalPosition": position or {"x": 0, "y": 0, "z": 0},
+        "m_LocalScale": scale or {"x": 1, "y": 1, "z": 1},
+        "m_ConstrainProportionsScale": 0,
+        "m_Children": [{"fileID": c} for c in (children_ids or [])],
+        "m_Father": {"fileID": parent_id},
+        "m_LocalEulerAnglesHint": {"x": 0, "y": 0, "z": 0},
+        "m_AnchorMin": anchor_min or {"x": 0.5, "y": 0.5},
+        "m_AnchorMax": anchor_max or {"x": 0.5, "y": 0.5},
+        "m_AnchoredPosition": anchored_position or {"x": 0, "y": 0},
+        "m_SizeDelta": size_delta or {"x": 100, "y": 100},
+        "m_Pivot": pivot or {"x": 0.5, "y": 0.5},
+    }
+
+    return UnityYAMLObject(
+        class_id=224,
+        file_id=file_id,
+        data={"RectTransform": content},
+        stripped=False,
+    )
+
+
+def create_mono_behaviour(
+    game_object_id: int,
+    script_guid: str,
+    file_id: int | None = None,
+    enabled: bool = True,
+    properties: dict[str, Any] | None = None,
+) -> UnityYAMLObject:
+    """Create a new MonoBehaviour component.
+
+    Args:
+        game_object_id: fileID of the parent GameObject
+        script_guid: GUID of the script asset
+        file_id: Optional fileID (generated if not provided)
+        enabled: Whether the component is enabled (default: True)
+        properties: Custom serialized fields
+
+    Returns:
+        UnityYAMLObject representing the MonoBehaviour
+    """
+    if file_id is None:
+        file_id = generate_file_id()
+
+    content = {
+        "m_ObjectHideFlags": 0,
+        "m_CorrespondingSourceObject": {"fileID": 0},
+        "m_PrefabInstance": {"fileID": 0},
+        "m_PrefabAsset": {"fileID": 0},
+        "m_GameObject": {"fileID": game_object_id},
+        "m_Enabled": 1 if enabled else 0,
+        "m_EditorHideFlags": 0,
+        "m_Script": {"fileID": 11500000, "guid": script_guid, "type": 3},
+        "m_EditorClassIdentifier": "",
+    }
+
+    # Add custom properties
+    if properties:
+        content.update(properties)
+
+    return UnityYAMLObject(
+        class_id=114,
+        file_id=file_id,
+        data={"MonoBehaviour": content},
+        stripped=False,
+    )

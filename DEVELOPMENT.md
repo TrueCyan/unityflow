@@ -71,6 +71,84 @@ prefab-tool import player.json -o Player.prefab
 }
 ```
 
+#### RectTransform 지원
+UI 요소의 RectTransform은 에디터와 파일 형식이 다릅니다:
+
+**JSON Export 시 두 가지 형식 제공:**
+```json
+{
+  "type": "RectTransform",
+  "rectTransform": {
+    "anchorMin": {"x": 0, "y": 0},
+    "anchorMax": {"x": 1, "y": 1},
+    "anchoredPosition": {"x": 0, "y": 0},
+    "sizeDelta": {"x": -20, "y": -20},
+    "pivot": {"x": 0.5, "y": 0.5}
+  },
+  "editorValues": {
+    "anchorMin": {"x": 0, "y": 0},
+    "anchorMax": {"x": 1, "y": 1},
+    "pivot": {"x": 0.5, "y": 0.5},
+    "left": 10, "right": 10, "top": 10, "bottom": 10
+  }
+}
+```
+
+**Import 시 `editorValues`로 직관적 설정 가능:**
+```json
+"editorValues": {
+  "anchorMin": {"x": 0, "y": 0},
+  "anchorMax": {"x": 1, "y": 1},
+  "left": 20, "right": 20, "top": 10, "bottom": 10
+}
+```
+
+#### 프리팹 프로그래매틱 생성 (`parser.py`)
+LLM이 새 프리팹을 처음부터 생성할 수 있습니다:
+
+```python
+from prefab_tool.parser import (
+    UnityYAMLDocument,
+    create_game_object,
+    create_rect_transform,
+    create_mono_behaviour,
+)
+
+# 새 문서 생성
+doc = UnityYAMLDocument()
+
+# fileID 자동 생성
+go_id = doc.generate_unique_file_id()
+rt_id = doc.generate_unique_file_id()
+
+# GameObject 생성
+go = create_game_object("MyButton", file_id=go_id, components=[rt_id])
+
+# RectTransform 생성
+rt = create_rect_transform(
+    game_object_id=go_id,
+    file_id=rt_id,
+    anchor_min={"x": 0.5, "y": 0.5},
+    anchor_max={"x": 0.5, "y": 0.5},
+    anchored_position={"x": 100, "y": 50},
+    size_delta={"x": 200, "y": 60},
+)
+
+# 문서에 추가
+doc.add_object(go)
+doc.add_object(rt)
+
+# 저장
+doc.save("MyButton.prefab")
+```
+
+**사용 가능한 생성 함수:**
+- `create_game_object(name, layer, tag, components, ...)`
+- `create_transform(game_object_id, position, rotation, scale, parent_id, ...)`
+- `create_rect_transform(game_object_id, anchor_min, anchor_max, pivot, ...)`
+- `create_mono_behaviour(game_object_id, script_guid, properties, ...)`
+- `generate_file_id(existing_ids)` - 고유 fileID 생성
+
 #### 경로 기반 쿼리 (`query.py`)
 ```bash
 prefab-tool query Player.prefab --path "gameObjects/*/name"
@@ -256,6 +334,57 @@ for dep in report.get_binary_dependencies():
 
 # Git 연동
 changed = get_changed_files(staged_only=True)
+```
+
+### 프리팹 생성 API
+
+```python
+from prefab_tool.parser import (
+    UnityYAMLDocument,
+    create_game_object,
+    create_transform,
+    create_rect_transform,
+    create_mono_behaviour,
+    generate_file_id,
+)
+from prefab_tool.formats import (
+    export_to_json,
+    import_from_json,
+    RectTransformEditorValues,
+    editor_to_file_values,
+    file_to_editor_values,
+    create_rect_transform_file_values,
+)
+
+# 프리팹 생성
+doc = UnityYAMLDocument()
+go_id = doc.generate_unique_file_id()
+rt_id = doc.generate_unique_file_id()
+mb_id = doc.generate_unique_file_id()
+
+go = create_game_object("UIPanel", file_id=go_id, components=[rt_id, mb_id])
+rt = create_rect_transform(go_id, file_id=rt_id, anchor_min={"x": 0, "y": 0}, anchor_max={"x": 1, "y": 1})
+mb = create_mono_behaviour(go_id, "abcd1234", file_id=mb_id, properties={"speed": 10})
+
+doc.add_object(go)
+doc.add_object(rt)
+doc.add_object(mb)
+doc.save("UIPanel.prefab")
+
+# RectTransform 에디터 값 변환
+editor_vals = RectTransformEditorValues(
+    anchor_min_x=0, anchor_min_y=0,
+    anchor_max_x=1, anchor_max_y=1,
+    left=10, right=10, top=10, bottom=10,
+)
+file_vals = editor_to_file_values(editor_vals)
+# file_vals.anchored_position, file_vals.size_delta 등 사용
+
+# 앵커 프리셋으로 간편 생성
+file_vals = create_rect_transform_file_values(
+    anchor_preset="stretch-all",
+    left=20, right=20, top=10, bottom=10,
+)
 ```
 
 ---
