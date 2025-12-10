@@ -23,6 +23,13 @@ from prefab_tool.git_utils import (
 )
 from prefab_tool.normalizer import UnityPrefabNormalizer
 from prefab_tool.validator import PrefabValidator
+from prefab_tool.asset_tracker import (
+    analyze_dependencies,
+    find_references_to_asset,
+    find_unity_project_root,
+    build_guid_index,
+    BINARY_ASSET_EXTENSIONS,
+)
 
 
 def _normalize_single_file(args: tuple) -> tuple[Path, bool, str]:
@@ -1161,6 +1168,313 @@ def stats(
             for name, count in sorted(stats["class_names"].items(), key=lambda x: -x[1]):
                 click.echo(f"    {name}: {count}")
             click.echo()
+
+
+@main.command(name="deps")
+@click.argument("files", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, path_type=Path),
+    help="Unity project root (auto-detected if not specified)",
+)
+@click.option(
+    "--binary-only",
+    is_flag=True,
+    help="Show only binary asset dependencies (textures, meshes, etc.)",
+)
+@click.option(
+    "--unresolved-only",
+    is_flag=True,
+    help="Show only unresolved dependencies (missing assets)",
+)
+@click.option(
+    "--type",
+    "asset_type",
+    type=str,
+    help="Filter by asset type (Texture, Model, Audio, Script, etc.)",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+@click.option(
+    "--include-packages",
+    is_flag=True,
+    help="Include Packages folder in GUID resolution",
+)
+def deps(
+    files: tuple[Path, ...],
+    project_root: Path | None,
+    binary_only: bool,
+    unresolved_only: bool,
+    asset_type: str | None,
+    output_format: str,
+    include_packages: bool,
+) -> None:
+    """Show asset dependencies for Unity YAML files.
+
+    Analyzes prefab, scene, or asset files and lists all referenced
+    external assets (textures, meshes, scripts, other prefabs, etc.).
+
+    Dependencies are resolved using the project's .meta files to map
+    GUIDs to actual file paths.
+
+    Examples:
+
+        # Show all dependencies
+        prefab-tool deps Player.prefab
+
+        # Show only binary assets (textures, meshes, audio)
+        prefab-tool deps Player.prefab --binary-only
+
+        # Show only unresolved (missing) dependencies
+        prefab-tool deps Player.prefab --unresolved-only
+
+        # Filter by type
+        prefab-tool deps Player.prefab --type Texture
+
+        # Output as JSON
+        prefab-tool deps Player.prefab --format json
+
+        # Analyze multiple files
+        prefab-tool deps *.prefab
+    """
+    import json
+
+    # Analyze dependencies
+    try:
+        report = analyze_dependencies(
+            files=list(files),
+            project_root=project_root,
+            include_packages=include_packages,
+        )
+    except Exception as e:
+        click.echo(f"Error: Failed to analyze dependencies: {e}", err=True)
+        sys.exit(1)
+
+    # Apply filters
+    deps_to_show = report.dependencies
+
+    if binary_only:
+        deps_to_show = [d for d in deps_to_show if d.is_binary]
+    if unresolved_only:
+        deps_to_show = [d for d in deps_to_show if not d.is_resolved]
+    if asset_type:
+        deps_to_show = [d for d in deps_to_show if d.asset_type and d.asset_type.lower() == asset_type.lower()]
+
+    # Output
+    if output_format == "json":
+        output_data = report.to_dict()
+        if binary_only or unresolved_only or asset_type:
+            # Filter the JSON output too
+            output_data["dependencies"] = [
+                d for d in output_data["dependencies"]
+                if (not binary_only or d.get("binary"))
+                and (not unresolved_only or not d.get("resolved"))
+                and (not asset_type or (d.get("type") or "").lower() == asset_type.lower())
+            ]
+        click.echo(json.dumps(output_data, indent=2))
+    else:
+        # Text output
+        click.echo(f"Dependencies for: {', '.join(str(f) for f in files)}")
+        click.echo()
+
+        if report.guid_index:
+            click.echo(f"Project root: {report.guid_index.project_root}")
+            click.echo(f"GUID index: {len(report.guid_index)} assets indexed")
+        else:
+            click.echo("Warning: Project root not found, dependencies cannot be resolved")
+        click.echo()
+
+        click.echo(f"Summary:")
+        click.echo(f"  Total dependencies: {report.total_dependencies}")
+        click.echo(f"  Resolved: {report.resolved_count}")
+        click.echo(f"  Unresolved: {report.unresolved_count}")
+        click.echo(f"  Binary assets: {report.binary_count}")
+        click.echo()
+
+        if not deps_to_show:
+            if binary_only or unresolved_only or asset_type:
+                click.echo("No dependencies match the specified filters.")
+            else:
+                click.echo("No external dependencies found.")
+            return
+
+        click.echo("Dependencies:")
+        for dep in deps_to_show:
+            if dep.is_resolved:
+                status = "✓" if dep.is_binary else "○"
+                path_str = str(dep.path)
+                type_str = f" [{dep.asset_type}]" if dep.asset_type else ""
+                click.echo(f"  {status} {path_str}{type_str}")
+            else:
+                click.echo(f"  ✗ {dep.guid} [UNRESOLVED]")
+
+        # Show type breakdown
+        if deps_to_show and not asset_type:
+            click.echo()
+            click.echo("By type:")
+            type_counts: dict[str, int] = {}
+            for dep in deps_to_show:
+                t = dep.asset_type or "Unknown"
+                type_counts[t] = type_counts.get(t, 0) + 1
+            for t, count in sorted(type_counts.items(), key=lambda x: -x[1]):
+                click.echo(f"  {t}: {count}")
+
+
+@main.command(name="find-refs")
+@click.argument("asset", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--search-path",
+    type=click.Path(exists=True, path_type=Path),
+    multiple=True,
+    help="Directory to search in (can be specified multiple times)",
+)
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, path_type=Path),
+    help="Unity project root (auto-detected if not specified)",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+@click.option(
+    "--progress",
+    is_flag=True,
+    help="Show progress bar",
+)
+def find_refs(
+    asset: Path,
+    search_path: tuple[Path, ...],
+    project_root: Path | None,
+    output_format: str,
+    progress: bool,
+) -> None:
+    """Find files that reference a specific asset.
+
+    Searches Unity YAML files for references to the specified asset
+    using its GUID from the .meta file.
+
+    Examples:
+
+        # Find all files referencing a texture
+        prefab-tool find-refs Textures/player.png
+
+        # Search in specific directories
+        prefab-tool find-refs Textures/player.png --search-path Assets/Prefabs
+
+        # Output as JSON
+        prefab-tool find-refs Textures/player.png --format json
+
+        # Show progress
+        prefab-tool find-refs Textures/player.png --progress
+    """
+    import json
+
+    # Determine search paths
+    search_paths = list(search_path) if search_path else []
+
+    # Find project root if not specified
+    if project_root is None:
+        project_root = find_unity_project_root(asset)
+
+    # If no search paths specified, search Assets folder
+    if not search_paths and project_root:
+        assets_dir = project_root / "Assets"
+        if assets_dir.is_dir():
+            search_paths.append(assets_dir)
+
+    if not search_paths:
+        click.echo("Error: No search paths specified and project root not found", err=True)
+        click.echo("Use --search-path to specify directories to search", err=True)
+        sys.exit(1)
+
+    # Build GUID index for resolution
+    guid_index = None
+    if project_root:
+        guid_index = build_guid_index(project_root)
+
+    # Set up progress callback
+    progress_callback = None
+    progress_bar = None
+    if progress:
+        def progress_callback(current: int, total: int) -> None:
+            nonlocal progress_bar
+            if progress_bar is None:
+                progress_bar = click.progressbar(
+                    length=total,
+                    label="Searching",
+                    show_eta=True,
+                    show_percent=True,
+                )
+                progress_bar.__enter__()
+            progress_bar.update(1)
+
+    try:
+        results = find_references_to_asset(
+            asset_path=asset,
+            search_paths=search_paths,
+            guid_index=guid_index,
+            progress_callback=progress_callback,
+        )
+    except Exception as e:
+        click.echo(f"Error: Failed to search for references: {e}", err=True)
+        sys.exit(1)
+    finally:
+        if progress_bar:
+            progress_bar.__exit__(None, None, None)
+
+    # Output
+    if output_format == "json":
+        output_data = {
+            "asset": str(asset),
+            "search_paths": [str(p) for p in search_paths],
+            "reference_count": len(results),
+            "references": [
+                {
+                    "file": str(file_path),
+                    "occurrences": len(refs),
+                    "locations": [
+                        {
+                            "file_id": ref.source_file_id,
+                            "property_path": ref.property_path,
+                        }
+                        for ref in refs
+                    ],
+                }
+                for file_path, refs in results
+            ],
+        }
+        click.echo(json.dumps(output_data, indent=2))
+    else:
+        click.echo(f"References to: {asset}")
+        click.echo()
+
+        if not results:
+            click.echo("No references found.")
+            return
+
+        click.echo(f"Found {len(results)} file(s) with references:")
+        click.echo()
+
+        for file_path, refs in results:
+            # Try to show relative path
+            rel_path = file_path
+            if project_root:
+                try:
+                    rel_path = file_path.relative_to(project_root)
+                except ValueError:
+                    pass
+
+            click.echo(f"  {rel_path}")
+            click.echo(f"    {len(refs)} reference(s)")
 
 
 if __name__ == "__main__":

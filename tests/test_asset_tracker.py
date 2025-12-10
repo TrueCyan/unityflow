@@ -1,0 +1,486 @@
+"""Tests for Unity asset reference tracker."""
+
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from prefab_tool.asset_tracker import (
+    BINARY_ASSET_EXTENSIONS,
+    AssetDependency,
+    AssetReference,
+    DependencyReport,
+    GUIDIndex,
+    analyze_dependencies,
+    build_guid_index,
+    extract_guid_references,
+    find_references_to_asset,
+    find_unity_project_root,
+    get_file_dependencies,
+    _classify_asset_type,
+)
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+class TestAssetReference:
+    """Tests for AssetReference class."""
+
+    def test_create_reference(self):
+        """Test creating an asset reference."""
+        ref = AssetReference(
+            file_id=11500000,
+            guid="abc123def456",
+            ref_type=3,
+        )
+
+        assert ref.file_id == 11500000
+        assert ref.guid == "abc123def456"
+        assert ref.ref_type == 3
+
+    def test_reference_equality(self):
+        """Test reference equality comparison."""
+        ref1 = AssetReference(file_id=100, guid="abc123", ref_type=3)
+        ref2 = AssetReference(file_id=100, guid="abc123", ref_type=2)
+        ref3 = AssetReference(file_id=200, guid="abc123", ref_type=3)
+
+        # Same fileID and guid are equal
+        assert ref1 == ref2
+
+        # Different fileID are not equal
+        assert ref1 != ref3
+
+    def test_reference_hash(self):
+        """Test reference hashing for use in sets/dicts."""
+        ref1 = AssetReference(file_id=100, guid="abc123", ref_type=3)
+        ref2 = AssetReference(file_id=100, guid="abc123", ref_type=2)
+
+        # Same hash for equal references
+        assert hash(ref1) == hash(ref2)
+
+        # Can be used in sets
+        refs = {ref1, ref2}
+        assert len(refs) == 1
+
+
+class TestAssetDependency:
+    """Tests for AssetDependency class."""
+
+    def test_resolved_dependency(self):
+        """Test a resolved dependency."""
+        dep = AssetDependency(
+            guid="abc123",
+            path=Path("Assets/Textures/player.png"),
+            asset_type="Texture",
+        )
+
+        assert dep.is_resolved
+        assert dep.is_binary
+        assert dep.guid == "abc123"
+
+    def test_unresolved_dependency(self):
+        """Test an unresolved dependency."""
+        dep = AssetDependency(
+            guid="xyz789",
+            path=None,
+        )
+
+        assert not dep.is_resolved
+        assert not dep.is_binary
+
+    def test_non_binary_dependency(self):
+        """Test a non-binary asset dependency."""
+        dep = AssetDependency(
+            guid="abc123",
+            path=Path("Assets/Scripts/Player.cs"),
+            asset_type="Script",
+        )
+
+        assert dep.is_resolved
+        assert not dep.is_binary
+
+
+class TestGUIDIndex:
+    """Tests for GUIDIndex class."""
+
+    def test_empty_index(self):
+        """Test empty GUID index."""
+        index = GUIDIndex()
+
+        assert len(index) == 0
+        assert index.get_path("abc123") is None
+
+    def test_add_and_lookup(self):
+        """Test adding entries and looking them up."""
+        index = GUIDIndex()
+        path = Path("Assets/Textures/player.png")
+
+        index.guid_to_path["abc123"] = path
+        index.path_to_guid[path] = "abc123"
+
+        assert len(index) == 1
+        assert index.get_path("abc123") == path
+        assert index.get_guid(path) == "abc123"
+
+
+class TestExtractGUIDReferences:
+    """Tests for extract_guid_references function."""
+
+    def test_extract_simple_reference(self):
+        """Test extracting a simple GUID reference."""
+        data = {
+            "m_Script": {"fileID": 11500000, "guid": "abc123def456", "type": 3}
+        }
+
+        refs = list(extract_guid_references(data))
+
+        assert len(refs) == 1
+        assert refs[0].guid == "abc123def456"
+        assert refs[0].file_id == 11500000
+        assert refs[0].ref_type == 3
+
+    def test_extract_nested_references(self):
+        """Test extracting references from nested structures."""
+        data = {
+            "GameObject": {
+                "m_Component": [
+                    {"component": {"fileID": 100000, "guid": "guid1", "type": 2}},
+                    {"component": {"fileID": 200000, "guid": "guid2", "type": 3}},
+                ],
+                "m_Material": {"fileID": 300000, "guid": "guid3", "type": 2},
+            }
+        }
+
+        refs = list(extract_guid_references(data))
+        guids = {ref.guid for ref in refs}
+
+        assert len(refs) == 3
+        assert guids == {"guid1", "guid2", "guid3"}
+
+    def test_extract_from_modifications(self):
+        """Test extracting references from m_Modifications."""
+        data = {
+            "PrefabInstance": {
+                "m_Modification": {
+                    "m_Modifications": [
+                        {
+                            "target": {"fileID": 400000, "guid": "abc123def456", "type": 3},
+                            "propertyPath": "m_LocalPosition.x",
+                            "value": 5,
+                        }
+                    ],
+                    "m_SourcePrefab": {"fileID": 100100000, "guid": "xyz789", "type": 3},
+                }
+            }
+        }
+
+        refs = list(extract_guid_references(data))
+        guids = {ref.guid for ref in refs}
+
+        assert len(refs) == 2
+        assert "abc123def456" in guids
+        assert "xyz789" in guids
+
+    def test_skip_internal_references(self):
+        """Test that internal references (no guid) are skipped."""
+        data = {
+            "Transform": {
+                "m_Father": {"fileID": 400000},  # Internal reference
+                "m_Children": [
+                    {"fileID": 400001},
+                    {"fileID": 400002},
+                ],
+            }
+        }
+
+        refs = list(extract_guid_references(data))
+
+        assert len(refs) == 0
+
+    def test_empty_data(self):
+        """Test with empty data."""
+        refs = list(extract_guid_references({}))
+        assert len(refs) == 0
+
+        refs = list(extract_guid_references([]))
+        assert len(refs) == 0
+
+
+class TestGetFileDependencies:
+    """Tests for get_file_dependencies function."""
+
+    def test_get_dependencies_from_prefab(self):
+        """Test getting dependencies from a prefab with modifications."""
+        deps = get_file_dependencies(FIXTURES_DIR / "prefab_with_modifications.prefab")
+
+        assert len(deps) > 0
+        # The fixture references guid "abc123def456"
+        guids = {d.guid for d in deps}
+        assert "abc123def456" in guids
+
+    def test_basic_prefab_no_external_deps(self):
+        """Test basic prefab has no external dependencies."""
+        deps = get_file_dependencies(FIXTURES_DIR / "basic_prefab.prefab")
+
+        # Basic prefab may have no external references
+        # (only internal fileID references)
+        assert isinstance(deps, list)
+
+
+class TestClassifyAssetType:
+    """Tests for _classify_asset_type function."""
+
+    def test_texture_types(self):
+        """Test texture classification."""
+        assert _classify_asset_type(Path("test.png")) == "Texture"
+        assert _classify_asset_type(Path("test.jpg")) == "Texture"
+        assert _classify_asset_type(Path("test.tga")) == "Texture"
+        assert _classify_asset_type(Path("test.psd")) == "Texture"
+
+    def test_model_types(self):
+        """Test model classification."""
+        assert _classify_asset_type(Path("test.fbx")) == "Model"
+        assert _classify_asset_type(Path("test.obj")) == "Model"
+        assert _classify_asset_type(Path("test.blend")) == "Model"
+
+    def test_audio_types(self):
+        """Test audio classification."""
+        assert _classify_asset_type(Path("test.wav")) == "Audio"
+        assert _classify_asset_type(Path("test.mp3")) == "Audio"
+        assert _classify_asset_type(Path("test.ogg")) == "Audio"
+
+    def test_script_types(self):
+        """Test script classification."""
+        assert _classify_asset_type(Path("test.cs")) == "Script"
+
+    def test_shader_types(self):
+        """Test shader classification."""
+        assert _classify_asset_type(Path("test.shader")) == "Shader"
+        assert _classify_asset_type(Path("test.cginc")) == "Shader"
+
+    def test_font_types(self):
+        """Test font classification."""
+        assert _classify_asset_type(Path("test.ttf")) == "Font"
+        assert _classify_asset_type(Path("test.otf")) == "Font"
+
+    def test_unknown_type(self):
+        """Test unknown type classification."""
+        assert _classify_asset_type(Path("test.xyz")) == "Unknown"
+
+
+class TestDependencyReport:
+    """Tests for DependencyReport class."""
+
+    def test_empty_report(self):
+        """Test empty dependency report."""
+        report = DependencyReport(
+            source_files=[Path("test.prefab")],
+            dependencies=[],
+        )
+
+        assert report.total_dependencies == 0
+        assert report.resolved_count == 0
+        assert report.unresolved_count == 0
+        assert report.binary_count == 0
+
+    def test_report_with_dependencies(self):
+        """Test report with various dependencies."""
+        deps = [
+            AssetDependency(guid="g1", path=Path("tex.png"), asset_type="Texture"),
+            AssetDependency(guid="g2", path=Path("script.cs"), asset_type="Script"),
+            AssetDependency(guid="g3", path=None),  # Unresolved
+        ]
+
+        report = DependencyReport(
+            source_files=[Path("test.prefab")],
+            dependencies=deps,
+        )
+
+        assert report.total_dependencies == 3
+        assert report.resolved_count == 2
+        assert report.unresolved_count == 1
+        assert report.binary_count == 1
+
+    def test_get_by_type(self):
+        """Test filtering by type."""
+        deps = [
+            AssetDependency(guid="g1", path=Path("tex1.png"), asset_type="Texture"),
+            AssetDependency(guid="g2", path=Path("tex2.png"), asset_type="Texture"),
+            AssetDependency(guid="g3", path=Path("script.cs"), asset_type="Script"),
+        ]
+
+        report = DependencyReport(
+            source_files=[Path("test.prefab")],
+            dependencies=deps,
+        )
+
+        textures = report.get_by_type("Texture")
+        assert len(textures) == 2
+
+        scripts = report.get_by_type("Script")
+        assert len(scripts) == 1
+
+    def test_to_dict(self):
+        """Test conversion to dictionary."""
+        deps = [
+            AssetDependency(guid="g1", path=Path("tex.png"), asset_type="Texture"),
+        ]
+
+        report = DependencyReport(
+            source_files=[Path("test.prefab")],
+            dependencies=deps,
+        )
+
+        data = report.to_dict()
+
+        assert "source_files" in data
+        assert "summary" in data
+        assert "dependencies" in data
+        assert data["summary"]["total"] == 1
+
+
+class TestBuildGUIDIndex:
+    """Tests for build_guid_index function."""
+
+    def test_build_index_with_temp_project(self):
+        """Test building index from a temporary Unity project."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+
+            # Create minimal Unity project structure
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create a test asset and its .meta file
+            (project_root / "Assets" / "test.txt").write_text("test content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            # Build index
+            index = build_guid_index(project_root)
+
+            assert len(index) == 1
+            assert index.get_path("0123456789abcdef0123456789abcdef") is not None
+
+
+class TestFindUnityProjectRoot:
+    """Tests for find_unity_project_root function."""
+
+    def test_find_project_root_from_assets(self):
+        """Test finding project root from Assets folder."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+
+            # Create Unity project structure
+            (project_root / "Assets" / "Prefabs").mkdir(parents=True)
+            (project_root / "ProjectSettings").mkdir()
+
+            # Test from prefab path
+            prefab_path = project_root / "Assets" / "Prefabs" / "test.prefab"
+
+            found_root = find_unity_project_root(prefab_path.parent)
+
+            assert found_root == project_root
+
+    def test_not_in_unity_project(self):
+        """Test when not in a Unity project."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # No Assets folder
+            path = Path(tmpdir)
+
+            found_root = find_unity_project_root(path)
+
+            assert found_root is None
+
+
+class TestAnalyzeDependencies:
+    """Tests for analyze_dependencies function."""
+
+    def test_analyze_single_file(self):
+        """Test analyzing a single file."""
+        report = analyze_dependencies([FIXTURES_DIR / "prefab_with_modifications.prefab"])
+
+        assert len(report.source_files) == 1
+        assert isinstance(report.dependencies, list)
+
+    def test_analyze_multiple_files(self):
+        """Test analyzing multiple files."""
+        files = [
+            FIXTURES_DIR / "basic_prefab.prefab",
+            FIXTURES_DIR / "prefab_with_modifications.prefab",
+        ]
+        report = analyze_dependencies(files)
+
+        assert len(report.source_files) == 2
+
+
+class TestBinaryAssetExtensions:
+    """Tests for BINARY_ASSET_EXTENSIONS constant."""
+
+    def test_contains_common_formats(self):
+        """Test that common binary formats are included."""
+        # Textures
+        assert ".png" in BINARY_ASSET_EXTENSIONS
+        assert ".jpg" in BINARY_ASSET_EXTENSIONS
+        assert ".tga" in BINARY_ASSET_EXTENSIONS
+
+        # Models
+        assert ".fbx" in BINARY_ASSET_EXTENSIONS
+        assert ".obj" in BINARY_ASSET_EXTENSIONS
+
+        # Audio
+        assert ".wav" in BINARY_ASSET_EXTENSIONS
+        assert ".mp3" in BINARY_ASSET_EXTENSIONS
+
+        # Fonts
+        assert ".ttf" in BINARY_ASSET_EXTENSIONS
+
+    def test_does_not_contain_yaml_formats(self):
+        """Test that Unity YAML formats are not in binary extensions."""
+        assert ".prefab" not in BINARY_ASSET_EXTENSIONS
+        assert ".unity" not in BINARY_ASSET_EXTENSIONS
+        assert ".asset" not in BINARY_ASSET_EXTENSIONS
+
+
+class TestFindReferencesToAsset:
+    """Tests for find_references_to_asset function."""
+
+    def test_find_refs_with_temp_setup(self):
+        """Test finding references with temporary setup."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+
+            # Create project structure
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create asset with meta file (GUID must be 32 hex characters)
+            test_guid = "0123456789abcdef0123456789abcdef"
+            asset_path = project_root / "Assets" / "texture.png"
+            asset_path.write_bytes(b"fake png")
+            meta_path = project_root / "Assets" / "texture.png.meta"
+            meta_path.write_text(f"fileFormatVersion: 2\nguid: {test_guid}\n")
+
+            # Create a prefab that references this asset
+            prefab_path = project_root / "Assets" / "test.prefab"
+            prefab_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &100000
+MonoBehaviour:
+  m_Texture: {{fileID: 2800000, guid: {test_guid}, type: 3}}
+"""
+            prefab_path.write_text(prefab_content)
+
+            # Build index
+            guid_index = build_guid_index(project_root)
+
+            # Find references
+            results = find_references_to_asset(
+                asset_path=asset_path,
+                search_paths=[project_root / "Assets"],
+                guid_index=guid_index,
+            )
+
+            assert len(results) == 1
+            assert results[0][0] == prefab_path
