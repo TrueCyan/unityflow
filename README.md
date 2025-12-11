@@ -237,6 +237,10 @@ prefab-tool stats       # 파일 통계 조회
 
 전체 옵션은 `prefab-tool <command> --help`로 확인하세요.
 
+## 향후 계획
+
+- **프로젝트 전체 통계**: `prefab-tool stats --recursive Assets/`
+
 ## 개발
 
 ```bash
@@ -251,12 +255,8 @@ black src/ tests/
 ruff check src/ tests/
 ```
 
-상세한 개발 문서는 [DEVELOPMENT.md](DEVELOPMENT.md)를 참조하세요.
+아키텍처와 API 상세 문서는 [DEVELOPMENT.md](DEVELOPMENT.md)를 참조하세요.
 
 ## 라이선스
 
 MIT License
-
-## 기여
-
-이슈와 풀 리퀘스트를 환영합니다. 자세한 내용은 [DEVELOPMENT.md](DEVELOPMENT.md)를 참조하세요.
