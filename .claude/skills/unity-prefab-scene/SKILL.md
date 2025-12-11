@@ -445,16 +445,48 @@ for obj in doc.objects:
         print(f"Properties: {list(content.keys())}")
 ```
 
-#### 방법 3: 패키지 폴더의 .meta 파일 확인
+#### 방법 3: scan-meta로 패키지 폴더 스캔
 
-Unity 프로젝트의 패키지 폴더에서 직접 확인:
+`prefab-tool scan-meta`로 패키지 폴더의 `.meta` 파일에서 직접 GUID 추출:
 
 ```bash
-# URP 2D Light2D 예시
-cat "Library/PackageCache/com.unity.render-pipelines.universal@*/Runtime/2D/Light2D.cs.meta"
+# URP 패키지의 모든 스크립트 GUID 추출
+prefab-tool scan-meta "Library/PackageCache/com.unity.render-pipelines.universal@*" -r --scripts-only
 
-# TextMeshPro 예시
-cat "Library/PackageCache/com.unity.textmeshpro@*/Scripts/Runtime/TMPro_UGUI_Private.cs.meta"
+# Light 관련 스크립트만 필터링
+prefab-tool scan-meta "Library/PackageCache/com.unity.render-pipelines.universal@*" -r --filter Light
+
+# TextMeshPro 패키지 스캔
+prefab-tool scan-meta "Library/PackageCache/com.unity.textmeshpro@*" -r --scripts-only
+
+# Cinemachine 패키지 스캔
+prefab-tool scan-meta "Library/PackageCache/com.unity.cinemachine@*" -r --scripts-only
+
+# JSON 출력 (자동화용)
+prefab-tool scan-meta "Library/PackageCache/com.unity.render-pipelines.universal@*" -r --scripts-only --format json
+```
+
+출력 예시:
+```
+Package: com.unity.render-pipelines.universal
+Scanned 150 .meta file(s)
+Found 45 asset(s) with GUIDs
+
+Scripts:
+----------------------------------------------------------------------
+Name                                     GUID
+----------------------------------------------------------------------
+Light2D                                  073797afb82c5a1438f328866b10b3f0
+ShadowCaster2D                           xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+...
+
+======================================================================
+Markdown Table (for documentation):
+----------------------------------------------------------------------
+| Script | GUID |
+|--------|------|
+| Light2D | `073797afb82c5a1438f328866b10b3f0` |
+...
 ```
 
 #### 방법 4: Unity Editor 스크립트 사용

@@ -2040,6 +2040,210 @@ def scan_scripts(
                 click.echo(f"| `{guid}` | {info['fileID']} | {info['count']} |")
 
 
+@main.command(name="scan-meta")
+@click.argument("paths", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
+@click.option(
+    "--recursive",
+    "-r",
+    is_flag=True,
+    help="Recursively scan directories for .meta files",
+)
+@click.option(
+    "--scripts-only",
+    is_flag=True,
+    help="Only show C# script (.cs) files",
+)
+@click.option(
+    "--filter",
+    "name_filter",
+    type=str,
+    help="Filter by filename pattern (e.g., 'Light', 'Camera')",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+def scan_meta(
+    paths: tuple[Path, ...],
+    recursive: bool,
+    scripts_only: bool,
+    name_filter: str | None,
+    output_format: str,
+) -> None:
+    """Scan .meta files to extract asset GUIDs.
+
+    Directly scans Unity package folders or any directory containing .meta files
+    to extract GUIDs. Useful for finding package component GUIDs without needing
+    a prefab/scene that uses them.
+
+    This is useful for:
+    - Finding GUIDs of package scripts (Light2D, TextMeshPro, etc.)
+    - Building a complete GUID reference for a package
+    - Discovering available components in a package
+
+    Examples:
+
+        # Scan URP package for scripts
+        prefab-tool scan-meta "Library/PackageCache/com.unity.render-pipelines.universal@*" -r --scripts-only
+
+        # Find Light-related scripts
+        prefab-tool scan-meta "Library/PackageCache/com.unity.render-pipelines.universal@*" -r --filter Light
+
+        # Scan TextMeshPro package
+        prefab-tool scan-meta "Library/PackageCache/com.unity.textmeshpro@*" -r --scripts-only
+
+        # Scan local Assets folder
+        prefab-tool scan-meta Assets/Scripts -r
+
+        # Output as JSON
+        prefab-tool scan-meta "Library/PackageCache/com.unity.cinemachine@*" -r --scripts-only --format json
+    """
+    import re
+    import json
+
+    # Collect .meta files to scan
+    meta_files: list[Path] = []
+
+    for path in paths:
+        if path.is_file() and path.suffix == ".meta":
+            meta_files.append(path)
+        elif path.is_dir():
+            if recursive:
+                meta_files.extend(path.rglob("*.meta"))
+            else:
+                meta_files.extend(path.glob("*.meta"))
+
+    if not meta_files:
+        click.echo("No .meta files found to scan.", err=True)
+        sys.exit(1)
+
+    # Filter for scripts only if requested
+    if scripts_only:
+        meta_files = [f for f in meta_files if f.name.endswith(".cs.meta")]
+
+    # Apply name filter
+    if name_filter:
+        pattern = re.compile(name_filter, re.IGNORECASE)
+        meta_files = [f for f in meta_files if pattern.search(f.stem)]
+
+    if not meta_files:
+        click.echo("No matching .meta files found after filtering.", err=True)
+        sys.exit(1)
+
+    # Remove duplicates and sort
+    meta_files = sorted(set(meta_files))
+
+    # Extract GUIDs from meta files
+    results: list[dict] = []
+    guid_pattern = re.compile(r"^guid:\s*([a-f0-9]{32})\s*$", re.MULTILINE)
+
+    for meta_file in meta_files:
+        try:
+            content = meta_file.read_text(encoding="utf-8")
+            match = guid_pattern.search(content)
+            if match:
+                guid = match.group(1)
+                # Get the asset name (remove .meta extension)
+                asset_name = meta_file.stem  # e.g., "Light2D.cs"
+                asset_path = str(meta_file.parent / asset_name)
+
+                # Determine asset type
+                if asset_name.endswith(".cs"):
+                    asset_type = "Script"
+                    script_name = asset_name[:-3]  # Remove .cs
+                elif asset_name.endswith(".shader"):
+                    asset_type = "Shader"
+                    script_name = asset_name
+                elif asset_name.endswith(".prefab"):
+                    asset_type = "Prefab"
+                    script_name = asset_name
+                else:
+                    asset_type = "Asset"
+                    script_name = asset_name
+
+                results.append({
+                    "name": script_name,
+                    "guid": guid,
+                    "type": asset_type,
+                    "path": asset_path,
+                    "metaFile": str(meta_file),
+                })
+        except Exception as e:
+            click.echo(f"Warning: Failed to read {meta_file}: {e}", err=True)
+
+    if not results:
+        click.echo("No GUIDs found in scanned files.", err=True)
+        sys.exit(1)
+
+    # Detect package name from path
+    package_name = None
+    if results:
+        first_path = results[0]["path"]
+        if "PackageCache" in first_path:
+            # Extract package name from path like "Library/PackageCache/com.unity.xxx@version/..."
+            parts = first_path.split("/")
+            for i, part in enumerate(parts):
+                if part == "PackageCache" and i + 1 < len(parts):
+                    pkg_part = parts[i + 1]
+                    # Remove version suffix
+                    if "@" in pkg_part:
+                        package_name = pkg_part.split("@")[0]
+                    else:
+                        package_name = pkg_part
+                    break
+
+    # Output results
+    if output_format == "json":
+        output_data = {
+            "package": package_name,
+            "assets": results,
+            "summary": {
+                "totalAssets": len(results),
+                "scripts": len([r for r in results if r["type"] == "Script"]),
+            }
+        }
+        click.echo(json.dumps(output_data, indent=2))
+    else:
+        if package_name:
+            click.echo(f"Package: {package_name}")
+        click.echo(f"Scanned {len(meta_files)} .meta file(s)")
+        click.echo(f"Found {len(results)} asset(s) with GUIDs")
+        click.echo()
+
+        # Group by type
+        scripts = [r for r in results if r["type"] == "Script"]
+        others = [r for r in results if r["type"] != "Script"]
+
+        if scripts:
+            click.echo("Scripts:")
+            click.echo("-" * 70)
+            click.echo(f"{'Name':<40} {'GUID':<34}")
+            click.echo("-" * 70)
+            for r in sorted(scripts, key=lambda x: x["name"]):
+                click.echo(f"{r['name']:<40} {r['guid']}")
+
+        if others and not scripts_only:
+            click.echo()
+            click.echo("Other Assets:")
+            click.echo("-" * 70)
+            for r in sorted(others, key=lambda x: x["name"]):
+                click.echo(f"{r['name']:<40} {r['guid']} [{r['type']}]")
+
+        # Show markdown table for scripts
+        if scripts:
+            click.echo()
+            click.echo("=" * 70)
+            click.echo("Markdown Table (for documentation):")
+            click.echo("-" * 70)
+            click.echo("| Script | GUID |")
+            click.echo("|--------|------|")
+            for r in sorted(scripts, key=lambda x: x["name"]):
+                click.echo(f"| {r['name']} | `{r['guid']}` |")
+
+
 @main.command(name="setup")
 @click.option(
     "--global",
