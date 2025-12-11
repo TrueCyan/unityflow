@@ -321,23 +321,33 @@ prefab-tool find-refs Textures/player.png
 
 ## Unity Class ID 참조
 
-| ID | 클래스명 |
-|----|----------|
-| 1 | GameObject |
-| 4 | Transform |
-| 20 | Camera |
-| 23 | MeshRenderer |
-| 33 | MeshFilter |
-| 54 | Rigidbody |
-| 65 | BoxCollider |
-| 82 | AudioSource |
-| 114 | MonoBehaviour |
-| 212 | SpriteRenderer |
-| 222 | CanvasRenderer |
-| 223 | Canvas |
-| 224 | RectTransform |
-| 225 | CanvasGroup |
-| 1001 | PrefabInstance |
+| ID | 클래스명 | 설명 |
+|----|----------|------|
+| 1 | GameObject | 게임 오브젝트 |
+| 4 | Transform | 3D 트랜스폼 |
+| 20 | Camera | 카메라 |
+| 23 | MeshRenderer | 메시 렌더러 |
+| 33 | MeshFilter | 메시 필터 |
+| 54 | Rigidbody | 강체 물리 |
+| 65 | BoxCollider | 박스 콜라이더 |
+| 81 | AudioListener | 오디오 리스너 |
+| 82 | AudioSource | 오디오 소스 |
+| 95 | Animator | 애니메이터 |
+| 104 | RenderSettings | 렌더 설정 (씬 전용) |
+| 108 | Light | 3D 라이트 |
+| 114 | MonoBehaviour | **사용자 스크립트 (기본 사용)** |
+| 157 | LightmapSettings | 라이트맵 설정 (씬 전용) |
+| 180 | ParticleSystem | 파티클 시스템 |
+| 196 | NavMeshSettings | 네비메시 설정 (씬 전용) |
+| 212 | SpriteRenderer | 스프라이트 렌더러 |
+| 222 | CanvasRenderer | 캔버스 렌더러 |
+| 223 | Canvas | UI 캔버스 |
+| 224 | RectTransform | UI 트랜스폼 |
+| 225 | CanvasGroup | 캔버스 그룹 |
+| 1001 | PrefabInstance | 프리팹 인스턴스 |
+| 1660057539 | SceneRoots | ⚠️ **씬 루트 목록 (절대 직접 사용 금지!)** |
+
+**참고**: Light2D 등 패키지 컴포넌트는 별도의 classId를 가집니다. 원본 파일에서 classId를 확인하세요.
 
 ---
 
@@ -348,6 +358,21 @@ prefab-tool find-refs Textures/player.png
 3. **정규화 필수**: 편집 후 `prefab-tool normalize`로 정규화하여 Git 노이즈 방지
 4. **검증 권장**: 중요한 수정 후 `prefab-tool validate`로 무결성 확인
 5. **GUID 보존**: 외부 에셋 참조(스크립트, 텍스처 등)의 GUID는 변경하지 않음
+6. **classId 보존**: **절대로 임의의 classId를 사용하지 마세요!** JSON 변환 시 원본 classId가 보존됩니다. 새 컴포넌트 추가 시 반드시 올바른 classId를 사용하세요.
+
+### classId 관련 중요 경고
+
+⚠️ **절대 SceneRoots classId(1660057539)를 다른 컴포넌트에 사용하지 마세요!**
+
+Unity는 classId를 기반으로 오브젝트 타입을 결정합니다. 잘못된 classId를 사용하면:
+- "cast failed from SceneRoots to Component" 오류 발생
+- 컴포넌트가 로드되지 않고 제거됨
+- 씬 파일이 손상될 수 있음
+
+새 컴포넌트를 추가할 때는:
+1. **MonoBehaviour(114)**: 모든 사용자 스크립트에 사용
+2. 알 수 없는 Unity 내장 컴포넌트는 원본 파일에서 classId를 복사
+3. 확실하지 않으면 Unity에서 직접 생성한 파일 참조
 
 ---
 

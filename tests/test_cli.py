@@ -340,11 +340,13 @@ class TestVersionOption:
 
     def test_version(self, runner):
         """Test --version flag."""
+        from prefab_tool import __version__
+
         result = runner.invoke(main, ["--version"])
 
         assert result.exit_code == 0
         assert "prefab-tool" in result.output
-        assert "0.1.2" in result.output
+        assert __version__ in result.output
 
 
 class TestHelpOption:

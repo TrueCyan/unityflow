@@ -285,6 +285,9 @@ class PrefabValidator:
                     )
                 )
 
+        # Validate classId matches root_key (detect mismatched classIds)
+        issues.extend(self._validate_class_id_root_key_match(obj))
+
         # Class-specific validation
         content = obj.get_content()
         if content:
@@ -404,6 +407,70 @@ class PrefabValidator:
 
         return issues
 
+    def _validate_class_id_root_key_match(
+        self, obj: UnityYAMLObject
+    ) -> list[ValidationIssue]:
+        """Validate that classId matches the root key in the data.
+
+        This detects cases where LLM generated incorrect classIds,
+        such as using SceneRoots classId (1660057539) for Light2D.
+        """
+        issues: list[ValidationIssue] = []
+        root_key = obj.root_key
+
+        if not root_key:
+            return issues
+
+        # Special case: SceneRoots classId (1660057539) must have SceneRoots root key
+        if obj.class_id == 1660057539 and root_key != "SceneRoots":
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.ERROR,
+                    file_id=obj.file_id,
+                    message=f"ClassID 1660057539 (SceneRoots) used for '{root_key}' - this will cause Unity to fail casting SceneRoots to Component",
+                    property_path=root_key,
+                    suggestion=f"'{root_key}' needs a different classId. Check Unity documentation for the correct classId.",
+                )
+            )
+
+        # Known classId -> root_key mismatches that cause Unity errors
+        known_class_ids = {
+            1: "GameObject",
+            4: "Transform",
+            20: "Camera",
+            23: "MeshRenderer",
+            33: "MeshFilter",
+            54: "Rigidbody",
+            65: "BoxCollider",
+            81: "AudioListener",
+            82: "AudioSource",
+            114: "MonoBehaviour",
+            124: "Behaviour",
+            212: "SpriteRenderer",
+            222: "CanvasRenderer",
+            223: "Canvas",
+            224: "RectTransform",
+            225: "CanvasGroup",
+            1001: "PrefabInstance",
+            1660057539: "SceneRoots",
+        }
+
+        expected_root_key = known_class_ids.get(obj.class_id)
+        if expected_root_key and root_key != expected_root_key:
+            # Only error for well-known types where mismatch is definitely wrong
+            if obj.class_id in (1, 4, 224, 1001, 1660057539):  # Critical types
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.ERROR,
+                        file_id=obj.file_id,
+                        message=f"ClassID {obj.class_id} expects '{expected_root_key}' but found '{root_key}'",
+                        property_path=root_key,
+                        suggestion=f"Either change classId to match '{root_key}' or change root key to '{expected_root_key}'",
+                    )
+                )
+
+        return issues
+
     def _validate_prefab_instance(
         self, obj: UnityYAMLObject, content: dict[str, Any]
     ) -> list[ValidationIssue]:
@@ -447,8 +514,11 @@ class PrefabValidator:
             if isinstance(value, dict):
                 # Check if this is a file reference
                 if "fileID" in value:
-                    # Check GUID format if present
+                    file_id = value.get("fileID")
                     guid = value.get("guid")
+                    ref_type = value.get("type")
+
+                    # Check GUID format if present
                     if guid is not None and not is_valid_guid(guid):
                         issues.append(
                             ValidationIssue(
@@ -460,20 +530,36 @@ class PrefabValidator:
                             )
                         )
 
-                    # Check internal reference
-                    if "guid" not in value or not guid:
-                        file_id = value.get("fileID")
-                        if file_id and file_id != 0:
+                    # Check reference validity based on type
+                    if file_id and file_id != 0:
+                        is_external_ref = guid and is_valid_guid(guid)
+                        is_internal_ref = not guid or ref_type == 0
+
+                        if is_internal_ref:
+                            # Internal reference - must exist in current file
                             if file_id not in file_id_index:
-                                issues.append(
-                                    ValidationIssue(
-                                        severity=Severity.WARNING,
-                                        file_id=obj.file_id,
-                                        message=f"Internal reference to non-existent fileID: {file_id}",
-                                        property_path=path,
-                                        suggestion="Reference may be broken or refers to external object",
+                                # Unity builtin assets use special fileIDs (typically < 100000)
+                                # with type: 0 or type: 3, but should have a valid guid
+                                if ref_type == 0 and not guid:
+                                    issues.append(
+                                        ValidationIssue(
+                                            severity=Severity.ERROR,
+                                            file_id=obj.file_id,
+                                            message=f"Broken reference: fileID {file_id} with type:0 doesn't exist in file",
+                                            property_path=path,
+                                            suggestion="Unity builtin assets need guid. For internal refs, ensure the target object exists.",
+                                        )
                                     )
-                                )
+                                else:
+                                    issues.append(
+                                        ValidationIssue(
+                                            severity=Severity.WARNING,
+                                            file_id=obj.file_id,
+                                            message=f"Internal reference to non-existent fileID: {file_id}",
+                                            property_path=path,
+                                            suggestion="Reference may be broken or refers to external object",
+                                        )
+                                    )
 
                 # Recurse into dict values
                 for key, val in value.items():
