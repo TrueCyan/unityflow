@@ -426,6 +426,11 @@ def _export_component(obj: UnityYAMLObject, content: dict[str, Any]) -> dict[str
         "classId": obj.class_id,
     }
 
+    # Preserve original root key for unknown types (important for round-trip fidelity)
+    original_root_key = obj.root_key
+    if original_root_key and original_root_key != obj.class_name:
+        result["_originalType"] = original_root_key
+
     # GameObject reference
     go_ref = content.get("m_GameObject", {})
     if isinstance(go_ref, dict) and "fileID" in go_ref:
@@ -817,7 +822,16 @@ def _import_component(
         class_id = CLASS_NAME_TO_ID.get(comp_type, 0)
 
     # Get the root key (class name)
-    root_key = CLASS_IDS.get(class_id, comp_type or f"Unknown{class_id}")
+    # Priority: _originalType > CLASS_IDS > comp_type > fallback
+    original_type = data.get("_originalType")
+    if original_type:
+        root_key = original_type
+    elif class_id in CLASS_IDS:
+        root_key = CLASS_IDS[class_id]
+    elif comp_type and not comp_type.startswith("Unknown"):
+        root_key = comp_type
+    else:
+        root_key = comp_type or f"Unknown{class_id}"
 
     # Build content based on component type
     if class_id == 4:  # Transform
@@ -1109,23 +1123,31 @@ def _import_prefab_instance(
 def _import_generic_component(
     data: dict[str, Any], raw_fields: dict[str, Any]
 ) -> dict[str, Any]:
-    """Import a generic component's fields."""
+    """Import a generic component's fields.
+
+    For unknown/generic components, prioritize raw_fields to preserve
+    the original data structure. Only add default Unity fields if they
+    existed in the original data.
+    """
     content: dict[str, Any] = {}
 
-    # Default Unity fields
-    content["m_ObjectHideFlags"] = raw_fields.get("m_ObjectHideFlags", 0)
-    content["m_CorrespondingSourceObject"] = {"fileID": 0}
-    content["m_PrefabInstance"] = {"fileID": 0}
-    content["m_PrefabAsset"] = {"fileID": 0}
+    # First, restore all raw fields (preserves original structure)
+    for key, value in raw_fields.items():
+        content[key] = value
 
-    # GameObject reference
-    if "gameObject" in data:
+    # Only add default Unity fields if they existed in raw_fields
+    # (Don't inject new fields that weren't in the original)
+    if "m_ObjectHideFlags" not in content and "m_ObjectHideFlags" not in raw_fields:
+        # Only add if data suggests it's needed
+        pass  # Don't add default
+
+    # GameObject reference - only if provided in data and not already in content
+    if "gameObject" in data and "m_GameObject" not in content:
         content["m_GameObject"] = {"fileID": int(data["gameObject"])}
-    else:
-        content["m_GameObject"] = {"fileID": 0}
 
     # Convert exported fields back to Unity format
-    skip_keys = {"type", "classId", "gameObject"}
+    # Skip metadata keys and keys already handled
+    skip_keys = {"type", "classId", "gameObject", "_originalType"}
 
     for key, value in data.items():
         if key in skip_keys:
@@ -1137,12 +1159,14 @@ def _import_generic_component(
         else:
             unity_key = key
 
-        content[unity_key] = _import_value(value)
+        # Skip if the original key (without m_ prefix) already exists in content
+        # This prevents duplicates like serializedVersion and m_SerializedVersion
+        if key in content:
+            continue
 
-    # Merge raw fields
-    for key, value in raw_fields.items():
-        if key not in content:
-            content[key] = value
+        # Only update if not already set from raw_fields
+        if unity_key not in content:
+            content[unity_key] = _import_value(value)
 
     return content
 
