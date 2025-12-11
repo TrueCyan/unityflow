@@ -344,7 +344,7 @@ class TestVersionOption:
 
         assert result.exit_code == 0
         assert "prefab-tool" in result.output
-        assert "0.1.0" in result.output
+        assert "0.1.2" in result.output
 
 
 class TestHelpOption:

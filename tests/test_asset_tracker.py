@@ -214,9 +214,9 @@ class TestGetFileDependencies:
         deps = get_file_dependencies(FIXTURES_DIR / "prefab_with_modifications.prefab")
 
         assert len(deps) > 0
-        # The fixture references guid "abc123def456"
+        # The fixture references guid "abc123def45678901234567890123456"
         guids = {d.guid for d in deps}
-        assert "abc123def456" in guids
+        assert "abc123def45678901234567890123456" in guids
 
     def test_basic_prefab_no_external_deps(self):
         """Test basic prefab has no external dependencies."""
