@@ -721,7 +721,10 @@ def export_file_to_json(
     return json_str
 
 
-def import_from_json(prefab_json: PrefabJSON) -> UnityYAMLDocument:
+def import_from_json(
+    prefab_json: PrefabJSON,
+    auto_fix: bool = True,
+) -> UnityYAMLDocument:
     """Import a PrefabJSON back to UnityYAMLDocument.
 
     This enables round-trip conversion: YAML -> JSON -> YAML
@@ -729,6 +732,8 @@ def import_from_json(prefab_json: PrefabJSON) -> UnityYAMLDocument:
 
     Args:
         prefab_json: The PrefabJSON object to convert
+        auto_fix: If True, automatically fix common issues like invalid GUIDs
+                  and missing SceneRoots entries (default: True)
 
     Returns:
         UnityYAMLDocument ready to be saved
@@ -751,6 +756,11 @@ def import_from_json(prefab_json: PrefabJSON) -> UnityYAMLDocument:
 
     # Sort by file_id for consistent output
     doc.objects.sort(key=lambda o: o.file_id)
+
+    # Apply automatic fixes if requested
+    if auto_fix:
+        from prefab_tool.validator import fix_document
+        fix_document(doc)
 
     return doc
 
@@ -1205,12 +1215,15 @@ def _import_value(value: Any) -> Any:
 def import_file_from_json(
     input_path: str | Path,
     output_path: str | Path | None = None,
+    auto_fix: bool = True,
 ) -> UnityYAMLDocument:
     """Import a JSON file back to Unity YAML format.
 
     Args:
         input_path: Path to the JSON file
         output_path: Optional path to save the Unity YAML output
+        auto_fix: If True, automatically fix common issues like invalid GUIDs
+                  and missing SceneRoots entries (default: True)
 
     Returns:
         UnityYAMLDocument object
@@ -1218,7 +1231,7 @@ def import_file_from_json(
     input_path = Path(input_path)
     json_str = input_path.read_text(encoding="utf-8")
     prefab_json = PrefabJSON.from_json(json_str)
-    doc = import_from_json(prefab_json)
+    doc = import_from_json(prefab_json, auto_fix=auto_fix)
 
     if output_path:
         doc.save(output_path)

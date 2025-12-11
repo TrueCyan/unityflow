@@ -4,7 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from prefab_tool.validator import PrefabValidator, validate_prefab, Severity, ValidationIssue
+from prefab_tool.validator import (
+    PrefabValidator,
+    validate_prefab,
+    Severity,
+    ValidationIssue,
+    is_valid_guid,
+    fix_invalid_guids,
+    fix_scene_roots,
+    fix_document,
+)
+from prefab_tool.parser import UnityYAMLDocument
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -178,3 +188,222 @@ class TestConvenienceFunction:
         # A valid prefab should still be valid in strict mode
         # (unless there are warnings)
         assert isinstance(result.is_valid, bool)
+
+
+class TestGuidValidation:
+    """Tests for GUID format validation."""
+
+    def test_valid_guid(self):
+        """Test valid GUID formats."""
+        assert is_valid_guid("31ad2c60d35ebf74484676a2cf8f247c")
+        assert is_valid_guid("ABCDEF0123456789abcdef0123456789")
+        assert is_valid_guid("00000000000000000000000000000000")
+
+    def test_invalid_guid_formats(self):
+        """Test invalid GUID formats."""
+        # Float value (common LLM mistake)
+        assert not is_valid_guid(0.0)
+        assert not is_valid_guid(0)
+        # Wrong length
+        assert not is_valid_guid("abc123")
+        assert not is_valid_guid("31ad2c60d35ebf74484676a2cf8f247c0")  # too long
+        # Invalid characters
+        assert not is_valid_guid("31ad2c60d35ebf74484676a2cf8f247g")
+        # Empty string
+        assert not is_valid_guid("")
+
+    def test_none_guid_is_valid(self):
+        """Test that None is valid (internal reference)."""
+        assert is_valid_guid(None)
+
+    def test_detect_invalid_guid_in_reference(self):
+        """Test that validator detects invalid GUID in references."""
+        validator = PrefabValidator()
+
+        # Content with invalid GUID (float 0.0)
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!104 &2
+RenderSettings:
+  m_SpotCookie: {fileID: 10001, guid: 0.0, type: 0}
+"""
+        result = validator.validate_content(content, "test.unity")
+
+        assert not result.is_valid
+        assert any("Invalid GUID format" in e.message for e in result.errors)
+
+
+class TestSceneRootsValidation:
+    """Tests for SceneRoots validation."""
+
+    def test_detect_missing_scene_roots(self):
+        """Test detection of missing roots in SceneRoots."""
+        validator = PrefabValidator()
+
+        # Scene with 2 root transforms but SceneRoots only has 1
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: Object1
+  m_Component:
+  - component: {fileID: 100001}
+--- !u!4 &100001
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children: []
+--- !u!1 &200000
+GameObject:
+  m_Name: Object2
+  m_Component:
+  - component: {fileID: 200001}
+--- !u!4 &200001
+Transform:
+  m_GameObject: {fileID: 200000}
+  m_Father: {fileID: 0}
+  m_Children: []
+--- !u!1660057539 &9223372036854775807
+SceneRoots:
+  m_Roots:
+  - {fileID: 100001}
+"""
+        result = validator.validate_content(content, "test.unity")
+
+        assert not result.is_valid
+        assert any("SceneRoots missing" in e.message for e in result.errors)
+
+
+class TestFixInvalidGuids:
+    """Tests for fix_invalid_guids function."""
+
+    def test_fix_float_guid(self):
+        """Test fixing a float GUID value."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!104 &2
+RenderSettings:
+  m_SpotCookie: {fileID: 10001, guid: 0.0, type: 0}
+"""
+        doc = UnityYAMLDocument.parse(content)
+        fixed_count = fix_invalid_guids(doc)
+
+        assert fixed_count == 1
+
+        # Verify the guid was removed
+        obj = doc.get_by_file_id(2)
+        content = obj.get_content()
+        spot_cookie = content.get("m_SpotCookie", {})
+        assert "guid" not in spot_cookie
+        assert spot_cookie.get("fileID") == 10001
+
+    def test_preserve_valid_guid(self):
+        """Test that valid GUIDs are preserved."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &100
+MonoBehaviour:
+  m_Script: {fileID: 11500000, guid: 31ad2c60d35ebf74484676a2cf8f247c, type: 3}
+"""
+        doc = UnityYAMLDocument.parse(content)
+        fixed_count = fix_invalid_guids(doc)
+
+        assert fixed_count == 0
+
+        # Verify the guid is preserved
+        obj = doc.get_by_file_id(100)
+        content = obj.get_content()
+        script = content.get("m_Script", {})
+        assert script.get("guid") == "31ad2c60d35ebf74484676a2cf8f247c"
+
+
+class TestFixSceneRoots:
+    """Tests for fix_scene_roots function."""
+
+    def test_fix_incomplete_scene_roots(self):
+        """Test fixing incomplete SceneRoots."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: Object1
+  m_Component:
+  - component: {fileID: 100001}
+--- !u!4 &100001
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children: []
+--- !u!1 &200000
+GameObject:
+  m_Name: Object2
+  m_Component:
+  - component: {fileID: 200001}
+--- !u!4 &200001
+Transform:
+  m_GameObject: {fileID: 200000}
+  m_Father: {fileID: 0}
+  m_Children: []
+--- !u!1660057539 &9223372036854775807
+SceneRoots:
+  m_Roots:
+  - {fileID: 100001}
+"""
+        doc = UnityYAMLDocument.parse(content)
+        fixed = fix_scene_roots(doc)
+
+        assert fixed is True
+
+        # Verify SceneRoots now has both roots
+        scene_roots = doc.get_by_file_id(9223372036854775807)
+        content = scene_roots.get_content()
+        roots = content.get("m_Roots", [])
+        root_ids = {r.get("fileID") for r in roots}
+
+        assert 100001 in root_ids
+        assert 200001 in root_ids
+
+    def test_no_fix_needed_for_complete_scene_roots(self):
+        """Test that complete SceneRoots is not modified."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!4 &100001
+Transform:
+  m_Father: {fileID: 0}
+--- !u!1660057539 &9223372036854775807
+SceneRoots:
+  m_Roots:
+  - {fileID: 100001}
+"""
+        doc = UnityYAMLDocument.parse(content)
+        fixed = fix_scene_roots(doc)
+
+        assert fixed is False
+
+
+class TestFixDocument:
+    """Tests for fix_document function."""
+
+    def test_fix_document_multiple_issues(self):
+        """Test fixing multiple issues in one document."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!104 &2
+RenderSettings:
+  m_SpotCookie: {fileID: 10001, guid: 0.0, type: 0}
+--- !u!4 &100001
+Transform:
+  m_Father: {fileID: 0}
+--- !u!4 &200001
+Transform:
+  m_Father: {fileID: 0}
+--- !u!1660057539 &9223372036854775807
+SceneRoots:
+  m_Roots:
+  - {fileID: 100001}
+"""
+        doc = UnityYAMLDocument.parse(content)
+        results = fix_document(doc)
+
+        assert results["invalid_guids_fixed"] == 1
+        assert results["scene_roots_fixed"] == 1
