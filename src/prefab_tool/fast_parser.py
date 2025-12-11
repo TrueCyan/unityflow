@@ -31,6 +31,11 @@ DOCUMENT_HEADER_PATTERN = re.compile(
     r"^--- !u!(\d+) &(\d+)(?: stripped)?$", re.MULTILINE
 )
 
+# Pattern to match Unity GUIDs (32 hexadecimal characters)
+# This is used to prevent GUIDs like "0000000000000000e000000000000000" from being
+# parsed as scientific notation floats (0e000000000000000 = 0.0)
+GUID_PATTERN = re.compile(r"^[0-9a-fA-F]{32}$")
+
 
 def _iter_children(tree: Any, node_id: int) -> list[int]:
     """Iterate over children of a node."""
@@ -81,6 +86,12 @@ def _to_python(tree: Any, node_id: int) -> Any:
                 return int(val)
             except ValueError:
                 pass
+
+        # Skip float conversion for GUID-like strings (32 hex chars)
+        # GUIDs like "0000000000000000e000000000000000" would otherwise be
+        # parsed as scientific notation (0e000000000000000 = 0.0)
+        if GUID_PATTERN.match(val):
+            return val
 
         # Try converting to float
         try:

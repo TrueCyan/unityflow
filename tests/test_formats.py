@@ -363,3 +363,50 @@ class TestRoundTripIntegrity:
 
         # JSON should be stable after first round-trip
         assert json2.to_json() == json3.to_json()
+
+    def test_roundtrip_preserves_builtin_guids(self, tmp_path):
+        """Test that Unity built-in resource GUIDs are preserved during round-trip.
+
+        Unity uses special GUIDs for built-in resources:
+        - 0000000000000000e000000000000000: Built-in Extra Resources
+        - 0000000000000000f000000000000000: Built-in Default Resources
+
+        These GUIDs look like scientific notation (e.g., 0e000... = 0.0) and
+        must not be parsed as floats.
+        """
+        # Create a scene file with built-in resource references
+        scene_yaml = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!104 &2
+RenderSettings:
+  m_ObjectHideFlags: 0
+  m_SpotCookie: {fileID: 10001, guid: 0000000000000000e000000000000000, type: 0}
+  m_HaloTexture: {fileID: 10010, guid: 0000000000000000e000000000000000, type: 0}
+  m_LightingDataAsset: {fileID: 20201, guid: 0000000000000000f000000000000000, type: 0}
+"""
+        scene_path = tmp_path / "test.unity"
+        scene_path.write_text(scene_yaml)
+
+        # Load and export to JSON
+        doc = UnityYAMLDocument.load(scene_path)
+        json_data = export_to_json(doc, include_raw=True)
+
+        # Import back from JSON
+        imported = import_from_json(json_data)
+
+        # Get the RenderSettings object
+        render_settings = imported.get_by_file_id(2)
+        assert render_settings is not None
+
+        content = render_settings.get_content()
+
+        # Verify built-in GUIDs are preserved
+        assert content["m_SpotCookie"]["guid"] == "0000000000000000e000000000000000"
+        assert content["m_SpotCookie"]["fileID"] == 10001
+        assert content["m_SpotCookie"]["type"] == 0
+
+        assert content["m_HaloTexture"]["guid"] == "0000000000000000e000000000000000"
+        assert content["m_HaloTexture"]["fileID"] == 10010
+
+        assert content["m_LightingDataAsset"]["guid"] == "0000000000000000f000000000000000"
+        assert content["m_LightingDataAsset"]["fileID"] == 20201

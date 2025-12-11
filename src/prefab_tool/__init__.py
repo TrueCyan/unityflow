@@ -4,7 +4,9 @@ A tool for canonical serialization of Unity YAML files (prefabs, scenes, assets)
 to eliminate non-deterministic changes and reduce VCS noise.
 """
 
-__version__ = "0.1.4"
+from importlib.metadata import version
+
+__version__ = version("prefab-tool")
 
 from prefab_tool.git_utils import (
     UNITY_ANIMATION_EXTENSIONS,
