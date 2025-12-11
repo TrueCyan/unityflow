@@ -1800,6 +1800,246 @@ def find_refs(
             click.echo(f"    {len(refs)} reference(s)")
 
 
+@main.command(name="scan-scripts")
+@click.argument("paths", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
+@click.option(
+    "--recursive",
+    "-r",
+    is_flag=True,
+    help="Recursively scan directories for Unity files",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+@click.option(
+    "--show-properties",
+    is_flag=True,
+    help="Show property keys for each script (useful for understanding structure)",
+)
+@click.option(
+    "--group-by-guid",
+    is_flag=True,
+    help="Group results by GUID instead of by file",
+)
+def scan_scripts(
+    paths: tuple[Path, ...],
+    recursive: bool,
+    output_format: str,
+    show_properties: bool,
+    group_by_guid: bool,
+) -> None:
+    """Scan Unity files and extract all script GUIDs.
+
+    Extracts GUIDs from MonoBehaviour components (classId=114) to help
+    identify package components like Light2D, TextMeshPro, etc.
+
+    This is useful for:
+    - Discovering GUIDs of package components used in your project
+    - Building a reference table for programmatic prefab creation
+    - Analyzing which scripts are used across prefabs/scenes
+
+    Examples:
+
+        # Scan a single file
+        prefab-tool scan-scripts Player.prefab
+
+        # Scan a directory recursively
+        prefab-tool scan-scripts Assets/Prefabs -r
+
+        # Show property keys (to understand component structure)
+        prefab-tool scan-scripts Scene.unity --show-properties
+
+        # Group by GUID to see all usages
+        prefab-tool scan-scripts Assets/ -r --group-by-guid
+
+        # Output as JSON for further processing
+        prefab-tool scan-scripts *.prefab --format json
+    """
+    from prefab_tool.parser import UnityYAMLDocument
+    import json
+
+    # Collect files to scan
+    files_to_scan: list[Path] = []
+
+    for path in paths:
+        if path.is_file():
+            files_to_scan.append(path)
+        elif path.is_dir():
+            if recursive:
+                for ext in UNITY_EXTENSIONS:
+                    files_to_scan.extend(path.rglob(f"*{ext}"))
+            else:
+                for ext in UNITY_EXTENSIONS:
+                    files_to_scan.extend(path.glob(f"*{ext}"))
+
+    if not files_to_scan:
+        click.echo("No Unity files found to scan.", err=True)
+        sys.exit(1)
+
+    # Remove duplicates and sort
+    files_to_scan = sorted(set(files_to_scan))
+
+    # Data structures for results
+    # guid_info: {guid: {fileID, type, files: set, properties: set}}
+    guid_info: dict[str, dict] = {}
+    # file_scripts: {file: [{guid, fileID, properties}]}
+    file_scripts: dict[Path, list[dict]] = {}
+
+    # Scan files
+    for file_path in files_to_scan:
+        try:
+            doc = UnityYAMLDocument.load(file_path)
+        except Exception as e:
+            click.echo(f"Warning: Failed to parse {file_path}: {e}", err=True)
+            continue
+
+        file_scripts[file_path] = []
+
+        for obj in doc.objects:
+            if obj.class_id != 114:  # MonoBehaviour only
+                continue
+
+            content = obj.get_content()
+            if not content:
+                continue
+
+            script_ref = content.get("m_Script", {})
+            if not isinstance(script_ref, dict):
+                continue
+
+            guid = script_ref.get("guid", "")
+            if not guid:
+                continue
+
+            file_id = script_ref.get("fileID", 0)
+            ref_type = script_ref.get("type", 0)
+
+            # Extract property keys (exclude common Unity fields)
+            skip_keys = {
+                "m_ObjectHideFlags", "m_CorrespondingSourceObject", "m_PrefabInstance",
+                "m_PrefabAsset", "m_GameObject", "m_Enabled", "m_Script",
+                "m_EditorHideFlags", "m_EditorClassIdentifier"
+            }
+            properties = [k for k in content.keys() if k not in skip_keys]
+
+            # Update guid_info
+            if guid not in guid_info:
+                guid_info[guid] = {
+                    "fileID": file_id,
+                    "type": ref_type,
+                    "files": set(),
+                    "properties": set(),
+                    "count": 0,
+                }
+            guid_info[guid]["files"].add(str(file_path))
+            guid_info[guid]["properties"].update(properties)
+            guid_info[guid]["count"] += 1
+
+            # Update file_scripts
+            file_scripts[file_path].append({
+                "guid": guid,
+                "fileID": file_id,
+                "properties": properties,
+            })
+
+    # Output results
+    if output_format == "json":
+        if group_by_guid:
+            output_data = {
+                "scripts": [
+                    {
+                        "guid": guid,
+                        "fileID": info["fileID"],
+                        "type": info["type"],
+                        "usageCount": info["count"],
+                        "files": sorted(info["files"]),
+                        "properties": sorted(info["properties"]) if show_properties else None,
+                    }
+                    for guid, info in sorted(guid_info.items(), key=lambda x: -x[1]["count"])
+                ],
+                "summary": {
+                    "totalScripts": len(guid_info),
+                    "filesScanned": len(files_to_scan),
+                }
+            }
+            # Remove None properties if not requested
+            if not show_properties:
+                for script in output_data["scripts"]:
+                    del script["properties"]
+        else:
+            output_data = {
+                "files": [
+                    {
+                        "path": str(file_path),
+                        "scripts": scripts,
+                    }
+                    for file_path, scripts in file_scripts.items()
+                    if scripts
+                ],
+                "summary": {
+                    "totalScripts": len(guid_info),
+                    "filesScanned": len(files_to_scan),
+                }
+            }
+
+        click.echo(json.dumps(output_data, indent=2))
+    else:
+        # Text output
+        click.echo(f"Scanned {len(files_to_scan)} file(s)")
+        click.echo(f"Found {len(guid_info)} unique script GUID(s)")
+        click.echo()
+
+        if group_by_guid:
+            click.echo("Scripts by GUID:")
+            click.echo("-" * 60)
+
+            for guid, info in sorted(guid_info.items(), key=lambda x: -x[1]["count"]):
+                click.echo(f"\nGUID: {guid}")
+                click.echo(f"  fileID: {info['fileID']}")
+                click.echo(f"  type: {info['type']}")
+                click.echo(f"  Usage count: {info['count']}")
+                click.echo(f"  Found in {len(info['files'])} file(s):")
+                for f in sorted(info["files"])[:5]:
+                    click.echo(f"    - {f}")
+                if len(info["files"]) > 5:
+                    click.echo(f"    ... and {len(info['files']) - 5} more")
+
+                if show_properties and info["properties"]:
+                    click.echo(f"  Properties: {', '.join(sorted(info['properties']))}")
+        else:
+            click.echo("Scripts by file:")
+            click.echo("-" * 60)
+
+            for file_path, scripts in file_scripts.items():
+                if not scripts:
+                    continue
+
+                click.echo(f"\n{file_path}:")
+                for script in scripts:
+                    click.echo(f"  GUID: {script['guid']}")
+                    click.echo(f"    fileID: {script['fileID']}")
+                    if show_properties and script["properties"]:
+                        props_str = ", ".join(script["properties"][:10])
+                        if len(script["properties"]) > 10:
+                            props_str += f", ... (+{len(script['properties']) - 10} more)"
+                        click.echo(f"    Properties: {props_str}")
+
+        # Show summary table
+        if guid_info:
+            click.echo()
+            click.echo("=" * 60)
+            click.echo("GUID Summary Table (for SKILL.md):")
+            click.echo("-" * 60)
+            click.echo("| GUID | fileID | Usage Count |")
+            click.echo("|------|--------|-------------|")
+            for guid, info in sorted(guid_info.items(), key=lambda x: -x[1]["count"]):
+                click.echo(f"| `{guid}` | {info['fileID']} | {info['count']} |")
+
+
 @main.command(name="setup")
 @click.option(
     "--global",

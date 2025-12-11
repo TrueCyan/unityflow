@@ -395,20 +395,45 @@ Unity 패키지(URP, TextMeshPro, Cinemachine 등)의 컴포넌트들은 내장 
 
 패키지 컴포넌트의 GUID를 찾는 방법:
 
-#### 방법 1: 기존 프리팹/씬 파일에서 추출 (권장)
+#### 방법 1: scan-scripts 명령어 사용 (권장, 자동화)
 
-해당 컴포넌트가 포함된 프리팹이나 씬 파일을 분석:
+`prefab-tool scan-scripts` 명령어로 프로젝트 전체의 스크립트 GUID를 자동으로 추출:
 
 ```bash
-# 파일에서 스크립트 참조 검색
-prefab-tool export YourFile.prefab -o temp.json
+# 단일 파일 스캔
+prefab-tool scan-scripts Player.prefab
 
-# JSON에서 scriptRef 확인
-grep -A5 "scriptRef" temp.json
+# 디렉토리 재귀적 스캔
+prefab-tool scan-scripts Assets/Prefabs -r
+
+# GUID별로 그룹화하여 보기
+prefab-tool scan-scripts Assets/ -r --group-by-guid
+
+# 프로퍼티 키도 함께 보기 (컴포넌트 구조 파악용)
+prefab-tool scan-scripts Scene.unity --show-properties
+
+# JSON 출력 (자동화 스크립트용)
+prefab-tool scan-scripts *.prefab --format json --group-by-guid
 ```
 
+출력 예시:
+```
+Scanned 15 file(s)
+Found 8 unique script GUID(s)
+
+============================================================
+GUID Summary Table (for SKILL.md):
+------------------------------------------------------------
+| GUID | fileID | Usage Count |
+|------|--------|-------------|
+| `f4688fdb7df04437aeb418b961361dc5` | 11500000 | 45 |
+| `fe87c0e1cc204ed48ad3b37840f39efc` | 11500000 | 24 |
+...
+```
+
+#### 방법 2: Python API로 추출
+
 ```python
-# Python으로 추출
 from prefab_tool.parser import UnityYAMLDocument
 
 doc = UnityYAMLDocument.load("YourFile.prefab")
@@ -420,7 +445,7 @@ for obj in doc.objects:
         print(f"Properties: {list(content.keys())}")
 ```
 
-#### 방법 2: 패키지 폴더의 .meta 파일 확인
+#### 방법 3: 패키지 폴더의 .meta 파일 확인
 
 Unity 프로젝트의 패키지 폴더에서 직접 확인:
 
@@ -432,7 +457,7 @@ cat "Library/PackageCache/com.unity.render-pipelines.universal@*/Runtime/2D/Ligh
 cat "Library/PackageCache/com.unity.textmeshpro@*/Scripts/Runtime/TMPro_UGUI_Private.cs.meta"
 ```
 
-#### 방법 3: Unity Editor 스크립트 사용
+#### 방법 4: Unity Editor 스크립트 사용
 
 ```csharp
 // Unity Editor에서 실행
