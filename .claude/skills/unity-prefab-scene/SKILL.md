@@ -359,6 +359,7 @@ prefab-tool find-refs Textures/player.png
 4. **검증 권장**: 중요한 수정 후 `prefab-tool validate`로 무결성 확인
 5. **GUID 보존**: 외부 에셋 참조(스크립트, 텍스처 등)의 GUID는 변경하지 않음
 6. **classId 보존**: **절대로 임의의 classId를 사용하지 마세요!** JSON 변환 시 원본 classId가 보존됩니다. 새 컴포넌트 추가 시 반드시 올바른 classId를 사용하세요.
+7. **Mask + Image 알파값 주의**: ScrollRect 등에서 Mask 컴포넌트를 사용할 때, 함께 붙어있는 Image 컴포넌트의 알파값이 0이면 마스킹이 작동하지 않습니다. 마스킹용 Image는 반드시 `m_Color: {r: 1, g: 1, b: 1, a: 1}`로 설정하고, 시각적으로 숨기려면 `m_ShowMaskGraphic: 0`을 사용하세요.
 
 ### classId 관련 중요 경고
 
@@ -378,22 +379,87 @@ Unity는 classId를 기반으로 오브젝트 타입을 결정합니다. 잘못�
 
 ## 패키지 컴포넌트 GUID 참조
 
-Unity 패키지(URP, TextMeshPro, Cinemachine 등)의 컴포넌트들은 내장 클래스가 아니라 **MonoBehaviour(classId=114)** 로 구현됩니다. 이들은 스크립트의 GUID로 식별됩니다.
+Unity 패키지(URP, TextMeshPro, ugui 등)의 컴포넌트들은 내장 클래스가 아니라 **MonoBehaviour(classId=114)** 로 구현됩니다. 이들은 스크립트의 GUID로 식별됩니다.
 
-### 알려진 패키지 컴포넌트 GUID
+### Unity UI 컴포넌트 GUID (com.unity.ugui 패키지)
 
-| 패키지 | 컴포넌트 | GUID | fileID |
-|--------|----------|------|--------|
-| URP 2D | Light2D | `073797afb82c5a1438f328866b10b3f0` | 11500000 |
-| URP 2D | ShadowCaster2D | (프로젝트에서 추출 필요) | 11500000 |
-| TextMeshPro | TextMeshProUGUI | (프로젝트에서 추출 필요) | 11500000 |
-| Cinemachine | CinemachineVirtualCamera | (프로젝트에서 추출 필요) | 11500000 |
+⚠️ **중요**: Unity 6+에서는 UGUI와 TMP가 `com.unity.ugui` 패키지에 통합되어 있습니다.
 
-> **참고**: 패키지 버전에 따라 GUID가 다를 수 있습니다. 사용 중인 프로젝트에서 직접 추출하는 것을 권장합니다.
+#### 기본 UI 컴포넌트
+
+| 컴포넌트 | GUID | 설명 |
+|----------|------|------|
+| Image | `fe87c0e1cc204ed48ad3b37840f39efc` | UI 이미지 |
+| Button | `4e29b1a8efbd4b44bb3f3716e73f07ff` | 버튼 |
+| ScrollRect | `1aa08ab6e0800fa44ae55d278d1423e3` | 스크롤 뷰 |
+| Mask | `31a19414c41e5ae4aae2af33fee712f6` | 마스크 |
+| RectMask2D | `3312d7739989d2b4e91e6319e9a96d76` | 2D 마스크 |
+| GraphicRaycaster | `dc42784cf147c0c48a680349fa168899` | UI 레이캐스트 |
+| CanvasScaler | `0cd44c1031e13a943bb63640046fad76` | 캔버스 스케일러 |
+
+#### 레이아웃 컴포넌트
+
+| 컴포넌트 | GUID | 설명 |
+|----------|------|------|
+| VerticalLayoutGroup | `59f8146938fff824cb5fd77236b75775` | 세로 레이아웃 |
+| HorizontalLayoutGroup | `30649d3a9faa99c48a7b1166b86bf2a0` | 가로 레이아웃 |
+| ContentSizeFitter | `3245ec927659c4140ac4f8d17403cc18` | 콘텐츠 크기 맞춤 |
+
+#### TextMeshPro 컴포넌트
+
+| 컴포넌트 | GUID | 설명 |
+|----------|------|------|
+| TextMeshProUGUI | `f4688fdb7df04437aeb418b961361dc5` | TMP 텍스트 (UI) |
+| TMP_InputField | `2da0c512f12947e489f739169773d7ca` | TMP 입력 필드 |
+
+#### EventSystem 컴포넌트
+
+⚠️ **중요**: UI가 클릭에 반응하려면 씬에 반드시 **EventSystem**이 있어야 합니다. Canvas를 배치하기 전에 EventSystem이 있는지 확인하세요.
+
+| 컴포넌트 | GUID | 패키지 |
+|----------|------|--------|
+| EventSystem | `76c392e42b5098c458856cdf6ecaaaa1` | com.unity.ugui |
+| InputSystemUIInputModule | `01614664b831546d2ae94a42149d80ac` | com.unity.inputsystem |
+
+> **참고**: Unity 6+의 새 Input System을 사용하는 경우 `InputSystemUIInputModule`을 사용합니다. 레거시 Input Manager를 사용하는 경우 `StandaloneInputModule`(GUID: `4f231c4fb786f3946a6b90b886c48677`)을 대신 사용합니다.
+
+### 렌더링 컴포넌트 GUID
+
+| 패키지 | 컴포넌트 | GUID |
+|--------|----------|------|
+| URP 2D | Light2D | `073797afb82c5a1438f328866b10b3f0` |
+
+> **참고**: 패키지 버전에 따라 GUID가 다를 수 있습니다. 아래 방법으로 직접 추출할 수 있습니다.
 
 ### GUID 발견 방법
 
-패키지 컴포넌트의 GUID를 찾는 방법:
+새 프로젝트에서 패키지 컴포넌트의 GUID를 찾는 방법:
+
+#### 방법 0: 패키지 폴더에서 직접 추출 (가장 확실)
+
+Unity 패키지들은 `Library/PackageCache/` 폴더에 저장됩니다. 폴더명에 버전 해시가 포함되어 있습니다:
+
+```bash
+# 패키지 폴더 확인
+ls Library/PackageCache/ | grep ugui
+# 출력: com.unity.ugui@aa507f3228f0
+
+# 특정 컴포넌트의 GUID 직접 확인
+grep "guid:" "Library/PackageCache/com.unity.ugui@*/Runtime/UGUI/UI/Core/Button.cs.meta"
+# 출력: guid: 4e29b1a8efbd4b44bb3f3716e73f07ff
+
+# TMP 컴포넌트 확인
+grep "guid:" "Library/PackageCache/com.unity.ugui@*/Runtime/TMP/TextMeshProUGUI.cs.meta"
+# 출력: guid: f4688fdb7df04437aeb418b961361dc5
+```
+
+**주요 패키지 경로:**
+
+| 패키지 | 경로 |
+|--------|------|
+| UGUI | `Library/PackageCache/com.unity.ugui@*/Runtime/UGUI/UI/Core/` |
+| TMP | `Library/PackageCache/com.unity.ugui@*/Runtime/TMP/` |
+| URP 2D | `Library/PackageCache/com.unity.render-pipelines.universal@*/Runtime/2D/` |
 
 #### 방법 1: scan-scripts 명령어 사용 (권장, 자동화)
 
@@ -583,6 +649,132 @@ doc.add_object(light2d)
 doc.save("Scene_with_light.unity")
 ```
 
+#### EventSystem 생성 (UI 필수 요소)
+
+⚠️ **Canvas를 생성하기 전에 반드시 EventSystem이 있는지 확인하세요!** EventSystem이 없으면 UI 버튼 클릭 등이 작동하지 않습니다.
+
+```python
+from prefab_tool.parser import (
+    UnityYAMLDocument,
+    create_game_object,
+    create_transform,
+    create_mono_behaviour,
+)
+
+def ensure_event_system(doc):
+    """씬에 EventSystem이 없으면 생성"""
+
+    # EventSystem이 이미 있는지 확인
+    for obj in doc.get_game_objects():
+        content = obj.get_content()
+        if content.get('m_Name') == 'EventSystem':
+            print("EventSystem already exists")
+            return None
+
+    # EventSystem 생성
+    go_id = doc.generate_unique_file_id()
+    transform_id = doc.generate_unique_file_id()
+    eventsystem_id = doc.generate_unique_file_id()
+    inputmodule_id = doc.generate_unique_file_id()
+
+    # GameObject
+    go = create_game_object(
+        name="EventSystem",
+        file_id=go_id,
+        layer=0,
+        components=[transform_id, eventsystem_id, inputmodule_id],
+    )
+
+    # Transform
+    transform = create_transform(
+        game_object_id=go_id,
+        file_id=transform_id,
+    )
+
+    # EventSystem 컴포넌트
+    eventsystem = create_mono_behaviour(
+        game_object_id=go_id,
+        script_guid="76c392e42b5098c458856cdf6ecaaaa1",  # EventSystem
+        file_id=eventsystem_id,
+        enabled=True,
+        properties={
+            "m_FirstSelected": {"fileID": 0},
+            "m_sendNavigationEvents": 1,
+            "m_DragThreshold": 10,
+        },
+    )
+
+    # InputSystemUIInputModule 컴포넌트 (Unity 6+ 새 Input System)
+    # UI 기본 입력 액션 에셋 GUID: ca9f5fa95ffab41fb9a615ab714db018
+    input_actions_guid = "ca9f5fa95ffab41fb9a615ab714db018"
+    inputmodule = create_mono_behaviour(
+        game_object_id=go_id,
+        script_guid="01614664b831546d2ae94a42149d80ac",  # InputSystemUIInputModule
+        file_id=inputmodule_id,
+        enabled=True,
+        properties={
+            "m_SendPointerHoverToParent": 1,
+            "m_MoveRepeatDelay": 0.5,
+            "m_MoveRepeatRate": 0.1,
+            "m_XRTrackingOrigin": {"fileID": 0},
+            "m_ActionsAsset": {"fileID": -944628639613478452, "guid": input_actions_guid, "type": 3},
+            "m_PointAction": {"fileID": -1654692200621890270, "guid": input_actions_guid, "type": 3},
+            "m_MoveAction": {"fileID": -8784545083839296357, "guid": input_actions_guid, "type": 3},
+            "m_SubmitAction": {"fileID": 392368643174621059, "guid": input_actions_guid, "type": 3},
+            "m_CancelAction": {"fileID": 7727032971491509709, "guid": input_actions_guid, "type": 3},
+            "m_LeftClickAction": {"fileID": 3001919216989983466, "guid": input_actions_guid, "type": 3},
+            "m_MiddleClickAction": {"fileID": -2185481485913320682, "guid": input_actions_guid, "type": 3},
+            "m_RightClickAction": {"fileID": -4090225696740746782, "guid": input_actions_guid, "type": 3},
+            "m_ScrollWheelAction": {"fileID": 6240969308177333660, "guid": input_actions_guid, "type": 3},
+            "m_TrackedDevicePositionAction": {"fileID": 6564999863303420839, "guid": input_actions_guid, "type": 3},
+            "m_TrackedDeviceOrientationAction": {"fileID": 7970375526676320489, "guid": input_actions_guid, "type": 3},
+            "m_DeselectOnBackgroundClick": 1,
+            "m_PointerBehavior": 0,
+            "m_CursorLockBehavior": 0,
+            "m_ScrollDeltaPerTick": 6,
+        },
+    )
+
+    doc.add_object(go)
+    doc.add_object(transform)
+    doc.add_object(eventsystem)
+    doc.add_object(inputmodule)
+
+    print("EventSystem created")
+    return go_id
+
+# 사용 예시
+doc = UnityYAMLDocument.load("Scene.unity")
+ensure_event_system(doc)
+# ... Canvas 및 UI 요소 생성 ...
+doc.save("Scene.unity")
+```
+
+### UI 씬 설정 체크리스트
+
+UI가 포함된 씬을 생성할 때 다음 순서를 따르세요:
+
+1. **EventSystem 확인/생성** - UI 입력 처리를 위해 필수
+2. **Canvas 생성** - CanvasScaler, GraphicRaycaster 포함
+3. **UI 요소 배치** - Button, Image, Text 등
+
+```python
+# 완전한 UI 씬 설정 예시
+doc = UnityYAMLDocument.load("Scene.unity")
+
+# 1. EventSystem (없으면 생성)
+ensure_event_system(doc)
+
+# 2. Canvas 생성
+canvas_go_id = doc.generate_unique_file_id()
+# ... Canvas, CanvasScaler, GraphicRaycaster 생성 ...
+
+# 3. UI 요소 생성
+# ... Button, Image, Text 등 ...
+
+doc.save("Scene.unity")
+```
+
 ### Light2D 타입 상수
 
 | 값 | 타입 | 설명 |
@@ -615,6 +807,230 @@ for file_id, comp in prefab_json.components.items():
             print(f"=== Component: {file_id} ===")
             print(f"GUID: {guid}")
             print(f"Properties: {json.dumps(comp.get('properties', {}), indent=2)}")
+```
+
+---
+
+## 프리팹 참조 연결하기
+
+MonoBehaviour의 프리팹 배열 필드(`GameObject[]` 등)에 프리팹을 연결할 때는 올바른 형식을 사용해야 합니다.
+
+### 프리팹 참조 형식
+
+프리팹 참조는 3가지 값으로 구성됩니다:
+
+```json
+{
+  "fileID": 3538220432101258543,  // 프리팹 내부 root GameObject의 fileID
+  "guid": "abd4ca9175669424ea5690fa080e9251",  // 프리팹 .meta 파일의 GUID
+  "type": 3  // PrefabInstance 타입
+}
+```
+
+### 중요: fileID는 프리팹마다 다름!
+
+⚠️ **각 프리팹은 고유한 root fileID를 가집니다.** 모든 프리팹에 동일한 fileID(예: `5355583096506721055`)를 사용하면 "missing" 오류가 발생합니다.
+
+### fileID 추출 방법
+
+프리팹의 root fileID는 프리팹 파일 내부에 저장되어 있습니다:
+
+```bash
+# 프리팹을 JSON으로 내보내기
+prefab-tool export "Assets/Prefabs/MyPrefab.prefab" --output temp.json
+
+# Python으로 root fileID 추출
+python -c "
+import json
+with open('temp.json', 'r') as f:
+    data = json.load(f)
+gos = data.get('gameObjects', {})
+if gos:
+    root_file_id = list(gos.keys())[0]
+    print(f'Root fileID: {root_file_id}')
+"
+```
+
+### 일괄 추출 예시
+
+여러 프리팹의 fileID와 GUID를 한번에 추출:
+
+```python
+import json
+import os
+import subprocess
+
+def get_prefab_ref(prefab_path):
+    """프리팹의 참조 정보(fileID, guid) 추출"""
+    # GUID는 .meta 파일에서 추출
+    meta_path = f"{prefab_path}.meta"
+    guid = None
+    if os.path.exists(meta_path):
+        with open(meta_path, 'r') as f:
+            for line in f:
+                if line.startswith('guid:'):
+                    guid = line.split(':')[1].strip()
+                    break
+
+    # fileID는 프리팹 내부에서 추출
+    subprocess.run(['prefab-tool', 'export', prefab_path, '--output', 'temp.json'],
+                   capture_output=True)
+
+    file_id = None
+    if os.path.exists('temp.json'):
+        with open('temp.json', 'r') as f:
+            data = json.load(f)
+        gos = data.get('gameObjects', {})
+        if gos:
+            file_id = int(list(gos.keys())[0])
+        os.remove('temp.json')
+
+    return {
+        "fileID": file_id,
+        "guid": guid,
+        "type": 3
+    }
+
+# 사용 예시
+ref = get_prefab_ref("Assets/Prefabs/Player.prefab")
+print(ref)
+# 출력: {"fileID": 1234567890123456789, "guid": "abc123...", "type": 3}
+```
+
+### MonoBehaviour에 프리팹 배열 연결
+
+씬이나 프리팹의 MonoBehaviour에 프리팹 배열을 연결하는 전체 예시:
+
+```python
+import json
+import subprocess
+
+# 1. 씬 내보내기
+subprocess.run(['prefab-tool', 'export', 'Assets/Scenes/Main.unity',
+                '--output', 'scene.json'])
+
+with open('scene.json', 'r', encoding='utf-8') as f:
+    scene = json.load(f)
+
+# 2. 대상 MonoBehaviour 찾기 (scriptRef의 guid로 식별)
+target_guid = "YOUR_SCRIPT_GUID"
+target_component_id = None
+
+for file_id, comp in scene.get('components', {}).items():
+    if isinstance(comp, dict):
+        script_ref = comp.get('scriptRef', {})
+        if script_ref.get('guid') == target_guid:
+            target_component_id = file_id
+            break
+
+# 3. 프리팹 참조 배열 생성
+prefab_refs = [
+    {"fileID": 3538220432101258543, "guid": "abd4ca917...", "type": 3},
+    {"fileID": 1278814736312916979, "guid": "9e7ddb713...", "type": 3},
+]
+
+# 4. 프로퍼티 업데이트
+scene['components'][target_component_id]['properties']['myPrefabArray'] = prefab_refs
+
+# 5. 저장 및 임포트
+with open('scene.json', 'w', encoding='utf-8') as f:
+    json.dump(scene, f, indent=2)
+
+subprocess.run(['prefab-tool', 'import', 'scene.json',
+                '--output', 'Assets/Scenes/Main.unity'])
+```
+
+---
+
+## 에셋 참조 연결하기
+
+MonoBehaviour 필드에 AudioClip, ScriptableObject 등의 에셋을 연결할 때는 에셋 타입별로 올바른 fileID를 사용해야 합니다.
+
+### 에셋 타입별 fileID
+
+⚠️ **중요**: fileID는 에셋 타입에 따라 다릅니다. 잘못된 fileID를 사용하면 "Missing" 오류가 발생합니다.
+
+| 에셋 타입 | fileID | type | 설명 |
+|----------|--------|------|------|
+| AudioClip (.wav, .mp3, .ogg) | `8300000` | 3 | 오디오 파일 |
+| ScriptableObject (.asset) | `11400000` | 2 | ScriptableObject 에셋 |
+| Prefab (.prefab) | 프리팹별 다름 | 3 | 프리팹의 root GameObject fileID |
+| Texture2D (.png, .jpg) | `2800000` | 3 | 텍스처 파일 |
+| Sprite | `21300000` | 3 | 스프라이트 (텍스처에서 추출) |
+| Material (.mat) | `2100000` | 2 | 머티리얼 |
+
+### AudioClip 참조 예시
+
+```json
+{
+  "fileID": 8300000,
+  "guid": "64f4d9eeadd03cf428c0a0b29e82648a",
+  "type": 3
+}
+```
+
+### ScriptableObject 참조 예시
+
+```json
+{
+  "fileID": 11400000,
+  "guid": "5b6d5b5cf85254e4b9a4133a62f8488e",
+  "type": 2
+}
+```
+
+### GUID 추출 방법
+
+에셋의 GUID는 `.meta` 파일에서 추출합니다:
+
+```bash
+# 단일 파일
+grep "guid:" "Assets/Audio/Drum/kick-808.wav.meta"
+# 출력: guid: 64f4d9eeadd03cf428c0a0b29e82648a
+
+# 여러 파일 한번에
+grep -r "guid:" Assets/Audio/Drum/*.meta | head -10
+```
+
+### AudioClip 배열 연결 예시
+
+```python
+import json
+import subprocess
+
+# 씬 내보내기
+subprocess.run(['prefab-tool', 'export', 'Assets/Scenes/Main.unity', '-o', 'scene.json'])
+
+with open('scene.json', 'r', encoding='utf-8') as f:
+    scene = json.load(f)
+
+# AudioManager 컴포넌트 찾아서 drumKit 설정
+for comp_id, comp in scene.get('components', {}).items():
+    if comp.get('classId') == 114:
+        props = comp.get('properties', {})
+        if 'drumKit' in props:
+            # AudioClip 참조: fileID는 8300000!
+            props['drumKit']['kick'] = {
+                'fileID': 8300000,
+                'guid': '64f4d9eeadd03cf428c0a0b29e82648a',
+                'type': 3
+            }
+            props['drumKit']['snare'] = {
+                'fileID': 8300000,
+                'guid': '8ef0341c78f36174990a9595639302d0',
+                'type': 3
+            }
+            # ... 나머지 클립들
+
+            # _rawFields도 동일하게 업데이트
+            if comp_id in scene.get('_rawFields', {}):
+                scene['_rawFields'][comp_id]['drumKit'] = props['drumKit']
+            break
+
+with open('scene.json', 'w', encoding='utf-8') as f:
+    json.dump(scene, f, indent=2)
+
+subprocess.run(['prefab-tool', 'import', 'scene.json', '-o', 'Assets/Scenes/Main.unity'])
 ```
 
 ---
