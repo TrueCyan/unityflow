@@ -2311,6 +2311,91 @@ def scan_meta(
                 click.echo(f"| {r['name']} | `{r['guid']}` |")
 
 
+@main.command(name="parse-script")
+@click.argument("script_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+def parse_script_cmd(
+    script_path: Path,
+    output_format: str,
+) -> None:
+    """Parse a C# script and show serialized field order.
+
+    Extracts serialized fields from MonoBehaviour or ScriptableObject scripts
+    and shows them in declaration order. Useful for understanding the expected
+    field order in Unity YAML files.
+
+    Examples:
+
+        # Parse a script and show field order
+        prefab-tool parse-script Assets/Scripts/Player.cs
+
+        # Output as JSON
+        prefab-tool parse-script Assets/Scripts/Player.cs --format json
+    """
+    from prefab_tool.script_parser import parse_script_file
+    import json
+
+    info = parse_script_file(script_path)
+
+    if info is None:
+        click.echo(f"Error: Failed to parse {script_path}", err=True)
+        click.echo("Make sure it's a valid C# class file.", err=True)
+        sys.exit(1)
+
+    if output_format == "json":
+        output_data = {
+            "path": str(script_path),
+            "className": info.class_name,
+            "namespace": info.namespace,
+            "baseClass": info.base_class,
+            "fields": [
+                {
+                    "name": f.name,
+                    "unityName": f.unity_name,
+                    "type": f.field_type,
+                    "isPublic": f.is_public,
+                    "hasSerializeField": f.has_serialize_field,
+                    "lineNumber": f.line_number,
+                }
+                for f in info.fields
+            ],
+            "fieldOrder": info.get_field_order(),
+        }
+        click.echo(json.dumps(output_data, indent=2))
+    else:
+        click.echo(f"Script: {script_path}")
+        click.echo(f"Class: {info.class_name}")
+        if info.namespace:
+            click.echo(f"Namespace: {info.namespace}")
+        if info.base_class:
+            click.echo(f"Base Class: {info.base_class}")
+        click.echo()
+
+        if not info.fields:
+            click.echo("No serialized fields found.")
+            return
+
+        click.echo(f"Serialized Fields ({len(info.fields)}):")
+        click.echo("-" * 60)
+        click.echo(f"{'#':<4} {'Name':<25} {'Unity Name':<25} {'Type'}")
+        click.echo("-" * 60)
+
+        for i, f in enumerate(info.fields, 1):
+            access = "public" if f.is_public else "[SerializeField]"
+            click.echo(f"{i:<4} {f.name:<25} {f.unity_name:<25} {f.field_type}")
+
+        click.echo()
+        click.echo("Expected field order in Unity YAML:")
+        for name in info.get_field_order():
+            click.echo(f"  - {name}")
+
+
 @main.command(name="setup")
 @click.option(
     "--global",

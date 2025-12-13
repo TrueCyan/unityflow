@@ -44,6 +44,15 @@ from prefab_tool.query import (
     get_value,
     merge_values,
 )
+from prefab_tool.script_parser import (
+    ScriptInfo,
+    SerializedField,
+    ScriptFieldCache,
+    parse_script,
+    parse_script_file,
+    get_script_field_order,
+    reorder_fields,
+)
 
 __all__ = [
     # Classes
@@ -56,6 +65,10 @@ __all__ = [
     "AssetReference",
     "DependencyReport",
     "GUIDIndex",
+    # Script parsing classes
+    "ScriptInfo",
+    "SerializedField",
+    "ScriptFieldCache",
     # Functions
     "get_changed_files",
     "get_files_changed_since",
@@ -73,6 +86,11 @@ __all__ = [
     "find_references_to_asset",
     "find_unity_project_root",
     "get_file_dependencies",
+    # Script parsing functions
+    "parse_script",
+    "parse_script_file",
+    "get_script_field_order",
+    "reorder_fields",
     # Extension sets
     "UNITY_EXTENSIONS",
     "UNITY_CORE_EXTENSIONS",
