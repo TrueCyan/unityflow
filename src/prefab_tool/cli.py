@@ -189,6 +189,16 @@ def main() -> None:
     is_flag=True,
     help="Modify files in place (same as not specifying -o)",
 )
+@click.option(
+    "--reorder-fields",
+    is_flag=True,
+    help="Reorder MonoBehaviour fields according to C# script declaration order",
+)
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, path_type=Path),
+    help="Unity project root for script resolution (auto-detected if not specified)",
+)
 def normalize(
     input_files: tuple[Path, ...],
     output: Path | None,
@@ -208,6 +218,8 @@ def normalize(
     progress: bool,
     parallel_jobs: int,
     in_place: bool,
+    reorder_fields: bool,
+    project_root: Path | None,
 ) -> None:
     """Normalize Unity YAML files for deterministic serialization.
 
@@ -246,6 +258,14 @@ def normalize(
 
         # Dry run to see what would be normalized
         prefab-tool normalize --changed-only --dry-run
+
+    Script-based field ordering:
+
+        # Reorder MonoBehaviour fields according to C# script declaration order
+        prefab-tool normalize Player.prefab --reorder-fields
+
+        # With explicit project root
+        prefab-tool normalize Player.prefab --reorder-fields --project-root /path/to/unity/project
     """
     # Collect files to normalize
     files_to_normalize: list[Path] = []
@@ -328,6 +348,8 @@ def normalize(
         "use_hex_floats": hex_floats,
         "normalize_quaternions": not no_normalize_quaternions,
         "float_precision": precision,
+        "reorder_script_fields": reorder_fields,
+        "project_root": project_root,
     }
 
     normalizer = UnityPrefabNormalizer(**normalizer_kwargs)
@@ -788,8 +810,15 @@ def import_json(
 @click.option(
     "--value",
     "-v",
-    required=True,
+    default=None,
     help="Value to set (JSON format for complex values)",
+)
+@click.option(
+    "--batch",
+    "-b",
+    "batch_values_json",
+    default=None,
+    help="JSON object with multiple key-value pairs to set at once",
 )
 @click.option(
     "-o",
@@ -797,11 +826,19 @@ def import_json(
     type=click.Path(path_type=Path),
     help="Output file (default: modify in place)",
 )
+@click.option(
+    "--create",
+    "-c",
+    is_flag=True,
+    help="Create the path if it doesn't exist (upsert behavior)",
+)
 def set_value_cmd(
     file: Path,
     set_path: str,
-    value: str,
+    value: str | None,
+    batch_values_json: str | None,
     output: Path | None,
+    create: bool,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
@@ -824,10 +861,37 @@ def set_value_cmd(
             --path "components/12345/localScale" \\
             --value '{"x": 2, "y": 2, "z": 2}' \\
             -o Player_modified.prefab
+
+        # Create a new field if it doesn't exist
+        prefab-tool set Scene.unity \\
+            --path "components/495733805/portalAPrefab" \\
+            --value '{"fileID": 123, "guid": "abc", "type": 3}' \\
+            --create
+
+        # Set multiple fields at once (batch mode)
+        prefab-tool set Scene.unity \\
+            --path "components/495733805" \\
+            --batch '{
+                "portalAPrefab": {"fileID": 123, "guid": "abc", "type": 3},
+                "portalBPrefab": {"fileID": 456, "guid": "def", "type": 3}
+            }' \\
+            --create
+
+    Note:
+        New fields are appended at the end. Unity will reorder fields
+        according to the C# script declaration order when saved in editor.
     """
     from prefab_tool.parser import UnityYAMLDocument
-    from prefab_tool.query import set_value
+    from prefab_tool.query import set_value, merge_values
     import json
+
+    # Validate options
+    if value is None and batch_values_json is None:
+        click.echo("Error: Either --value or --batch is required", err=True)
+        sys.exit(1)
+    if value is not None and batch_values_json is not None:
+        click.echo("Error: Cannot use both --value and --batch", err=True)
+        sys.exit(1)
 
     try:
         doc = UnityYAMLDocument.load(file)
@@ -835,23 +899,48 @@ def set_value_cmd(
         click.echo(f"Error: Failed to load {file}: {e}", err=True)
         sys.exit(1)
 
-    # Parse the value
-    try:
-        parsed_value = json.loads(value)
-    except json.JSONDecodeError:
-        # Try as raw string
-        parsed_value = value
+    output_path = output or file
 
-    # Set the value
-    if set_value(doc, set_path, parsed_value):
-        output_path = output or file
+    if batch_values_json is not None:
+        # Batch mode
+        try:
+            parsed_values = json.loads(batch_values_json)
+        except json.JSONDecodeError as e:
+            click.echo(f"Error: Invalid JSON for --batch: {e}", err=True)
+            sys.exit(1)
+
+        if not isinstance(parsed_values, dict):
+            click.echo("Error: --batch value must be a JSON object", err=True)
+            sys.exit(1)
+
+        updated, created = merge_values(doc, set_path, parsed_values, create=create)
+
+        if updated == 0 and created == 0:
+            click.echo(f"Error: Path not found or no fields set: {set_path}", err=True)
+            sys.exit(1)
+
         doc.save(output_path)
-        click.echo(f"Set {set_path} = {value}")
-        if output:
-            click.echo(f"Saved to: {output}")
+        click.echo(f"Set {updated + created} fields at {set_path}")
+        click.echo(f"  Updated: {updated}, Created: {created}")
     else:
-        click.echo(f"Error: Path not found: {set_path}", err=True)
-        sys.exit(1)
+        # Single value mode
+        try:
+            parsed_value = json.loads(value)
+        except json.JSONDecodeError:
+            parsed_value = value
+
+        if set_value(doc, set_path, parsed_value, create=create):
+            doc.save(output_path)
+            if create:
+                click.echo(f"Set (upsert) {set_path} = {value}")
+            else:
+                click.echo(f"Set {set_path} = {value}")
+        else:
+            click.echo(f"Error: Path not found: {set_path}", err=True)
+            sys.exit(1)
+
+    if output:
+        click.echo(f"Saved to: {output}")
 
 
 @main.command(name="git-textconv")
@@ -2242,6 +2331,91 @@ def scan_meta(
             click.echo("|--------|------|")
             for r in sorted(scripts, key=lambda x: x["name"]):
                 click.echo(f"| {r['name']} | `{r['guid']}` |")
+
+
+@main.command(name="parse-script")
+@click.argument("script_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+def parse_script_cmd(
+    script_path: Path,
+    output_format: str,
+) -> None:
+    """Parse a C# script and show serialized field order.
+
+    Extracts serialized fields from MonoBehaviour or ScriptableObject scripts
+    and shows them in declaration order. Useful for understanding the expected
+    field order in Unity YAML files.
+
+    Examples:
+
+        # Parse a script and show field order
+        prefab-tool parse-script Assets/Scripts/Player.cs
+
+        # Output as JSON
+        prefab-tool parse-script Assets/Scripts/Player.cs --format json
+    """
+    from prefab_tool.script_parser import parse_script_file
+    import json
+
+    info = parse_script_file(script_path)
+
+    if info is None:
+        click.echo(f"Error: Failed to parse {script_path}", err=True)
+        click.echo("Make sure it's a valid C# class file.", err=True)
+        sys.exit(1)
+
+    if output_format == "json":
+        output_data = {
+            "path": str(script_path),
+            "className": info.class_name,
+            "namespace": info.namespace,
+            "baseClass": info.base_class,
+            "fields": [
+                {
+                    "name": f.name,
+                    "unityName": f.unity_name,
+                    "type": f.field_type,
+                    "isPublic": f.is_public,
+                    "hasSerializeField": f.has_serialize_field,
+                    "lineNumber": f.line_number,
+                }
+                for f in info.fields
+            ],
+            "fieldOrder": info.get_field_order(),
+        }
+        click.echo(json.dumps(output_data, indent=2))
+    else:
+        click.echo(f"Script: {script_path}")
+        click.echo(f"Class: {info.class_name}")
+        if info.namespace:
+            click.echo(f"Namespace: {info.namespace}")
+        if info.base_class:
+            click.echo(f"Base Class: {info.base_class}")
+        click.echo()
+
+        if not info.fields:
+            click.echo("No serialized fields found.")
+            return
+
+        click.echo(f"Serialized Fields ({len(info.fields)}):")
+        click.echo("-" * 60)
+        click.echo(f"{'#':<4} {'Name':<25} {'Unity Name':<25} {'Type'}")
+        click.echo("-" * 60)
+
+        for i, f in enumerate(info.fields, 1):
+            access = "public" if f.is_public else "[SerializeField]"
+            click.echo(f"{i:<4} {f.name:<25} {f.unity_name:<25} {f.field_type}")
+
+        click.echo()
+        click.echo("Expected field order in Unity YAML:")
+        for name in info.get_field_order():
+            click.echo(f"  - {name}")
 
 
 @main.command(name="setup")

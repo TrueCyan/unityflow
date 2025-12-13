@@ -6,7 +6,8 @@ Implements deterministic serialization for Unity YAML files by:
 3. Sorting order-independent arrays (m_Component, m_Children) by fileID
 4. Normalizing floating-point values
 5. Normalizing quaternions (w >= 0)
-6. Preserving original fileIDs for external reference compatibility
+6. Reordering MonoBehaviour fields according to C# script declaration order
+7. Preserving original fileIDs for external reference compatibility
 """
 
 from __future__ import annotations
@@ -58,6 +59,8 @@ class UnityPrefabNormalizer:
         use_hex_floats: bool = False,  # Default to decimal for readability
         normalize_quaternions: bool = True,
         float_precision: int = 6,
+        reorder_script_fields: bool = False,
+        project_root: str | Path | None = None,
     ):
         """Initialize the normalizer.
 
@@ -68,6 +71,8 @@ class UnityPrefabNormalizer:
             use_hex_floats: Use IEEE 754 hex format for floats (lossless but less readable)
             normalize_quaternions: Ensure quaternion w >= 0
             float_precision: Decimal places for float normalization (if not using hex)
+            reorder_script_fields: Reorder MonoBehaviour fields according to C# script
+            project_root: Unity project root for script resolution (auto-detected if None)
         """
         self.sort_documents = sort_documents
         self.sort_modifications = sort_modifications
@@ -75,6 +80,10 @@ class UnityPrefabNormalizer:
         self.use_hex_floats = use_hex_floats
         self.normalize_quaternions = normalize_quaternions
         self.float_precision = float_precision
+        self.reorder_script_fields = reorder_script_fields
+        self.project_root = Path(project_root) if project_root else None
+        self._script_cache: Any = None  # Lazy initialized ScriptFieldCache
+        self._guid_index: Any = None  # Lazy initialized GUIDIndex
 
     def normalize_file(self, input_path: str | Path, output_path: str | Path | None = None) -> str:
         """Normalize a Unity YAML file.
@@ -86,6 +95,13 @@ class UnityPrefabNormalizer:
         Returns:
             The normalized YAML content
         """
+        input_path = Path(input_path)
+
+        # Auto-detect project root if not specified and reorder_script_fields is enabled
+        if self.reorder_script_fields and self.project_root is None:
+            from prefab_tool.asset_tracker import find_unity_project_root
+            self.project_root = find_unity_project_root(input_path)
+
         doc = UnityYAMLDocument.load(input_path)
         self.normalize_document(doc)
 
@@ -120,8 +136,72 @@ class UnityPrefabNormalizer:
         if self.sort_modifications and "m_Modification" in content:
             self._sort_modifications(content["m_Modification"])
 
+        # Reorder MonoBehaviour fields according to C# script declaration order
+        if self.reorder_script_fields and obj.class_id == 114:  # MonoBehaviour
+            self._reorder_monobehaviour_fields(obj)
+
         # Recursively normalize the data
         self._normalize_value(obj.data, parent_key=None)
+
+    def _reorder_monobehaviour_fields(self, obj: UnityYAMLObject) -> None:
+        """Reorder MonoBehaviour fields according to C# script declaration order.
+
+        Args:
+            obj: The MonoBehaviour object to reorder
+        """
+        content = obj.get_content()
+        if content is None:
+            return
+
+        # Get script reference
+        script_ref = content.get("m_Script")
+        if not isinstance(script_ref, dict):
+            return
+
+        script_guid = script_ref.get("guid")
+        if not script_guid:
+            return
+
+        # Get field order from script
+        field_order = self._get_script_field_order(script_guid)
+        if not field_order:
+            return
+
+        # Reorder the content fields
+        from prefab_tool.script_parser import reorder_fields
+        reordered = reorder_fields(content, field_order, unity_fields_first=True)
+
+        # Replace content in place
+        content.clear()
+        content.update(reordered)
+
+    def _get_script_field_order(self, script_guid: str) -> list[str] | None:
+        """Get field order for a script by GUID (with caching).
+
+        Args:
+            script_guid: The GUID of the script
+
+        Returns:
+            List of field names in declaration order, or None if not found
+        """
+        if self.project_root is None:
+            return None
+
+        # Lazy initialize cache
+        if self._script_cache is None:
+            from prefab_tool.script_parser import ScriptFieldCache
+            from prefab_tool.asset_tracker import build_guid_index
+
+            # Build GUID index if not already done
+            if self._guid_index is None:
+                self._guid_index = build_guid_index(self.project_root)
+
+            self._script_cache = ScriptFieldCache(
+                guid_index=self._guid_index,
+                project_root=self.project_root,
+            )
+
+        return self._script_cache.get_field_order(script_guid)
 
     def _sort_modifications(self, modification: dict[str, Any]) -> None:
         """Sort m_Modifications array for deterministic order."""

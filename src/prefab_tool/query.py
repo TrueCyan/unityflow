@@ -30,7 +30,7 @@ def query_path(doc: UnityYAMLDocument, path: str) -> list[QueryResult]:
         - gameObjects/12345/name - specific GameObject's name
         - components/*/type - all component types
         - components/12345/localPosition - specific component's position
-        - **\/m_Name - recursive search for m_Name
+        - **/m_Name - recursive search for m_Name
 
     Args:
         doc: The parsed Unity YAML document
@@ -178,16 +178,28 @@ def _query_recursive(
             _query_recursive(item, path_parts, new_path, results)
 
 
-def set_value(doc: UnityYAMLDocument, path: str, value: Any) -> bool:
+def set_value(
+    doc: UnityYAMLDocument,
+    path: str,
+    value: Any,
+    *,
+    create: bool = False,
+) -> bool:
     """Set a value at a specific path in the document.
 
     Args:
         doc: The Unity YAML document to modify
         path: The path to the value (e.g., "components/12345/localPosition")
         value: The new value to set
+        create: If True, create the path if it doesn't exist
 
     Returns:
         True if the value was set, False if path not found
+
+    Note:
+        When creating new fields, they are appended at the end. Unity will
+        reorder fields according to the C# script declaration order when
+        the file is saved in the editor.
     """
     parts = path.split("/")
 
@@ -217,9 +229,16 @@ def set_value(doc: UnityYAMLDocument, path: str, value: Any) -> bool:
         return False
 
     target = content
-    for part in property_path[:-1]:
-        if isinstance(target, dict) and part in target:
-            target = target[part]
+    for i, part in enumerate(property_path[:-1]):
+        if isinstance(target, dict):
+            if part in target:
+                target = target[part]
+            elif create:
+                # Create intermediate dict
+                target[part] = {}
+                target = target[part]
+            else:
+                return False
         elif isinstance(target, list) and part.isdigit():
             idx = int(part)
             if 0 <= idx < len(target):
@@ -233,15 +252,27 @@ def set_value(doc: UnityYAMLDocument, path: str, value: Any) -> bool:
     final_key = property_path[-1]
 
     if isinstance(target, dict):
+        # Check if key exists
+        key_exists = final_key in target
+
         # Convert JSON-style keys to Unity-style if needed
-        if final_key not in target:
+        if not key_exists:
             # Try m_FieldName format
             unity_key = f"m_{final_key[0].upper()}{final_key[1:]}"
             if unity_key in target:
                 final_key = unity_key
+                key_exists = True
 
-        target[final_key] = _convert_value(value)
-        return True
+        if key_exists:
+            # Update existing value
+            target[final_key] = _convert_value(value)
+            return True
+        elif create:
+            # Create new field (appended at end)
+            target[final_key] = _convert_value(value)
+            return True
+        else:
+            return False
     elif isinstance(target, list) and final_key.isdigit():
         idx = int(final_key)
         if 0 <= idx < len(target):
@@ -249,6 +280,93 @@ def set_value(doc: UnityYAMLDocument, path: str, value: Any) -> bool:
             return True
 
     return False
+
+
+def merge_values(
+    doc: UnityYAMLDocument,
+    path: str,
+    values: dict[str, Any],
+    *,
+    create: bool = True,
+) -> tuple[int, int]:
+    """Merge multiple values into a target path in the document.
+
+    This is useful for batch inserting multiple fields at once.
+
+    Args:
+        doc: The Unity YAML document to modify
+        path: The path to the target dict (e.g., "components/12345")
+        values: Dictionary of key-value pairs to merge
+        create: If True, create keys that don't exist
+
+    Returns:
+        Tuple of (updated_count, created_count)
+
+    Example:
+        merge_values(doc, "components/12345", {
+            "portalAPrefab": {"fileID": 123, "guid": "abc", "type": 3},
+            "portalBPrefab": {"fileID": 456, "guid": "def", "type": 3},
+            "rotationStep": 15
+        })
+    """
+    parts = path.split("/")
+
+    if len(parts) < 2:
+        return (0, 0)
+
+    file_id_str = parts[1]
+    property_path = parts[2:] if len(parts) > 2 else []
+
+    # Find the object
+    if not file_id_str.isdigit():
+        return (0, 0)
+
+    file_id = int(file_id_str)
+    obj = doc.get_by_file_id(file_id)
+
+    if obj is None:
+        return (0, 0)
+
+    content = obj.get_content()
+    if content is None:
+        return (0, 0)
+
+    # Navigate to the target
+    target = content
+    for part in property_path:
+        if isinstance(target, dict):
+            if part in target:
+                target = target[part]
+            elif create:
+                target[part] = {}
+                target = target[part]
+            else:
+                return (0, 0)
+        elif isinstance(target, list) and part.isdigit():
+            idx = int(part)
+            if 0 <= idx < len(target):
+                target = target[idx]
+            else:
+                return (0, 0)
+        else:
+            return (0, 0)
+
+    if not isinstance(target, dict):
+        return (0, 0)
+
+    updated_count = 0
+    created_count = 0
+
+    for key, value in values.items():
+        converted_value = _convert_value(value)
+        if key in target:
+            target[key] = converted_value
+            updated_count += 1
+        elif create:
+            target[key] = converted_value
+            created_count += 1
+
+    return (updated_count, created_count)
 
 
 def _convert_value(value: Any) -> Any:
