@@ -215,31 +215,6 @@ class TestSetValueCreate:
         assert pos["y"] == 88.0
         assert pos["z"] == 77.0
 
-    def test_create_with_after_option(self):
-        """Test creating a new field after a specific key."""
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
-
-        result = set_value(
-            doc,
-            "components/400000/customField",
-            42,
-            create=True,
-            after="m_LocalPosition",
-        )
-
-        assert result is True
-
-        transform = doc.get_by_file_id(400000)
-        content = transform.get_content()
-        assert "customField" in content
-        assert content["customField"] == 42
-
-        # Check ordering (customField should come after m_LocalPosition)
-        keys = list(content.keys())
-        pos_idx = keys.index("m_LocalPosition")
-        custom_idx = keys.index("customField")
-        assert custom_idx == pos_idx + 1
-
     def test_create_intermediate_path(self):
         """Test creating intermediate dicts in the path."""
         doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")

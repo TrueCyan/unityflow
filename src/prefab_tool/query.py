@@ -184,7 +184,6 @@ def set_value(
     value: Any,
     *,
     create: bool = False,
-    after: str | None = None,
 ) -> bool:
     """Set a value at a specific path in the document.
 
@@ -193,10 +192,14 @@ def set_value(
         path: The path to the value (e.g., "components/12345/localPosition")
         value: The new value to set
         create: If True, create the path if it doesn't exist
-        after: Key name after which to insert the new field (only used with create=True)
 
     Returns:
         True if the value was set, False if path not found
+
+    Note:
+        When creating new fields, they are appended at the end. Unity will
+        reorder fields according to the C# script declaration order when
+        the file is saved in the editor.
     """
     parts = path.split("/")
 
@@ -265,18 +268,8 @@ def set_value(
             target[final_key] = _convert_value(value)
             return True
         elif create:
-            # Create new field
-            if after:
-                # Insert after specific key
-                new_target = _insert_after_key(target, after, final_key, _convert_value(value))
-                # Update the parent to use the new ordered dict
-                if len(property_path) == 1:
-                    # We're at root level of content, update obj.data directly
-                    obj.data[obj.root_key] = new_target
-                else:
-                    _update_target_in_path(content, property_path[:-1], new_target)
-            else:
-                target[final_key] = _convert_value(value)
+            # Create new field (appended at end)
+            target[final_key] = _convert_value(value)
             return True
         else:
             return False
@@ -287,62 +280,6 @@ def set_value(
             return True
 
     return False
-
-
-def _insert_after_key(d: dict, after_key: str, new_key: str, new_value: Any) -> dict:
-    """Insert a new key-value pair after a specific key in a dict.
-
-    Args:
-        d: The dictionary to modify
-        after_key: The key after which to insert
-        new_key: The new key to insert
-        new_value: The value for the new key
-
-    Returns:
-        A new dictionary with the key inserted in the correct position
-    """
-    result = {}
-    inserted = False
-
-    for key, value in d.items():
-        result[key] = value
-        if key == after_key:
-            result[new_key] = new_value
-            inserted = True
-
-    # If after_key wasn't found, append at the end
-    if not inserted:
-        result[new_key] = new_value
-
-    return result
-
-
-def _update_target_in_path(content: dict, path_parts: list[str], new_target: dict) -> None:
-    """Update a nested target in the content dict with a new value.
-
-    Args:
-        content: The root content dict
-        path_parts: Path to the target (excluding the final key)
-        new_target: The new target dict to set
-    """
-    if not path_parts:
-        # Can't update root
-        return
-
-    current = content
-    for part in path_parts[:-1]:
-        if isinstance(current, dict) and part in current:
-            current = current[part]
-        elif isinstance(current, list) and part.isdigit():
-            current = current[int(part)]
-        else:
-            return
-
-    final_key = path_parts[-1]
-    if isinstance(current, dict):
-        current[final_key] = new_target
-    elif isinstance(current, list) and final_key.isdigit():
-        current[int(final_key)] = new_target
 
 
 def merge_values(
