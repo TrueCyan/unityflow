@@ -792,11 +792,11 @@ def import_json(
     help="Value to set (JSON format for complex values)",
 )
 @click.option(
-    "--merge",
-    "-m",
-    "merge_values_json",
+    "--batch",
+    "-b",
+    "batch_values_json",
     default=None,
-    help="JSON object with multiple key-value pairs to merge",
+    help="JSON object with multiple key-value pairs to set at once",
 )
 @click.option(
     "-o",
@@ -814,7 +814,7 @@ def set_value_cmd(
     file: Path,
     set_path: str,
     value: str | None,
-    merge_values_json: str | None,
+    batch_values_json: str | None,
     output: Path | None,
     create: bool,
 ) -> None:
@@ -846,10 +846,10 @@ def set_value_cmd(
             --value '{"fileID": 123, "guid": "abc", "type": 3}' \\
             --create
 
-        # Merge multiple fields at once
+        # Set multiple fields at once (batch mode)
         prefab-tool set Scene.unity \\
             --path "components/495733805" \\
-            --merge '{
+            --batch '{
                 "portalAPrefab": {"fileID": 123, "guid": "abc", "type": 3},
                 "portalBPrefab": {"fileID": 456, "guid": "def", "type": 3}
             }' \\
@@ -864,11 +864,11 @@ def set_value_cmd(
     import json
 
     # Validate options
-    if value is None and merge_values_json is None:
-        click.echo("Error: Either --value or --merge is required", err=True)
+    if value is None and batch_values_json is None:
+        click.echo("Error: Either --value or --batch is required", err=True)
         sys.exit(1)
-    if value is not None and merge_values_json is not None:
-        click.echo("Error: Cannot use both --value and --merge", err=True)
+    if value is not None and batch_values_json is not None:
+        click.echo("Error: Cannot use both --value and --batch", err=True)
         sys.exit(1)
 
     try:
@@ -879,26 +879,26 @@ def set_value_cmd(
 
     output_path = output or file
 
-    if merge_values_json is not None:
-        # Merge mode
+    if batch_values_json is not None:
+        # Batch mode
         try:
-            parsed_values = json.loads(merge_values_json)
+            parsed_values = json.loads(batch_values_json)
         except json.JSONDecodeError as e:
-            click.echo(f"Error: Invalid JSON for --merge: {e}", err=True)
+            click.echo(f"Error: Invalid JSON for --batch: {e}", err=True)
             sys.exit(1)
 
         if not isinstance(parsed_values, dict):
-            click.echo("Error: --merge value must be a JSON object", err=True)
+            click.echo("Error: --batch value must be a JSON object", err=True)
             sys.exit(1)
 
         updated, created = merge_values(doc, set_path, parsed_values, create=create)
 
         if updated == 0 and created == 0:
-            click.echo(f"Error: Path not found or no fields merged: {set_path}", err=True)
+            click.echo(f"Error: Path not found or no fields set: {set_path}", err=True)
             sys.exit(1)
 
         doc.save(output_path)
-        click.echo(f"Merged {updated + created} fields at {set_path}")
+        click.echo(f"Set {updated + created} fields at {set_path}")
         click.echo(f"  Updated: {updated}, Created: {created}")
     else:
         # Single value mode
