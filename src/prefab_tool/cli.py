@@ -189,6 +189,16 @@ def main() -> None:
     is_flag=True,
     help="Modify files in place (same as not specifying -o)",
 )
+@click.option(
+    "--reorder-fields",
+    is_flag=True,
+    help="Reorder MonoBehaviour fields according to C# script declaration order",
+)
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, path_type=Path),
+    help="Unity project root for script resolution (auto-detected if not specified)",
+)
 def normalize(
     input_files: tuple[Path, ...],
     output: Path | None,
@@ -208,6 +218,8 @@ def normalize(
     progress: bool,
     parallel_jobs: int,
     in_place: bool,
+    reorder_fields: bool,
+    project_root: Path | None,
 ) -> None:
     """Normalize Unity YAML files for deterministic serialization.
 
@@ -246,6 +258,14 @@ def normalize(
 
         # Dry run to see what would be normalized
         prefab-tool normalize --changed-only --dry-run
+
+    Script-based field ordering:
+
+        # Reorder MonoBehaviour fields according to C# script declaration order
+        prefab-tool normalize Player.prefab --reorder-fields
+
+        # With explicit project root
+        prefab-tool normalize Player.prefab --reorder-fields --project-root /path/to/unity/project
     """
     # Collect files to normalize
     files_to_normalize: list[Path] = []
@@ -328,6 +348,8 @@ def normalize(
         "use_hex_floats": hex_floats,
         "normalize_quaternions": not no_normalize_quaternions,
         "float_precision": precision,
+        "reorder_script_fields": reorder_fields,
+        "project_root": project_root,
     }
 
     normalizer = UnityPrefabNormalizer(**normalizer_kwargs)
