@@ -49,13 +49,16 @@ Unity YAML은 특수한 형식을 사용합니다:
 ```bash
 # 파일 통계 확인
 prefab-tool stats Player.prefab
+prefab-tool stats MainScene.unity
+prefab-tool stats GameConfig.asset
 
 # 구조 요약 보기
 prefab-tool query Player.prefab
+prefab-tool query MainScene.unity
 
 # 특정 데이터 쿼리
 prefab-tool query Player.prefab --path "gameObjects/*/name"
-prefab-tool query Player.prefab --path "components/*/type" --format json
+prefab-tool query MainScene.unity --path "components/*/type" --format json
 
 # 이름으로 GameObject 찾기 (와일드카드 지원)
 prefab-tool query Scene.unity --find-name "Player*"
@@ -166,9 +169,13 @@ prefab-tool sprite-info "Assets/Sprites/player.png"
 ```bash
 # JSON으로 내보내기
 prefab-tool export Player.prefab -o player.json
+prefab-tool export MainScene.unity -o scene.json
+prefab-tool export GameConfig.asset -o config.json
 
-# JSON 파일 편집 후 다시 프리팹으로 변환
+# JSON 파일 편집 후 다시 Unity 파일로 변환
 prefab-tool import player.json -o Player.prefab
+prefab-tool import scene.json -o MainScene.unity
+prefab-tool import config.json -o GameConfig.asset
 ```
 
 ### 검증 및 정규화
@@ -176,9 +183,12 @@ prefab-tool import player.json -o Player.prefab
 ```bash
 # 파일 검증
 prefab-tool validate Player.prefab
+prefab-tool validate MainScene.unity
+prefab-tool validate GameConfig.asset
 
 # 정규화 (Git 노이즈 제거) - 필드 정렬 기본 적용
 prefab-tool normalize Player.prefab
+prefab-tool normalize MainScene.unity
 ```
 
 ### GUID 조회
@@ -217,7 +227,7 @@ prefab-tool diff Player.prefab Player_backup.prefab
 
 ```json
 {
-  "prefabMetadata": {
+  "metadata": {
     "sourcePath": "Player.prefab",
     "objectCount": 15
   },
@@ -398,8 +408,10 @@ from prefab_tool.formats import (
     create_rect_transform_file_values,
 )
 
-# 파일 로드
+# Unity YAML 파일 로드 (.prefab, .unity, .asset)
 doc = UnityYAMLDocument.load("Player.prefab")
+doc = UnityYAMLDocument.load("MainScene.unity")
+doc = UnityYAMLDocument.load("GameConfig.asset")
 
 # 고유 ID 생성
 go_id = doc.generate_unique_file_id()
@@ -422,7 +434,7 @@ transform = create_transform(
 # 문서에 추가
 doc.add_object(go)
 doc.add_object(transform)
-doc.save("output.prefab")
+doc.save("output.prefab")  # 또는 .unity, .asset
 ```
 
 ### 앵커 프리셋 (RectTransform)

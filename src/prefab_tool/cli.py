@@ -86,10 +86,10 @@ def create_progress_bar(
 @click.group()
 @click.version_option(version=__version__, prog_name="prefab-tool")
 def main() -> None:
-    """Unity Prefab Deterministic Serializer.
+    """Unity YAML Deterministic Serializer.
 
-    A tool for canonical serialization of Unity YAML files to eliminate
-    non-deterministic changes and reduce VCS noise.
+    A tool for canonical serialization of Unity YAML files (.prefab, .unity,
+    .asset, etc.) to eliminate non-deterministic changes and reduce VCS noise.
     """
     pass
 
@@ -223,15 +223,17 @@ def normalize(
 ) -> None:
     """Normalize Unity YAML files for deterministic serialization.
 
-    INPUT_FILES are paths to prefab, scene, or asset files.
+    INPUT_FILES are paths to .prefab, .unity, .asset, or other Unity YAML files.
 
     Examples:
 
         # Normalize in place
         prefab-tool normalize Player.prefab
+        prefab-tool normalize MainScene.unity
+        prefab-tool normalize GameConfig.asset
 
         # Normalize multiple files
-        prefab-tool normalize *.prefab
+        prefab-tool normalize *.prefab *.unity *.asset
 
         # Normalize to a new file
         prefab-tool normalize Player.prefab -o Player.normalized.prefab
@@ -254,7 +256,7 @@ def normalize(
         prefab-tool normalize --since main
 
         # Filter by pattern
-        prefab-tool normalize --changed-only --pattern "Assets/Prefabs/**/*.prefab"
+        prefab-tool normalize --changed-only --pattern "Assets/**/*.unity"
 
         # Dry run to see what would be normalized
         prefab-tool normalize --changed-only --dry-run
@@ -551,9 +553,11 @@ def validate(
 
         # Validate a single file
         prefab-tool validate Player.prefab
+        prefab-tool validate MainScene.unity
+        prefab-tool validate GameConfig.asset
 
         # Validate multiple files
-        prefab-tool validate *.prefab
+        prefab-tool validate *.prefab *.unity *.asset
 
         # Strict validation (warnings are errors)
         prefab-tool validate Player.prefab --strict
@@ -955,8 +959,14 @@ def export(
 
     Examples:
 
-        # Export to JSON
+        # Export prefab to JSON
         prefab-tool export Player.prefab -o player.json
+
+        # Export scene to JSON
+        prefab-tool export MainScene.unity -o scene.json
+
+        # Export ScriptableObject to JSON
+        prefab-tool export GameConfig.asset -o config.json
 
         # Export to stdout
         prefab-tool export Player.prefab
@@ -1005,6 +1015,12 @@ def import_json(
 
         # Import JSON to prefab
         prefab-tool import player.json -o Player.prefab
+
+        # Import JSON to scene
+        prefab-tool import scene.json -o MainScene.unity
+
+        # Import JSON to ScriptableObject
+        prefab-tool import config.json -o GameConfig.asset
 
         # Round-trip workflow
         prefab-tool export Player.prefab -o player.json

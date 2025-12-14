@@ -65,7 +65,7 @@ class TestExportToJSON:
 
         # Should be valid JSON
         parsed = json.loads(json_str)
-        assert "prefabMetadata" in parsed
+        assert "metadata" in parsed
         assert "gameObjects" in parsed
         assert "components" in parsed
 
@@ -95,7 +95,7 @@ class TestPrefabJSON:
     def test_from_dict(self):
         """Test creating PrefabJSON from dict."""
         data = {
-            "prefabMetadata": {"objectCount": 2},
+            "metadata": {"objectCount": 2},
             "gameObjects": {"1": {"name": "Test"}},
             "components": {"2": {"type": "Transform"}},
             "_rawFields": {"1": {"extra": "data"}},
@@ -108,9 +108,21 @@ class TestPrefabJSON:
         assert result.components["2"]["type"] == "Transform"
         assert result.raw_fields["1"]["extra"] == "data"
 
+    def test_from_dict_legacy_key(self):
+        """Test creating PrefabJSON from dict with legacy prefabMetadata key."""
+        data = {
+            "prefabMetadata": {"objectCount": 2},
+            "gameObjects": {"1": {"name": "Test"}},
+            "components": {"2": {"type": "Transform"}},
+        }
+
+        result = PrefabJSON.from_dict(data)
+
+        assert result.metadata["objectCount"] == 2
+
     def test_from_json(self):
         """Test creating PrefabJSON from JSON string."""
-        json_str = '{"prefabMetadata": {}, "gameObjects": {"1": {"name": "X"}}, "components": {}}'
+        json_str = '{"metadata": {}, "gameObjects": {"1": {"name": "X"}}, "components": {}}'
 
         result = PrefabJSON.from_json(json_str)
 

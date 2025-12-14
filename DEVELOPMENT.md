@@ -112,7 +112,7 @@ file_vals = create_rect_transform_file_values(
 
 ```json
 {
-  "prefabMetadata": {
+  "metadata": {
     "sourcePath": "Player.prefab",
     "objectCount": 42
   },
