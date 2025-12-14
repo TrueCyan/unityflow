@@ -378,10 +378,10 @@ class TestHelpOption:
         assert "--format" in result.output
 
 
-class TestAddCommand:
-    """Tests for the add command."""
+class TestAddObjectCommand:
+    """Tests for the add-object command."""
 
-    def test_add_gameobject(self, runner, tmp_path):
+    def test_add_object(self, runner, tmp_path):
         """Test adding a new GameObject."""
         # Copy fixture to temp
         source = FIXTURES_DIR / "basic_prefab.prefab"
@@ -390,7 +390,7 @@ class TestAddCommand:
 
         result = runner.invoke(
             main,
-            ["add", str(test_file), "--gameobject", "--name", "NewObject"],
+            ["add-object", str(test_file), "--name", "NewObject"],
         )
 
         assert result.exit_code == 0
@@ -402,7 +402,7 @@ class TestAddCommand:
         content = test_file.read_text()
         assert "NewObject" in content
 
-    def test_add_gameobject_with_position(self, runner, tmp_path):
+    def test_add_object_with_position(self, runner, tmp_path):
         """Test adding a GameObject with position."""
         source = FIXTURES_DIR / "basic_prefab.prefab"
         test_file = tmp_path / "test.prefab"
@@ -411,9 +411,8 @@ class TestAddCommand:
         result = runner.invoke(
             main,
             [
-                "add",
+                "add-object",
                 str(test_file),
-                "--gameobject",
                 "--name",
                 "PositionedObject",
                 "--position",
@@ -427,7 +426,7 @@ class TestAddCommand:
         # Check position is in file (simplified check)
         assert "10" in content or "m_LocalPosition" in content
 
-    def test_add_ui_gameobject(self, runner, tmp_path):
+    def test_add_object_ui(self, runner, tmp_path):
         """Test adding a UI GameObject with RectTransform."""
         source = FIXTURES_DIR / "basic_prefab.prefab"
         test_file = tmp_path / "test.prefab"
@@ -435,13 +434,26 @@ class TestAddCommand:
 
         result = runner.invoke(
             main,
-            ["add", str(test_file), "--gameobject", "--name", "UIElement", "--ui"],
+            ["add-object", str(test_file), "--name", "UIElement", "--ui"],
         )
 
         assert result.exit_code == 0
         assert "RectTransform fileID:" in result.output
         content = test_file.read_text()
         assert "RectTransform" in content
+
+    def test_add_object_help(self, runner):
+        """Test add-object command help."""
+        result = runner.invoke(main, ["add-object", "--help"])
+
+        assert result.exit_code == 0
+        assert "--name" in result.output
+        assert "--parent" in result.output
+        assert "--ui" in result.output
+
+
+class TestAddComponentCommand:
+    """Tests for the add-component command."""
 
     def test_add_component(self, runner, tmp_path):
         """Test adding a component to an existing GameObject."""
@@ -452,11 +464,11 @@ class TestAddCommand:
         result = runner.invoke(
             main,
             [
-                "add",
+                "add-component",
                 str(test_file),
-                "--component",
+                "--to",
                 "100000",  # GameObject fileID from basic_prefab
-                "--component-type",
+                "--type",
                 "SpriteRenderer",
             ],
         )
@@ -475,11 +487,11 @@ class TestAddCommand:
         result = runner.invoke(
             main,
             [
-                "add",
+                "add-component",
                 str(test_file),
-                "--component",
+                "--to",
                 "100000",
-                "--script-guid",
+                "--script",
                 "abc123def456",
             ],
         )
@@ -490,51 +502,34 @@ class TestAddCommand:
         assert "MonoBehaviour" in content
         assert "abc123def456" in content
 
-    def test_add_requires_gameobject_or_component(self, runner, tmp_path):
-        """Test that add requires either --gameobject or --component."""
-        source = FIXTURES_DIR / "basic_prefab.prefab"
-        test_file = tmp_path / "test.prefab"
-        test_file.write_text(source.read_text())
-
-        result = runner.invoke(main, ["add", str(test_file)])
-
-        assert result.exit_code != 0
-        assert "Specify --gameobject or --component" in result.output
-
-    def test_add_help(self, runner):
-        """Test add command help."""
-        result = runner.invoke(main, ["add", "--help"])
-
-        assert result.exit_code == 0
-        assert "--gameobject" in result.output
-        assert "--component" in result.output
-        assert "--name" in result.output
-
-
-class TestDeleteCommand:
-    """Tests for the delete command."""
-
-    def test_delete_component(self, runner, tmp_path):
-        """Test deleting a component."""
+    def test_add_component_requires_type_or_script(self, runner, tmp_path):
+        """Test that add-component requires --type or --script."""
         source = FIXTURES_DIR / "basic_prefab.prefab"
         test_file = tmp_path / "test.prefab"
         test_file.write_text(source.read_text())
 
         result = runner.invoke(
             main,
-            [
-                "delete",
-                str(test_file),
-                "--component",
-                "400000",  # Transform fileID
-                "--force",
-            ],
+            ["add-component", str(test_file), "--to", "100000"],
         )
 
-        assert result.exit_code == 0
-        assert "Deleted component" in result.output
+        assert result.exit_code != 0
+        assert "Specify --type or --script" in result.output
 
-    def test_delete_gameobject(self, runner, tmp_path):
+    def test_add_component_help(self, runner):
+        """Test add-component command help."""
+        result = runner.invoke(main, ["add-component", "--help"])
+
+        assert result.exit_code == 0
+        assert "--to" in result.output
+        assert "--type" in result.output
+        assert "--script" in result.output
+
+
+class TestDeleteObjectCommand:
+    """Tests for the delete-object command."""
+
+    def test_delete_object(self, runner, tmp_path):
         """Test deleting a GameObject."""
         source = FIXTURES_DIR / "basic_prefab.prefab"
         test_file = tmp_path / "test.prefab"
@@ -543,9 +538,9 @@ class TestDeleteCommand:
         result = runner.invoke(
             main,
             [
-                "delete",
+                "delete-object",
                 str(test_file),
-                "--gameobject",
+                "--id",
                 "100000",
                 "--force",
             ],
@@ -558,18 +553,7 @@ class TestDeleteCommand:
         content = test_file.read_text()
         assert "BasicPrefab" not in content
 
-    def test_delete_requires_target(self, runner, tmp_path):
-        """Test that delete requires --gameobject or --component."""
-        source = FIXTURES_DIR / "basic_prefab.prefab"
-        test_file = tmp_path / "test.prefab"
-        test_file.write_text(source.read_text())
-
-        result = runner.invoke(main, ["delete", str(test_file)])
-
-        assert result.exit_code != 0
-        assert "Specify --gameobject or --component" in result.output
-
-    def test_delete_nonexistent_object(self, runner, tmp_path):
+    def test_delete_object_nonexistent(self, runner, tmp_path):
         """Test deleting a non-existent object."""
         source = FIXTURES_DIR / "basic_prefab.prefab"
         test_file = tmp_path / "test.prefab"
@@ -577,24 +561,55 @@ class TestDeleteCommand:
 
         result = runner.invoke(
             main,
-            ["delete", str(test_file), "--gameobject", "999999", "--force"],
+            ["delete-object", str(test_file), "--id", "999999", "--force"],
         )
 
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    def test_delete_help(self, runner):
-        """Test delete command help."""
-        result = runner.invoke(main, ["delete", "--help"])
+    def test_delete_object_help(self, runner):
+        """Test delete-object command help."""
+        result = runner.invoke(main, ["delete-object", "--help"])
 
         assert result.exit_code == 0
-        assert "--gameobject" in result.output
-        assert "--component" in result.output
+        assert "--id" in result.output
         assert "--cascade" in result.output
 
 
-class TestCloneCommand:
-    """Tests for the clone command."""
+class TestDeleteComponentCommand:
+    """Tests for the delete-component command."""
+
+    def test_delete_component(self, runner, tmp_path):
+        """Test deleting a component."""
+        source = FIXTURES_DIR / "basic_prefab.prefab"
+        test_file = tmp_path / "test.prefab"
+        test_file.write_text(source.read_text())
+
+        result = runner.invoke(
+            main,
+            [
+                "delete-component",
+                str(test_file),
+                "--id",
+                "400000",  # Transform fileID
+                "--force",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Deleted component" in result.output
+
+    def test_delete_component_help(self, runner):
+        """Test delete-component command help."""
+        result = runner.invoke(main, ["delete-component", "--help"])
+
+        assert result.exit_code == 0
+        assert "--id" in result.output
+        assert "--force" in result.output
+
+
+class TestCloneObjectCommand:
+    """Tests for the clone-object command."""
 
     def test_clone_gameobject(self, runner, tmp_path):
         """Test cloning a GameObject."""
@@ -604,7 +619,7 @@ class TestCloneCommand:
 
         result = runner.invoke(
             main,
-            ["clone", str(test_file), "--source", "100000"],
+            ["clone-object", str(test_file), "--id", "100000"],
         )
 
         assert result.exit_code == 0
@@ -624,7 +639,7 @@ class TestCloneCommand:
 
         result = runner.invoke(
             main,
-            ["clone", str(test_file), "--source", "100000", "--name", "MyClone"],
+            ["clone-object", str(test_file), "--id", "100000", "--name", "MyClone"],
         )
 
         assert result.exit_code == 0
@@ -640,9 +655,9 @@ class TestCloneCommand:
         result = runner.invoke(
             main,
             [
-                "clone",
+                "clone-object",
                 str(test_file),
-                "--source",
+                "--id",
                 "100000",
                 "--position",
                 "5,0,0",
@@ -663,18 +678,18 @@ class TestCloneCommand:
 
         result = runner.invoke(
             main,
-            ["clone", str(test_file), "--source", "999999"],
+            ["clone-object", str(test_file), "--id", "999999"],
         )
 
         assert result.exit_code != 0
         assert "not found" in result.output
 
     def test_clone_help(self, runner):
-        """Test clone command help."""
-        result = runner.invoke(main, ["clone", "--help"])
+        """Test clone-object command help."""
+        result = runner.invoke(main, ["clone-object", "--help"])
 
         assert result.exit_code == 0
-        assert "--source" in result.output
+        assert "--id" in result.output
         assert "--name" in result.output
         assert "--deep" in result.output
 
