@@ -1045,6 +1045,33 @@ def import_json(
     help="JSON object with multiple key-value pairs to set at once",
 )
 @click.option(
+    "--sprite",
+    "-s",
+    "sprite_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Sprite path - auto-detects fileID from .meta file (e.g., 'Assets/Sprites/icon.png')",
+)
+@click.option(
+    "--sub-sprite",
+    "sub_sprite",
+    default=None,
+    help="For Multiple mode sprites, the specific sub-sprite name",
+)
+@click.option(
+    "--material",
+    "-m",
+    "material_path",
+    default=None,
+    help="Material path or name to set along with sprite (e.g., 'Sprite-Lit-Default')",
+)
+@click.option(
+    "--use-urp-default",
+    "use_urp_default",
+    is_flag=True,
+    help="Use URP default material (Sprite-Lit-Default) along with sprite",
+)
+@click.option(
     "-o",
     "--output",
     type=click.Path(path_type=Path),
@@ -1061,12 +1088,21 @@ def set_value_cmd(
     set_path: str,
     value: str | None,
     batch_values_json: str | None,
+    sprite_path: Path | None,
+    sub_sprite: str | None,
+    material_path: str | None,
+    use_urp_default: bool,
     output: Path | None,
     create: bool,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
     This enables surgical editing of prefab data.
+
+    Value Modes (mutually exclusive):
+        --value: Set a single value (JSON or string)
+        --batch: Set multiple key-value pairs at once
+        --sprite: Set a sprite reference with auto fileID detection
 
     Examples:
 
@@ -1101,20 +1137,72 @@ def set_value_cmd(
             }' \\
             --create
 
+        # Set sprite with auto fileID detection (Single mode)
+        prefab-tool set Player.prefab \\
+            --path "components/12345/m_Sprite" \\
+            --sprite "Assets/Sprites/player.png"
+
+        # Set sprite with sub-sprite (Multiple mode / atlas)
+        prefab-tool set Player.prefab \\
+            --path "components/12345/m_Sprite" \\
+            --sprite "Assets/Sprites/atlas.png" \\
+            --sub-sprite "player_idle_0"
+
+        # Set sprite with URP material
+        prefab-tool set Player.prefab \\
+            --path "components/12345/m_Sprite" \\
+            --sprite "Assets/Sprites/player.png" \\
+            --use-urp-default
+
+        # Set sprite with custom material
+        prefab-tool set Player.prefab \\
+            --path "components/12345/m_Sprite" \\
+            --sprite "Assets/Sprites/player.png" \\
+            --material "Assets/Materials/Custom.mat"
+
     Note:
         New fields are appended at the end. Unity will reorder fields
         according to the C# script declaration order when saved in editor.
+
+        For --sprite mode, the fileID is automatically detected from the
+        sprite's .meta file based on import mode (Single vs Multiple).
     """
     from prefab_tool.parser import UnityYAMLDocument
     from prefab_tool.query import set_value, merge_values
+    from prefab_tool.sprite import (
+        get_sprite_reference,
+        get_sprite_info,
+        get_material_reference,
+    )
     import json
 
+    # Count how many value modes are specified
+    value_modes = sum([
+        value is not None,
+        batch_values_json is not None,
+        sprite_path is not None,
+    ])
+
     # Validate options
-    if value is None and batch_values_json is None:
-        click.echo("Error: Either --value or --batch is required", err=True)
+    if value_modes == 0:
+        click.echo("Error: One of --value, --batch, or --sprite is required", err=True)
         sys.exit(1)
-    if value is not None and batch_values_json is not None:
-        click.echo("Error: Cannot use both --value and --batch", err=True)
+    if value_modes > 1:
+        click.echo("Error: Cannot use multiple value modes (--value, --batch, --sprite)", err=True)
+        sys.exit(1)
+
+    # Validate sprite-related options
+    if sub_sprite and not sprite_path:
+        click.echo("Error: --sub-sprite requires --sprite", err=True)
+        sys.exit(1)
+    if material_path and not sprite_path:
+        click.echo("Error: --material requires --sprite", err=True)
+        sys.exit(1)
+    if use_urp_default and not sprite_path:
+        click.echo("Error: --use-urp-default requires --sprite", err=True)
+        sys.exit(1)
+    if material_path and use_urp_default:
+        click.echo("Error: Cannot use both --material and --use-urp-default", err=True)
         sys.exit(1)
 
     try:
@@ -1125,7 +1213,60 @@ def set_value_cmd(
 
     output_path = output or file
 
-    if batch_values_json is not None:
+    if sprite_path is not None:
+        # Sprite mode - auto-detect fileID from meta file
+        sprite_ref = get_sprite_reference(sprite_path, sub_sprite)
+        if not sprite_ref:
+            sprite_info = get_sprite_info(sprite_path)
+            if sprite_info and sprite_info.is_multiple and sub_sprite:
+                click.echo(f"Error: Sub-sprite '{sub_sprite}' not found in sprite", err=True)
+                click.echo(f"Available sub-sprites: {', '.join(sprite_info.get_sprite_names())}", err=True)
+            elif not Path(str(sprite_path) + ".meta").exists():
+                click.echo(f"Error: Meta file not found for sprite: {sprite_path}", err=True)
+            else:
+                click.echo(f"Error: Could not get sprite reference for: {sprite_path}", err=True)
+            sys.exit(1)
+
+        # Set sprite reference
+        if set_value(doc, set_path, sprite_ref.to_dict(), create=create):
+            # Get sprite info for display
+            sprite_info = get_sprite_info(sprite_path)
+            mode_str = "Single" if sprite_info and sprite_info.is_single else "Multiple"
+
+            # Handle material if specified
+            material_set = False
+            if use_urp_default or material_path:
+                material_ref = None
+                if use_urp_default:
+                    material_ref = get_material_reference("Sprite-Lit-Default")
+                elif material_path:
+                    project_root = find_unity_project_root(file)
+                    material_ref = get_material_reference(material_path, project_root)
+                    if not material_ref:
+                        click.echo(f"Error: Could not find material: {material_path}", err=True)
+                        sys.exit(1)
+
+                if material_ref:
+                    # Derive material path from sprite path
+                    # e.g., components/12345/m_Sprite -> components/12345/m_Materials/0
+                    path_parts = set_path.rsplit("/", 1)
+                    if len(path_parts) == 2:
+                        material_set_path = f"{path_parts[0]}/m_Materials/0"
+                        if set_value(doc, material_set_path, material_ref.to_dict(), create=create):
+                            material_set = True
+
+            doc.save(output_path)
+            click.echo(f"Set sprite at {set_path}:")
+            click.echo(f"  Sprite: {sprite_path} ({mode_str} mode)")
+            click.echo(f"  fileID: {sprite_ref.file_id}")
+            click.echo(f"  guid: {sprite_ref.guid}")
+            if material_set:
+                click.echo(f"  Material: {'Sprite-Lit-Default (URP)' if use_urp_default else material_path}")
+        else:
+            click.echo(f"Error: Path not found: {set_path}", err=True)
+            sys.exit(1)
+
+    elif batch_values_json is not None:
         # Batch mode
         try:
             parsed_values = json.loads(batch_values_json)
@@ -1146,6 +1287,7 @@ def set_value_cmd(
         doc.save(output_path)
         click.echo(f"Set {updated + created} fields at {set_path}")
         click.echo(f"  Updated: {updated}, Created: {created}")
+
     else:
         # Single value mode
         try:
@@ -2904,7 +3046,7 @@ repos:
     click.echo()
 
 
-@main.command(name="sprite-link")
+@main.command(name="sprite-link", deprecated=True)
 @click.argument("prefab", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--component",
@@ -2960,47 +3102,34 @@ def sprite_link(
     output: Path | None,
     dry_run: bool,
 ) -> None:
-    """Link a sprite to a SpriteRenderer component with automatic fileID detection.
+    """[DEPRECATED] Link a sprite to a SpriteRenderer component.
 
-    Automatically determines the correct fileID based on the sprite's import mode
-    (Single vs Multiple) by reading the .meta file. This prevents "Missing" references
-    in Unity.
+    This command is deprecated. Use 'prefab-tool set --sprite' instead:
 
-    Sprite Modes:
-        - Single (spriteMode: 1): Uses fileID 21300000
-        - Multiple (spriteMode: 2): Uses internalID from the meta file
-
-    Examples:
-
-        # Basic usage - auto-detects fileID
-        prefab-tool sprite-link Player.prefab \\
-            --component 1234567890 \\
+        prefab-tool set Player.prefab \\
+            --path "components/1234567890/m_Sprite" \\
             --sprite "Assets/Sprites/player.png"
 
-        # With specific sub-sprite (for Multiple mode)
-        prefab-tool sprite-link Player.prefab \\
-            --component 1234567890 \\
-            --sprite "Assets/Sprites/atlas.png" \\
-            --sub-sprite "player_idle_0"
-
-        # With URP default material
-        prefab-tool sprite-link Player.prefab \\
-            --component 1234567890 \\
-            --sprite "Assets/Sprites/player.png" \\
-            --use-urp-default
-
-        # With custom material
-        prefab-tool sprite-link Player.prefab \\
-            --component 1234567890 \\
-            --sprite "Assets/Sprites/player.png" \\
-            --material "Assets/Materials/Custom.mat"
-
-        # Dry run to see what would happen
-        prefab-tool sprite-link Player.prefab \\
-            --component 1234567890 \\
-            --sprite "Assets/Sprites/player.png" \\
-            --dry-run
+    The 'set --sprite' command provides the same functionality with a more
+    consistent interface that matches other value-setting operations.
     """
+    import warnings
+    warnings.warn(
+        "sprite-link is deprecated. Use 'prefab-tool set --sprite' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    click.echo(
+        "Warning: 'sprite-link' is deprecated. Use 'set --sprite' instead:",
+        err=True,
+    )
+    click.echo(
+        f"  prefab-tool set {prefab} --path \"components/{component_id}/m_Sprite\" "
+        f"--sprite \"{sprite_path}\"",
+        err=True,
+    )
+    click.echo(err=True)
+
     from prefab_tool.parser import UnityYAMLDocument
     from prefab_tool.sprite import (
         get_sprite_reference,

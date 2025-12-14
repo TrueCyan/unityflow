@@ -27,7 +27,7 @@ Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 프로
 - ✅ `prefab-tool set` - 값 수정 (단일 값, 배치 수정, 새 필드 생성)
 - ✅ `prefab-tool add-object` / `delete-object` / `clone-object` - GameObject 조작
 - ✅ `prefab-tool add-component` / `delete-component` - 컴포넌트 조작
-- ✅ `prefab-tool sprite-link` - 스프라이트 연결
+- ✅ `prefab-tool set --sprite` - 스프라이트 연결 (fileID 자동 감지)
 - ✅ `prefab-tool export` + `prefab-tool import` - 복잡한 구조 편집
 - ✅ `prefab-tool scan-meta` / `scan-scripts` - GUID 조회
 
@@ -129,35 +129,39 @@ prefab-tool add-component Scene.unity --to 12345 --script "abc123..." \
 prefab-tool delete-component Scene.unity --id 67890
 ```
 
-### 스프라이트 연결
+### 스프라이트 연결 (set --sprite)
+
+`set` 명령어의 `--sprite` 옵션을 사용하면 스프라이트 메타 파일에서 자동으로 fileID를 감지합니다.
 
 ```bash
-# 기본 사용 (fileID 자동 감지)
-prefab-tool sprite-link Player.prefab \
-    --component 1234567890 \
+# 기본 사용 (Single 모드 스프라이트, fileID 자동 감지)
+prefab-tool set Player.prefab \
+    --path "components/1234567890/m_Sprite" \
     --sprite "Assets/Sprites/player.png"
 
 # Multiple 모드 스프라이트의 특정 서브 스프라이트
-prefab-tool sprite-link Player.prefab \
-    --component 1234567890 \
+prefab-tool set Player.prefab \
+    --path "components/1234567890/m_Sprite" \
     --sprite "Assets/Sprites/atlas.png" \
     --sub-sprite "player_idle_0"
 
-# URP 기본 머티리얼 사용
-prefab-tool sprite-link Player.prefab \
-    --component 1234567890 \
+# URP 기본 머티리얼 함께 설정
+prefab-tool set Player.prefab \
+    --path "components/1234567890/m_Sprite" \
     --sprite "Assets/Sprites/player.png" \
     --use-urp-default
 
-# 미리보기 (실제 변경 없음)
-prefab-tool sprite-link Player.prefab \
-    --component 1234567890 \
+# 커스텀 머티리얼 함께 설정
+prefab-tool set Player.prefab \
+    --path "components/1234567890/m_Sprite" \
     --sprite "Assets/Sprites/player.png" \
-    --dry-run
+    --material "Assets/Materials/Custom.mat"
 
 # 스프라이트 정보 확인
 prefab-tool sprite-info "Assets/Sprites/player.png"
 ```
+
+**참고**: `--sprite` 옵션은 `--value`, `--batch`와 상호 배타적입니다.
 
 ### JSON 내보내기/가져오기
 
