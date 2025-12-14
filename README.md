@@ -45,17 +45,19 @@ pip install -e ".[dev]"
 
 ## 빠른 시작
 
-### 프리팹 정규화
+### 파일 정규화
 
 ```bash
 # 단일 파일 정규화
 prefab-tool normalize Player.prefab
+prefab-tool normalize MainScene.unity
+prefab-tool normalize GameConfig.asset
 
 # 여러 파일 정규화
-prefab-tool normalize *.prefab
+prefab-tool normalize *.prefab *.unity *.asset
 
 # 병렬 처리 (4 워커)
-prefab-tool normalize *.prefab --parallel 4 --progress
+prefab-tool normalize Assets/**/*.prefab --parallel 4 --progress
 
 # Git에서 변경된 파일만 정규화
 prefab-tool normalize --changed-only
@@ -64,21 +66,23 @@ prefab-tool normalize --changed-only
 prefab-tool normalize --changed-only --staged-only
 ```
 
-### 프리팹 검증
+### 파일 검증
 
 ```bash
 # 단일 파일 검증
 prefab-tool validate Player.prefab
+prefab-tool validate MainScene.unity
 
 # 엄격 모드 (경고도 오류로 처리)
 prefab-tool validate Player.prefab --strict
 ```
 
-### 프리팹 비교
+### 파일 비교
 
 ```bash
 # 두 파일 비교
 prefab-tool diff old.prefab new.prefab
+prefab-tool diff Scene_v1.unity Scene_v2.unity
 
 # 정규화 없이 비교
 prefab-tool diff old.prefab new.prefab --no-normalize
@@ -89,6 +93,8 @@ prefab-tool diff old.prefab new.prefab --no-normalize
 ```bash
 # JSON으로 내보내기
 prefab-tool export Player.prefab -o player.json
+prefab-tool export MainScene.unity -o scene.json
+prefab-tool export GameConfig.asset -o config.json
 
 # JSON에서 가져오기
 prefab-tool import player.json -o Player.prefab
@@ -156,8 +162,10 @@ from prefab_tool import (
     get_changed_files,
 )
 
-# 프리팹 로드
+# Unity YAML 파일 로드 (.prefab, .unity, .asset)
 doc = UnityYAMLDocument.load("Player.prefab")
+doc = UnityYAMLDocument.load("MainScene.unity")
+doc = UnityYAMLDocument.load("GameConfig.asset")
 
 # 정규화
 normalizer = UnityPrefabNormalizer()
@@ -173,7 +181,7 @@ for dep in report.get_binary_dependencies():
 changed = get_changed_files(staged_only=True)
 ```
 
-### 프리팹 프로그래매틱 생성
+### Unity 파일 프로그래매틱 생성
 
 ```python
 from prefab_tool.parser import (
@@ -203,7 +211,7 @@ transform = create_transform(
 # 문서에 추가 및 저장
 doc.add_object(go)
 doc.add_object(transform)
-doc.save("MyObject.prefab")
+doc.save("MyObject.prefab")  # 또는 .unity, .asset
 ```
 
 ## 지원 파일 형식

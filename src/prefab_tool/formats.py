@@ -352,7 +352,7 @@ class PrefabJSON:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
-            "prefabMetadata": self.metadata,
+            "metadata": self.metadata,
             "gameObjects": self.game_objects,
             "components": self.components,
         }
@@ -367,8 +367,10 @@ class PrefabJSON:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PrefabJSON:
         """Create from dictionary."""
+        # Support both "metadata" and legacy "prefabMetadata" keys
+        metadata = data.get("metadata") or data.get("prefabMetadata", {})
         return cls(
-            metadata=data.get("prefabMetadata", {}),
+            metadata=metadata,
             game_objects=data.get("gameObjects", {}),
             components=data.get("components", {}),
             raw_fields=data.get("_rawFields", {}),
