@@ -71,6 +71,11 @@ prefab-tool query Scene.unity --find-script "abc123def456..."
 
 ### 값 수정 (set)
 
+`set` 명령어는 3가지 모드를 지원합니다 (상호 배타적):
+- `--value`: 단일 값 설정
+- `--batch`: 여러 필드 한번에 설정
+- `--sprite`: 스프라이트 참조 설정 (fileID 자동 감지)
+
 ```bash
 # 단일 값 설정
 prefab-tool set Player.prefab \
@@ -309,8 +314,8 @@ MonoBehaviour 필드에 에셋을 연결할 때는 에셋 타입별로 올바른
 | ScriptableObject (.asset) | `11400000` | 2 | ScriptableObject 에셋 |
 | Prefab (.prefab) | 프리팹별 다름 | 3 | 프리팹의 root GameObject fileID |
 | Texture2D (.png, .jpg) | `2800000` | 3 | 텍스처 파일 |
-| Sprite (Single) | `21300000` | 3 | 단일 스프라이트 |
-| Sprite (Multiple) | meta에서 추출 | 3 | 멀티플 스프라이트 (internalID 사용) |
+| Sprite (Single) | `21300000` | 3 | 단일 스프라이트 → **`set --sprite` 사용 권장** |
+| Sprite (Multiple) | meta에서 추출 | 3 | 멀티플 스프라이트 → **`set --sprite` 사용 권장** |
 | Material (.mat) | `2100000` | 2 | 머티리얼 |
 
 ### 참조 형식 예시
