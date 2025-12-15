@@ -202,48 +202,81 @@ class TestRoundTrip:
         assert file_ids == sorted(file_ids)
 
 
-class TestComponentArraySorting:
-    """Tests for order-independent array sorting (m_Component, m_Children)."""
+class TestArrayOrderPreservation:
+    """Tests for preserving array order (m_Component, m_Children).
 
-    def test_sort_component_array(self):
-        """Test that m_Component arrays are sorted by fileID."""
-        normalizer = UnityPrefabNormalizer()
+    These arrays are NOT sorted because:
+    - m_Children: affects Hierarchy order (rendering order, UI overlays)
+    - m_Component: affects Inspector display order and GetComponents() order
+    - Both may be intentionally ordered by developers for readability
+    """
 
-        # Check if Player prefabs exist (they contain unsorted m_Component)
-        player_original = FIXTURES_DIR / "Player_original.prefab"
-        player_modified = FIXTURES_DIR / "Player_modification.prefab"
-
-        if player_original.exists() and player_modified.exists():
-            # These two files differ only in m_Component order
-            content1 = normalizer.normalize_file(player_original)
-            content2 = normalizer.normalize_file(player_modified)
-
-            # After normalization, they should be identical
-            assert content1 == content2
-
-    def test_children_array_sorted(self):
-        """Test that m_Children arrays are sorted by fileID."""
+    def test_children_order_preserved(self):
+        """Test that m_Children order is preserved (not sorted)."""
         normalizer = UnityPrefabNormalizer()
         doc = UnityYAMLDocument.load(FIXTURES_DIR / "unsorted_prefab.prefab")
 
+        # Get original children order
+        parent_transform = doc.get_by_file_id(400000)
+        content = parent_transform.get_content()
+        original_children = content.get("m_Children", [])
+        original_ids = [c.get("fileID", 0) for c in original_children]
+
         normalizer.normalize_document(doc)
 
-        # Find the parent transform (has children)
+        # Get children order after normalization
         parent_transform = doc.get_by_file_id(400000)
         content = parent_transform.get_content()
         children = content.get("m_Children", [])
+        new_ids = [c.get("fileID", 0) for c in children]
 
-        if len(children) > 1:
-            # Children should be sorted by fileID
-            child_ids = [c.get("fileID", 0) for c in children]
-            assert child_ids == sorted(child_ids)
+        # Children order should be preserved (not sorted)
+        assert original_ids == new_ids, "m_Children order should be preserved"
+
+    def test_component_order_preserved(self):
+        """Test that m_Component order is preserved (not sorted)."""
+        normalizer = UnityPrefabNormalizer()
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "unsorted_prefab.prefab")
+
+        # Get original component order
+        game_obj = doc.get_by_file_id(100000)
+        content = game_obj.get_content()
+        original_components = content.get("m_Component", [])
+        original_ids = [c.get("component", {}).get("fileID", 0) for c in original_components]
+
+        normalizer.normalize_document(doc)
+
+        # Get component order after normalization
+        game_obj = doc.get_by_file_id(100000)
+        content = game_obj.get_content()
+        components = content.get("m_Component", [])
+        new_ids = [c.get("component", {}).get("fileID", 0) for c in components]
+
+        # Component order should be preserved (not sorted)
+        assert original_ids == new_ids, "m_Component order should be preserved"
 
 
-class TestFunctionalEquivalence:
-    """Tests for functionally equivalent prefabs producing identical output."""
+class TestNormalizationStability:
+    """Tests for normalization stability and consistency."""
 
-    def test_functionally_identical_prefabs(self):
-        """Test that functionally identical prefabs normalize to same output."""
+    def test_same_file_normalizes_identically(self):
+        """Test that normalizing the same file twice produces identical output."""
+        normalizer = UnityPrefabNormalizer()
+
+        player_original = FIXTURES_DIR / "Player_original.prefab"
+
+        if player_original.exists():
+            content1 = normalizer.normalize_file(player_original)
+            content2 = normalizer.normalize_file(player_original)
+
+            assert content1 == content2, "Same file should produce identical normalized output"
+
+    def test_different_component_order_preserved(self):
+        """Test that files with different m_Component order remain different.
+
+        Previously these files would normalize to identical output, but now
+        we preserve the original order as it may be intentional.
+        """
         normalizer = UnityPrefabNormalizer()
 
         player_original = FIXTURES_DIR / "Player_original.prefab"
@@ -253,7 +286,8 @@ class TestFunctionalEquivalence:
             content1 = normalizer.normalize_file(player_original)
             content2 = normalizer.normalize_file(player_modified)
 
-            assert content1 == content2, "Functionally identical prefabs should produce identical normalized output"
+            # They should remain different since we preserve component order
+            assert content1 != content2, "Files with different component order should remain different"
 
 
 class TestConvenienceFunction:

@@ -552,6 +552,9 @@ def _format_scalar(value: Any) -> str:
             return ""
         if value in ("true", "false", "null", "yes", "no", "on", "off", "True", "False"):
             return f"'{value}'"
+        # Standalone '-' or '~' are interpreted as null in YAML - must quote them
+        if value in ("-", "~"):
+            return f"'{value}'"
         # Check for special characters that require quoting
         # Note: [] don't require quoting when not at start
         needs_quote = False
@@ -559,7 +562,7 @@ def _format_scalar(value: Any) -> str:
             needs_quote = True
         elif any(c in value for c in ":\n#"):
             needs_quote = True
-        elif value.startswith('- ') or value.startswith('? '):
+        elif value.startswith('- ') or value.startswith('? ') or value.startswith('-\t'):
             needs_quote = True
 
         if needs_quote:
