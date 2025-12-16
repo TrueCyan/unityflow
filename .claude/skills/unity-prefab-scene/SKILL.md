@@ -25,9 +25,9 @@ Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 프로
 
 - ✅ `unityflow query` - 데이터 조회 및 검색
 - ✅ `unityflow set` - 값 수정 (단일 값, 배치 수정, 새 필드 생성)
+- ✅ `unityflow set --value "@에셋경로"` - 에셋 참조 (GUID/fileID 자동 해석)
 - ✅ `unityflow add-object` / `delete-object` / `clone-object` - GameObject 조작
 - ✅ `unityflow add-component` / `delete-component` - 컴포넌트 조작
-- ✅ `unityflow set --sprite` - 스프라이트 연결 (fileID 자동 감지)
 - ✅ `unityflow export` + `unityflow import` - 복잡한 구조 편집
 - ✅ `unityflow scan-meta` / `scan-scripts` - GUID 조회
 
@@ -74,10 +74,11 @@ unityflow query Scene.unity --find-script "abc123def456..."
 
 ### 값 수정 (set)
 
-`set` 명령어는 3가지 모드를 지원합니다 (상호 배타적):
+`set` 명령어는 2가지 모드를 지원합니다 (상호 배타적):
 - `--value`: 단일 값 설정
 - `--batch`: 여러 필드 한번에 설정
-- `--sprite`: 스프라이트 참조 설정 (fileID 자동 감지)
+
+**에셋 참조 자동 해석**: `@` 접두사로 에셋 경로를 지정하면 GUID와 fileID가 자동으로 해석됩니다.
 
 ```bash
 # 단일 값 설정
@@ -90,10 +91,15 @@ unityflow set Player.prefab \
     --path "gameObjects/12345/name" \
     --value '"NewName"'
 
-# 여러 필드 한번에 수정 (batch 모드)
+# 에셋 참조 (@ 접두사로 자동 해석)
+unityflow set Player.prefab \
+    --path "components/12345/m_Sprite" \
+    --value "@Assets/Sprites/player.png"
+
+# 여러 필드 한번에 수정 (batch 모드 + 에셋 참조)
 unityflow set Scene.unity \
     --path "components/495733805" \
-    --batch '{"portalAPrefab": {"fileID": 123, "guid": "abc", "type": 3}, "spawnRate": 2.0}' \
+    --batch '{"playerPrefab": "@Assets/Prefabs/Player.prefab", "spawnRate": 2.0}' \
     --create
 
 # 새 필드 생성 (--create 플래그)
@@ -137,39 +143,72 @@ unityflow add-component Scene.unity --to 12345 --script "abc123..." \
 unityflow delete-component Scene.unity --id 67890
 ```
 
-### 스프라이트 연결 (set --sprite)
+### 에셋 참조 자동 해석 (@ 접두사)
 
-`set` 명령어의 `--sprite` 옵션을 사용하면 스프라이트 메타 파일에서 자동으로 fileID를 감지합니다.
+`@` 접두사를 사용하면 에셋 경로에서 GUID와 fileID가 자동으로 해석됩니다.
+에셋의 `.meta` 파일을 읽어서 정확한 참조 정보를 생성합니다.
 
 ```bash
-# 기본 사용 (Single 모드 스프라이트, fileID 자동 감지)
+# 스프라이트 연결 (Single 모드)
 unityflow set Player.prefab \
     --path "components/1234567890/m_Sprite" \
-    --sprite "Assets/Sprites/player.png"
+    --value "@Assets/Sprites/player.png"
 
-# Multiple 모드 스프라이트의 특정 서브 스프라이트
+# 스프라이트 연결 (Multiple 모드 - 서브 스프라이트)
+# 경로:서브스프라이트명 형식 사용
 unityflow set Player.prefab \
     --path "components/1234567890/m_Sprite" \
-    --sprite "Assets/Sprites/atlas.png" \
-    --sub-sprite "player_idle_0"
+    --value "@Assets/Sprites/atlas.png:player_idle_0"
 
-# URP 기본 머티리얼 함께 설정
+# 오디오 클립 연결
 unityflow set Player.prefab \
-    --path "components/1234567890/m_Sprite" \
-    --sprite "Assets/Sprites/player.png" \
-    --use-urp-default
+    --path "components/1234567890/audioClip" \
+    --value "@Assets/Audio/jump.wav"
 
-# 커스텀 머티리얼 함께 설정
+# 프리팹 참조 연결
+unityflow set Scene.unity \
+    --path "components/495733805/enemyPrefab" \
+    --value "@Assets/Prefabs/Enemy.prefab" \
+    --create
+
+# 머티리얼 연결
 unityflow set Player.prefab \
-    --path "components/1234567890/m_Sprite" \
-    --sprite "Assets/Sprites/player.png" \
-    --material "Assets/Materials/Custom.mat"
+    --path "components/1234567890/m_Materials/0" \
+    --value "@Assets/Materials/Custom.mat"
+
+# 스크립트 참조
+unityflow set Player.prefab \
+    --path "components/1234567890/m_Script" \
+    --value "@Assets/Scripts/PlayerController.cs"
+
+# 여러 에셋 참조를 한번에 (batch 모드)
+unityflow set Scene.unity \
+    --path "components/495733805" \
+    --batch '{
+        "playerPrefab": "@Assets/Prefabs/Player.prefab",
+        "enemyPrefab": "@Assets/Prefabs/Enemy.prefab",
+        "bgMusic": "@Assets/Audio/background.mp3",
+        "spawnRate": 2.0
+    }' \
+    --create
 
 # 스프라이트 정보 확인
 unityflow sprite-info "Assets/Sprites/player.png"
 ```
 
-**참고**: `--sprite` 옵션은 `--value`, `--batch`와 상호 배타적입니다.
+**지원 에셋 타입:**
+
+| 에셋 타입 | 예시 | 자동 fileID |
+|----------|------|------------|
+| Script (.cs) | `@Assets/Scripts/Player.cs` | 11500000 |
+| Sprite (Single) | `@Assets/Sprites/icon.png` | 21300000 |
+| Sprite (Multiple) | `@Assets/Sprites/atlas.png:idle_0` | meta에서 추출 |
+| AudioClip | `@Assets/Audio/jump.wav` | 8300000 |
+| Material | `@Assets/Materials/Custom.mat` | 2100000 |
+| Prefab | `@Assets/Prefabs/Enemy.prefab` | 루트 GameObject ID |
+| ScriptableObject | `@Assets/Data/Config.asset` | 11400000 |
+| Texture2D | `@Assets/Textures/bg.png` | 21300000 |
+| Animation | `@Assets/Animations/walk.anim` | 7400000 |
 
 ### JSON 내보내기/가져오기
 
@@ -385,21 +424,34 @@ RectTransform 컴포넌트는 두 가지 형식으로 값을 제공합니다:
 
 ## 에셋 참조 연결하기
 
-MonoBehaviour 필드에 에셋을 연결할 때는 에셋 타입별로 올바른 fileID를 사용해야 합니다.
+MonoBehaviour 필드에 에셋을 연결할 때는 **`@` 접두사**를 사용하면 GUID와 fileID가 자동으로 해석됩니다.
 
-### 에셋 타입별 fileID
+### 권장 방식: @ 접두사 사용
 
-| 에셋 타입 | fileID | type | 설명 |
-|----------|--------|------|------|
-| AudioClip (.wav, .mp3, .ogg) | `8300000` | 3 | 오디오 파일 |
-| ScriptableObject (.asset) | `11400000` | 2 | ScriptableObject 에셋 |
-| Prefab (.prefab) | 프리팹별 다름 | 3 | 프리팹의 root GameObject fileID |
-| Texture2D (.png, .jpg) | `2800000` | 3 | 텍스처 파일 |
-| Sprite (Single) | `21300000` | 3 | 단일 스프라이트 → **`set --sprite` 사용 권장** |
-| Sprite (Multiple) | meta에서 추출 | 3 | 멀티플 스프라이트 → **`set --sprite` 사용 권장** |
-| Material (.mat) | `2100000` | 2 | 머티리얼 |
+```bash
+# 에셋 경로만 지정하면 자동으로 올바른 참조 생성
+unityflow set Player.prefab \
+    --path "components/12345/audioClip" \
+    --value "@Assets/Audio/jump.wav"
 
-### 참조 형식 예시
+# 결과: {"fileID": 8300000, "guid": "...", "type": 3}
+```
+
+### 에셋 타입별 자동 fileID
+
+| 에셋 타입 | @ 접두사 예시 | 자동 fileID |
+|----------|---------------|------------|
+| AudioClip | `@Assets/Audio/jump.wav` | 8300000 |
+| ScriptableObject | `@Assets/Data/Config.asset` | 11400000 |
+| Prefab | `@Assets/Prefabs/Enemy.prefab` | 프리팹에서 추출 |
+| Texture2D/Sprite | `@Assets/Sprites/icon.png` | 21300000 |
+| Sprite (Multiple) | `@Assets/Sprites/atlas.png:idle_0` | meta에서 추출 |
+| Material | `@Assets/Materials/Custom.mat` | 2100000 |
+| Script | `@Assets/Scripts/Player.cs` | 11500000 |
+
+### 직접 지정 방식 (참고용)
+
+`@` 접두사를 사용할 수 없는 경우 직접 참조를 지정할 수 있습니다:
 
 ```json
 // AudioClip

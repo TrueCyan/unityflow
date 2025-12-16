@@ -1061,33 +1061,6 @@ def import_json(
     help="JSON object with multiple key-value pairs to set at once",
 )
 @click.option(
-    "--sprite",
-    "-s",
-    "sprite_path",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Sprite path - auto-detects fileID from .meta file (e.g., 'Assets/Sprites/icon.png')",
-)
-@click.option(
-    "--sub-sprite",
-    "sub_sprite",
-    default=None,
-    help="For Multiple mode sprites, the specific sub-sprite name",
-)
-@click.option(
-    "--material",
-    "-m",
-    "material_path",
-    default=None,
-    help="Material path or name to set along with sprite (e.g., 'Sprite-Lit-Default')",
-)
-@click.option(
-    "--use-urp-default",
-    "use_urp_default",
-    is_flag=True,
-    help="Use URP default material (Sprite-Lit-Default) along with sprite",
-)
-@click.option(
     "-o",
     "--output",
     type=click.Path(path_type=Path),
@@ -1104,10 +1077,6 @@ def set_value_cmd(
     set_path: str,
     value: str | None,
     batch_values_json: str | None,
-    sprite_path: Path | None,
-    sub_sprite: str | None,
-    material_path: str | None,
-    use_urp_default: bool,
     output: Path | None,
     create: bool,
 ) -> None:
@@ -1118,7 +1087,18 @@ def set_value_cmd(
     Value Modes (mutually exclusive):
         --value: Set a single value (JSON or string)
         --batch: Set multiple key-value pairs at once
-        --sprite: Set a sprite reference with auto fileID detection
+
+    Asset References:
+        Use @ prefix to reference assets by path. The GUID and fileID are
+        automatically resolved from the asset's .meta file.
+
+        Supported formats:
+            "@Assets/Scripts/Player.cs"         -> Script reference
+            "@Assets/Sprites/icon.png"          -> Sprite (Single mode)
+            "@Assets/Sprites/atlas.png:idle_0"  -> Sprite sub-sprite (Multiple mode)
+            "@Assets/Audio/jump.wav"            -> AudioClip reference
+            "@Assets/Prefabs/Enemy.prefab"      -> Prefab reference
+            "@Assets/Materials/Custom.mat"      -> Material reference
 
     Examples:
 
@@ -1132,93 +1112,62 @@ def set_value_cmd(
             --path "gameObjects/12345/name" \\
             --value '"NewName"'
 
+        # Set asset reference (auto-resolves GUID and fileID)
+        unityflow set Player.prefab \\
+            --path "components/12345/m_Sprite" \\
+            --value "@Assets/Sprites/player.png"
+
+        # Set sprite with sub-sprite (Multiple mode / atlas)
+        unityflow set Player.prefab \\
+            --path "components/12345/m_Sprite" \\
+            --value "@Assets/Sprites/atlas.png:player_idle_0"
+
+        # Set prefab reference
+        unityflow set Scene.unity \\
+            --path "components/495733805/enemyPrefab" \\
+            --value "@Assets/Prefabs/Enemy.prefab" \\
+            --create
+
+        # Set multiple fields at once (batch mode with asset references)
+        unityflow set Scene.unity \\
+            --path "components/495733805" \\
+            --batch '{
+                "playerPrefab": "@Assets/Prefabs/Player.prefab",
+                "enemyPrefab": "@Assets/Prefabs/Enemy.prefab",
+                "spawnRate": 2.0
+            }' \\
+            --create
+
         # Save to a new file
         unityflow set Player.prefab \\
             --path "components/12345/localScale" \\
             --value '{"x": 2, "y": 2, "z": 2}' \\
             -o Player_modified.prefab
 
-        # Create a new field if it doesn't exist
-        unityflow set Scene.unity \\
-            --path "components/495733805/portalAPrefab" \\
-            --value '{"fileID": 123, "guid": "abc", "type": 3}' \\
-            --create
-
-        # Set multiple fields at once (batch mode)
-        unityflow set Scene.unity \\
-            --path "components/495733805" \\
-            --batch '{
-                "portalAPrefab": {"fileID": 123, "guid": "abc", "type": 3},
-                "portalBPrefab": {"fileID": 456, "guid": "def", "type": 3}
-            }' \\
-            --create
-
-        # Set sprite with auto fileID detection (Single mode)
-        unityflow set Player.prefab \\
-            --path "components/12345/m_Sprite" \\
-            --sprite "Assets/Sprites/player.png"
-
-        # Set sprite with sub-sprite (Multiple mode / atlas)
-        unityflow set Player.prefab \\
-            --path "components/12345/m_Sprite" \\
-            --sprite "Assets/Sprites/atlas.png" \\
-            --sub-sprite "player_idle_0"
-
-        # Set sprite with URP material
-        unityflow set Player.prefab \\
-            --path "components/12345/m_Sprite" \\
-            --sprite "Assets/Sprites/player.png" \\
-            --use-urp-default
-
-        # Set sprite with custom material
-        unityflow set Player.prefab \\
-            --path "components/12345/m_Sprite" \\
-            --sprite "Assets/Sprites/player.png" \\
-            --material "Assets/Materials/Custom.mat"
-
     Note:
         New fields are appended at the end. Unity will reorder fields
         according to the C# script declaration order when saved in editor.
 
-        For --sprite mode, the fileID is automatically detected from the
-        sprite's .meta file based on import mode (Single vs Multiple).
+        Asset references (@path) are automatically resolved to Unity's
+        {fileID, guid, type} format using the asset's .meta file.
     """
     from unityflow.parser import UnityYAMLDocument
     from unityflow.query import set_value, merge_values
-    from unityflow.sprite import (
-        get_sprite_reference,
-        get_sprite_info,
-        get_material_reference,
-    )
+    from unityflow.asset_resolver import resolve_value, is_asset_reference
     import json
 
     # Count how many value modes are specified
     value_modes = sum([
         value is not None,
         batch_values_json is not None,
-        sprite_path is not None,
     ])
 
     # Validate options
     if value_modes == 0:
-        click.echo("Error: One of --value, --batch, or --sprite is required", err=True)
+        click.echo("Error: One of --value or --batch is required", err=True)
         sys.exit(1)
     if value_modes > 1:
-        click.echo("Error: Cannot use multiple value modes (--value, --batch, --sprite)", err=True)
-        sys.exit(1)
-
-    # Validate sprite-related options
-    if sub_sprite and not sprite_path:
-        click.echo("Error: --sub-sprite requires --sprite", err=True)
-        sys.exit(1)
-    if material_path and not sprite_path:
-        click.echo("Error: --material requires --sprite", err=True)
-        sys.exit(1)
-    if use_urp_default and not sprite_path:
-        click.echo("Error: --use-urp-default requires --sprite", err=True)
-        sys.exit(1)
-    if material_path and use_urp_default:
-        click.echo("Error: Cannot use both --material and --use-urp-default", err=True)
+        click.echo("Error: Cannot use multiple value modes (--value, --batch)", err=True)
         sys.exit(1)
 
     try:
@@ -1228,61 +1177,9 @@ def set_value_cmd(
         sys.exit(1)
 
     output_path = output or file
+    project_root = find_unity_project_root(file)
 
-    if sprite_path is not None:
-        # Sprite mode - auto-detect fileID from meta file
-        sprite_ref = get_sprite_reference(sprite_path, sub_sprite)
-        if not sprite_ref:
-            sprite_info = get_sprite_info(sprite_path)
-            if sprite_info and sprite_info.is_multiple and sub_sprite:
-                click.echo(f"Error: Sub-sprite '{sub_sprite}' not found in sprite", err=True)
-                click.echo(f"Available sub-sprites: {', '.join(sprite_info.get_sprite_names())}", err=True)
-            elif not Path(str(sprite_path) + ".meta").exists():
-                click.echo(f"Error: Meta file not found for sprite: {sprite_path}", err=True)
-            else:
-                click.echo(f"Error: Could not get sprite reference for: {sprite_path}", err=True)
-            sys.exit(1)
-
-        # Set sprite reference
-        if set_value(doc, set_path, sprite_ref.to_dict(), create=create):
-            # Get sprite info for display
-            sprite_info = get_sprite_info(sprite_path)
-            mode_str = "Single" if sprite_info and sprite_info.is_single else "Multiple"
-
-            # Handle material if specified
-            material_set = False
-            if use_urp_default or material_path:
-                material_ref = None
-                if use_urp_default:
-                    material_ref = get_material_reference("Sprite-Lit-Default")
-                elif material_path:
-                    project_root = find_unity_project_root(file)
-                    material_ref = get_material_reference(material_path, project_root)
-                    if not material_ref:
-                        click.echo(f"Error: Could not find material: {material_path}", err=True)
-                        sys.exit(1)
-
-                if material_ref:
-                    # Derive material path from sprite path
-                    # e.g., components/12345/m_Sprite -> components/12345/m_Materials/0
-                    path_parts = set_path.rsplit("/", 1)
-                    if len(path_parts) == 2:
-                        material_set_path = f"{path_parts[0]}/m_Materials/0"
-                        if set_value(doc, material_set_path, material_ref.to_dict(), create=create):
-                            material_set = True
-
-            doc.save(output_path)
-            click.echo(f"Set sprite at {set_path}:")
-            click.echo(f"  Sprite: {sprite_path} ({mode_str} mode)")
-            click.echo(f"  fileID: {sprite_ref.file_id}")
-            click.echo(f"  guid: {sprite_ref.guid}")
-            if material_set:
-                click.echo(f"  Material: {'Sprite-Lit-Default (URP)' if use_urp_default else material_path}")
-        else:
-            click.echo(f"Error: Path not found: {set_path}", err=True)
-            sys.exit(1)
-
-    elif batch_values_json is not None:
+    if batch_values_json is not None:
         # Batch mode
         try:
             parsed_values = json.loads(batch_values_json)
@@ -1294,7 +1191,14 @@ def set_value_cmd(
             click.echo("Error: --batch value must be a JSON object", err=True)
             sys.exit(1)
 
-        updated, created = merge_values(doc, set_path, parsed_values, create=create)
+        # Resolve asset references in batch values
+        try:
+            resolved_values = resolve_value(parsed_values, project_root)
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+        updated, created = merge_values(doc, set_path, resolved_values, create=create)
 
         if updated == 0 and created == 0:
             click.echo(f"Error: Path not found or no fields set: {set_path}", err=True)
@@ -1311,9 +1215,24 @@ def set_value_cmd(
         except json.JSONDecodeError:
             parsed_value = value
 
-        if set_value(doc, set_path, parsed_value, create=create):
+        # Resolve asset references
+        try:
+            resolved_value = resolve_value(parsed_value, project_root)
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+        # Show resolved asset info if it was an asset reference
+        is_asset_ref = is_asset_reference(value) if isinstance(value, str) else False
+
+        if set_value(doc, set_path, resolved_value, create=create):
             doc.save(output_path)
-            if create:
+            if is_asset_ref:
+                click.echo(f"Set {set_path}:")
+                click.echo(f"  Asset: {value[1:]}")  # Remove @ prefix for display
+                click.echo(f"  fileID: {resolved_value['fileID']}")
+                click.echo(f"  guid: {resolved_value['guid']}")
+            elif create:
                 click.echo(f"Set (upsert) {set_path} = {value}")
             else:
                 click.echo(f"Set {set_path} = {value}")
