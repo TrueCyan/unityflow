@@ -1303,19 +1303,12 @@ def import_json(
     type=click.Path(path_type=Path),
     help="Output file (default: modify in place)",
 )
-@click.option(
-    "--create",
-    "-c",
-    is_flag=True,
-    help="Create the path if it doesn't exist (upsert behavior)",
-)
 def set_value_cmd(
     file: Path,
     set_path: str,
     value: str | None,
     batch_values_json: str | None,
     output: Path | None,
-    create: bool,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
@@ -1353,8 +1346,7 @@ def set_value_cmd(
         # Set multiple fields at once (batch mode)
         unityflow set Scene.unity \\
             --path "Player/MonoBehaviour" \\
-            --batch '{"speed": 5.0, "health": 100}' \\
-            --create
+            --batch '{"speed": 5.0, "health": 100}'
 
     Asset References:
         Use @ prefix to reference assets by path:
@@ -1428,14 +1420,14 @@ def set_value_cmd(
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
-        updated, created = merge_values(doc, set_path, resolved_values, create=create)
+        updated, created = merge_values(doc, set_path, resolved_values, create=True)
 
         if updated == 0 and created == 0:
-            click.echo(f"Error: Path not found or no fields set: {set_path}", err=True)
+            click.echo(f"Error: Path not found or no fields set: {original_path}", err=True)
             sys.exit(1)
 
         doc.save(output_path)
-        click.echo(f"Set {updated + created} fields at {set_path}")
+        click.echo(f"Set {updated + created} fields at {original_path}")
         click.echo(f"  Updated: {updated}, Created: {created}")
 
     else:
@@ -1458,19 +1450,17 @@ def set_value_cmd(
         # Show resolved asset info if it was an asset reference
         is_asset_ref = is_asset_reference(value) if isinstance(value, str) else False
 
-        if set_value(doc, set_path, resolved_value, create=create):
+        if set_value(doc, set_path, resolved_value, create=True):
             doc.save(output_path)
             if is_asset_ref:
-                click.echo(f"Set {set_path}:")
+                click.echo(f"Set {original_path}:")
                 click.echo(f"  Asset: {value[1:]}")  # Remove @ prefix for display
                 click.echo(f"  fileID: {resolved_value['fileID']}")
                 click.echo(f"  guid: {resolved_value['guid']}")
-            elif create:
-                click.echo(f"Set (upsert) {set_path} = {value}")
             else:
-                click.echo(f"Set {set_path} = {value}")
+                click.echo(f"Set {original_path} = {value}")
         else:
-            click.echo(f"Error: Path not found: {set_path}", err=True)
+            click.echo(f"Error: Path not found: {original_path}", err=True)
             sys.exit(1)
 
     if output:
