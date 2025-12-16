@@ -134,29 +134,9 @@ def main() -> None:
     help="Show files that would be normalized without making changes",
 )
 @click.option(
-    "--no-sort-documents",
-    is_flag=True,
-    help="Don't sort documents by fileID",
-)
-@click.option(
-    "--no-sort-modifications",
-    is_flag=True,
-    help="Don't sort m_Modifications arrays",
-)
-@click.option(
-    "--no-normalize-floats",
-    is_flag=True,
-    help="Don't normalize floating-point values",
-)
-@click.option(
     "--hex-floats",
     is_flag=True,
     help="Use IEEE 754 hex format for floats (lossless)",
-)
-@click.option(
-    "--no-normalize-quaternions",
-    is_flag=True,
-    help="Don't normalize quaternions",
 )
 @click.option(
     "--precision",
@@ -190,11 +170,6 @@ def main() -> None:
     help="Modify files in place (same as not specifying -o)",
 )
 @click.option(
-    "--no-reorder-fields",
-    is_flag=True,
-    help="Disable reordering MonoBehaviour fields according to C# script declaration order",
-)
-@click.option(
     "--project-root",
     type=click.Path(exists=True, path_type=Path),
     help="Unity project root for script resolution (auto-detected if not specified)",
@@ -208,17 +183,12 @@ def normalize(
     since_ref: str | None,
     pattern: str | None,
     dry_run: bool,
-    no_sort_documents: bool,
-    no_sort_modifications: bool,
-    no_normalize_floats: bool,
     hex_floats: bool,
-    no_normalize_quaternions: bool,
     precision: int,
     output_format: str,
     progress: bool,
     parallel_jobs: int,
     in_place: bool,
-    no_reorder_fields: bool,
     project_root: Path | None,
 ) -> None:
     """Normalize Unity YAML files for deterministic serialization.
@@ -261,10 +231,7 @@ def normalize(
         # Dry run to see what would be normalized
         unityflow normalize --changed-only --dry-run
 
-    Script-based field ordering (enabled by default):
-
-        # Disable field reordering
-        unityflow normalize Player.prefab --no-reorder-fields
+    Script-based field sync (auto-enabled when project root is found):
 
         # With explicit project root for script resolution
         unityflow normalize Player.prefab --project-root /path/to/unity/project
@@ -344,13 +311,8 @@ def normalize(
         sys.exit(1)
 
     normalizer_kwargs = {
-        "sort_documents": not no_sort_documents,
-        "sort_modifications": not no_sort_modifications,
-        "normalize_floats": not no_normalize_floats,
         "use_hex_floats": hex_floats,
-        "normalize_quaternions": not no_normalize_quaternions,
         "float_precision": precision,
-        "reorder_script_fields": not no_reorder_fields,
         "project_root": project_root,
     }
 
@@ -627,7 +589,7 @@ def validate(
     "--find-script",
     type=str,
     default=None,
-    help="Find GameObjects with MonoBehaviour by script GUID",
+    help="Find GameObjects with specific MonoBehaviour script",
 )
 @click.option(
     "--format",
@@ -671,8 +633,8 @@ def query(
         unityflow query Scene.unity --find-component "Light2D"
         unityflow query Scene.unity --find-component "SpriteRenderer"
 
-        # Find GameObjects with MonoBehaviour by script GUID
-        unityflow query Scene.unity --find-script "abc123def456..."
+        # Find GameObjects with specific MonoBehaviour script
+        unityflow query Scene.unity --find-script PlayerController
     """
     from unityflow.parser import UnityYAMLDocument, CLASS_IDS
     from unityflow.query import query_path as do_query
@@ -698,7 +660,7 @@ def query(
         else:
             click.echo(f"Found {len(results)} GameObject(s) matching '{find_name}':")
             for r in results:
-                click.echo(f"  {r['name']} (fileID: {r['fileID']})")
+                click.echo(f"  {r['name']}")
                 if r.get("components"):
                     click.echo(f"    Components: {', '.join(r['components'])}")
         return
@@ -715,24 +677,28 @@ def query(
         else:
             click.echo(f"Found {len(results)} GameObject(s) with '{find_component}':")
             for r in results:
-                click.echo(f"  {r['name']} (fileID: {r['fileID']})")
-                click.echo(f"    Component fileID: {r['componentFileID']}")
+                click.echo(f"  {r['name']}")
         return
 
     # Handle find-script query
     if find_script is not None:
-        results = _find_by_script(doc, find_script)
+        # Resolve script name to GUID if needed
+        script_guid, error = _resolve_script_to_guid(find_script, file)
+        if error:
+            # If can't resolve, try using it directly (might be partial GUID)
+            script_guid = find_script
+
+        results = _find_by_script(doc, script_guid)
         if not results:
-            click.echo(f"No GameObjects found with script GUID: {find_script}")
+            click.echo(f"No GameObjects found with script: {find_script}")
             return
 
         if output_format == "json":
             click.echo(json.dumps(results, indent=2))
         else:
-            click.echo(f"Found {len(results)} GameObject(s) with script '{find_script[:16]}...':")
+            click.echo(f"Found {len(results)} GameObject(s) with script '{find_script}':")
             for r in results:
-                click.echo(f"  {r['name']} (fileID: {r['fileID']})")
-                click.echo(f"    MonoBehaviour fileID: {r['componentFileID']}")
+                click.echo(f"  {r['name']}")
         return
 
     if not query_path_str:
@@ -774,6 +740,237 @@ def query(
                 click.echo(f"{r.path}: {json.dumps(r.value)}")
             else:
                 click.echo(f"{r.path}: {r.value}")
+
+
+def _resolve_gameobject_by_path(
+    doc: "UnityYAMLDocument",
+    path_spec: str,
+) -> tuple[int | None, str | None]:
+    """Resolve a GameObject by path specification.
+
+    Args:
+        doc: The Unity YAML document
+        path_spec: Path like "Canvas/Panel/Button" or "Canvas/Panel/Button[1]"
+
+    Returns:
+        Tuple of (fileID, error_message). If successful, error_message is None.
+        If failed, fileID is None and error_message contains the error.
+    """
+    import re
+
+    # Parse path and optional index
+    index_match = re.match(r"^(.+)\[(\d+)\]$", path_spec)
+    if index_match:
+        path = index_match.group(1)
+        index = int(index_match.group(2))
+    else:
+        path = path_spec
+        index = None
+
+    # Build transform hierarchy
+    transforms: dict[int, dict] = {}  # transform_id -> {gameObject, parent}
+    go_names: dict[int, str] = {}  # go_id -> name
+    go_transforms: dict[int, int] = {}  # go_id -> transform_id
+
+    for obj in doc.objects:
+        if obj.class_id == 4 or obj.class_id == 224:  # Transform or RectTransform
+            content = obj.get_content()
+            if content:
+                go_ref = content.get("m_GameObject", {})
+                go_id = go_ref.get("fileID", 0) if isinstance(go_ref, dict) else 0
+                father = content.get("m_Father", {})
+                father_id = father.get("fileID", 0) if isinstance(father, dict) else 0
+                transforms[obj.file_id] = {
+                    "gameObject": go_id,
+                    "parent": father_id,
+                }
+                if go_id:
+                    go_transforms[go_id] = obj.file_id
+
+    for obj in doc.objects:
+        if obj.class_id == 1:  # GameObject
+            content = obj.get_content()
+            if content:
+                go_names[obj.file_id] = content.get("m_Name", "")
+
+    # Build path for each GameObject
+    def build_path(transform_id: int, visited: set[int]) -> str:
+        if transform_id in visited or transform_id not in transforms:
+            return ""
+        visited.add(transform_id)
+
+        t = transforms[transform_id]
+        name = go_names.get(t["gameObject"], "")
+
+        if t["parent"] == 0:
+            return name
+        else:
+            parent_path = build_path(t["parent"], visited)
+            if parent_path:
+                return f"{parent_path}/{name}"
+            return name
+
+    # Find all GameObjects matching the path
+    matches: list[tuple[int, str]] = []  # (go_id, full_path)
+    for go_id, transform_id in go_transforms.items():
+        full_path = build_path(transform_id, set())
+        if full_path == path:
+            matches.append((go_id, full_path))
+
+    if not matches:
+        return None, f"GameObject not found at path '{path}'"
+
+    if len(matches) == 1:
+        return matches[0][0], None
+
+    # Multiple matches
+    if index is not None:
+        if index < len(matches):
+            return matches[index][0], None
+        else:
+            return None, f"Index [{index}] out of range. Found {len(matches)} GameObjects at path '{path}'"
+
+    # No index specified, show options
+    error_lines = [f"Multiple GameObjects at path '{path}'."]
+    error_lines.append(f"Use index to select: --to \"{path}[0]\" (0 to {len(matches) - 1})")
+    return None, "\n".join(error_lines)
+
+
+def _resolve_component_path(
+    doc: "UnityYAMLDocument",
+    path_spec: str,
+) -> tuple[str | None, str | None]:
+    """Resolve a component path to the internal format.
+
+    Converts paths like:
+        "Player/SpriteRenderer/m_Color" -> "components/12345/m_Color"
+        "Canvas/Panel/Button/Image/m_Sprite" -> "components/67890/m_Sprite"
+        "Canvas/Button/Image[1]/m_Color" -> "components/11111/m_Color"
+        "Player/name" -> "gameObjects/12345/name"
+
+    Args:
+        doc: The Unity YAML document
+        path_spec: Path like "Player/SpriteRenderer/m_Color"
+
+    Returns:
+        Tuple of (resolved_path, error_message). If successful, error_message is None.
+    """
+    import re
+    from unityflow.parser import CLASS_IDS
+
+    # Check if already in internal format (components/12345/... or gameObjects/12345/...)
+    if re.match(r"^(components|gameObjects)/\d+", path_spec):
+        return path_spec, None
+
+    parts = path_spec.split("/")
+    if len(parts) < 2:
+        return None, f"Invalid path format: {path_spec}"
+
+    # Last part is the property name
+    property_name = parts[-1]
+
+    # Check if second-to-last part is a component type (with optional index)
+    component_match = re.match(r"^([A-Za-z][A-Za-z0-9]*)(?:\[(\d+)\])?$", parts[-2])
+
+    # Build reverse mapping: class name -> class IDs
+    name_to_ids: dict[str, list[int]] = {}
+    for class_id, class_name in CLASS_IDS.items():
+        name_lower = class_name.lower()
+        if name_lower not in name_to_ids:
+            name_to_ids[name_lower] = []
+        name_to_ids[name_lower].append(class_id)
+
+    # Also add package component names (they're MonoBehaviour)
+    package_components = {
+        "image", "button", "scrollrect", "mask", "rectmask2d",
+        "graphicraycaster", "canvasscaler", "verticallayoutgroup",
+        "horizontallayoutgroup", "contentsizefitter", "textmeshprougui",
+        "tmp_inputfield", "eventsystem", "inputsystemuiinputmodule", "light2d"
+    }
+
+    if component_match:
+        component_type = component_match.group(1)
+        component_index = int(component_match.group(2)) if component_match.group(2) else None
+        component_type_lower = component_type.lower()
+
+        # Check if it's a known component type
+        is_component = (
+            component_type_lower in name_to_ids or
+            component_type_lower in package_components or
+            component_type == "MonoBehaviour"
+        )
+
+        if is_component:
+            # Path format: GameObject.../ComponentType/property
+            go_path = "/".join(parts[:-2])
+            if not go_path:
+                return None, f"Invalid path: missing GameObject path before {component_type}"
+
+            # Resolve GameObject
+            go_id, error = _resolve_gameobject_by_path(doc, go_path)
+            if error:
+                return None, error
+
+            # Find the component
+            go = doc.get_by_file_id(go_id)
+            if not go:
+                return None, f"GameObject not found"
+
+            go_content = go.get_content()
+            if not go_content or "m_Component" not in go_content:
+                return None, f"GameObject has no components"
+
+            # Find matching components
+            matching_components: list[int] = []
+            for comp_ref in go_content["m_Component"]:
+                comp_id = comp_ref.get("component", {}).get("fileID", 0)
+                comp = doc.get_by_file_id(comp_id)
+                if not comp:
+                    continue
+
+                # Check if component matches the type
+                comp_class_name = comp.class_name.lower()
+
+                # For package components (MonoBehaviour), check script GUID
+                if component_type_lower in package_components:
+                    if comp.class_id == 114:  # MonoBehaviour
+                        comp_content = comp.get_content()
+                        if comp_content:
+                            script_ref = comp_content.get("m_Script", {})
+                            script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+                            # Check if GUID matches the package component
+                            expected_guid = PACKAGE_COMPONENT_GUIDS.get(component_type, "").lower()
+                            if script_guid.lower() == expected_guid:
+                                matching_components.append(comp_id)
+                elif comp_class_name == component_type_lower:
+                    matching_components.append(comp_id)
+
+            if not matching_components:
+                return None, f"Component '{component_type}' not found on '{go_path}'"
+
+            if len(matching_components) == 1:
+                return f"components/{matching_components[0]}/{property_name}", None
+
+            # Multiple matches
+            if component_index is not None:
+                if component_index < len(matching_components):
+                    return f"components/{matching_components[component_index]}/{property_name}", None
+                else:
+                    return None, f"Index [{component_index}] out of range. Found {len(matching_components)} {component_type} components"
+
+            # No index specified
+            error_lines = [f"Multiple '{component_type}' components on '{go_path}'."]
+            error_lines.append(f"Use index to select: \"{go_path}/{component_type}[0]/{property_name}\" (0 to {len(matching_components) - 1})")
+            return None, "\n".join(error_lines)
+
+    # Not a component path - treat as GameObject property
+    # Path format: GameObject.../property
+    go_path = "/".join(parts[:-1])
+    go_id, error = _resolve_gameobject_by_path(doc, go_path)
+    if error:
+        return None, error
+
+    return f"gameObjects/{go_id}/{property_name}", None
 
 
 def _find_by_name(doc: "UnityYAMLDocument", pattern: str) -> list[dict]:
@@ -1045,7 +1242,7 @@ def import_json(
     "-p",
     "set_path",
     required=True,
-    help="Path to the value to set (e.g., 'components/12345/localPosition')",
+    help="Path to the value (e.g., 'Player/Transform/localPosition')",
 )
 @click.option(
     "--value",
@@ -1066,90 +1263,56 @@ def import_json(
     type=click.Path(path_type=Path),
     help="Output file (default: modify in place)",
 )
-@click.option(
-    "--create",
-    "-c",
-    is_flag=True,
-    help="Create the path if it doesn't exist (upsert behavior)",
-)
 def set_value_cmd(
     file: Path,
     set_path: str,
     value: str | None,
     batch_values_json: str | None,
     output: Path | None,
-    create: bool,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
-    This enables surgical editing of prefab data.
-
-    Value Modes (mutually exclusive):
-        --value: Set a single value (JSON or string)
-        --batch: Set multiple key-value pairs at once
-
-    Asset References:
-        Use @ prefix to reference assets by path. The GUID and fileID are
-        automatically resolved from the asset's .meta file.
-
-        Supported formats:
-            "@Assets/Scripts/Player.cs"         -> Script reference
-            "@Assets/Sprites/icon.png"          -> Sprite (Single mode)
-            "@Assets/Sprites/atlas.png:idle_0"  -> Sprite sub-sprite (Multiple mode)
-            "@Assets/Audio/jump.wav"            -> AudioClip reference
-            "@Assets/Prefabs/Enemy.prefab"      -> Prefab reference
-            "@Assets/Materials/Custom.mat"      -> Material reference
+    Path Format:
+        GameObject/ComponentType/property - Component property
+        GameObject/property               - GameObject property
 
     Examples:
 
-        # Set position
+        # Set Transform position
         unityflow set Player.prefab \\
-            --path "components/12345/localPosition" \\
+            --path "Player/Transform/localPosition" \\
             --value '{"x": 0, "y": 5, "z": 0}'
 
-        # Set a simple value
+        # Set SpriteRenderer color
         unityflow set Player.prefab \\
-            --path "gameObjects/12345/name" \\
+            --path "Player/SpriteRenderer/m_Color" \\
+            --value '{"r": 1, "g": 0, "b": 0, "a": 1}'
+
+        # Set Image sprite (with asset reference)
+        unityflow set Scene.unity \\
+            --path "Canvas/Panel/Button/Image/m_Sprite" \\
+            --value "@Assets/Sprites/icon.png"
+
+        # Set GameObject name
+        unityflow set Player.prefab \\
+            --path "Player/name" \\
             --value '"NewName"'
 
-        # Set asset reference (auto-resolves GUID and fileID)
-        unityflow set Player.prefab \\
-            --path "components/12345/m_Sprite" \\
-            --value "@Assets/Sprites/player.png"
-
-        # Set sprite with sub-sprite (Multiple mode / atlas)
-        unityflow set Player.prefab \\
-            --path "components/12345/m_Sprite" \\
-            --value "@Assets/Sprites/atlas.png:player_idle_0"
-
-        # Set prefab reference
+        # When multiple components of same type exist, use index
         unityflow set Scene.unity \\
-            --path "components/495733805/enemyPrefab" \\
-            --value "@Assets/Prefabs/Enemy.prefab" \\
-            --create
+            --path "Canvas/Panel/Image[1]/m_Color" \\
+            --value '{"r": 0, "g": 1, "b": 0, "a": 1}'
 
-        # Set multiple fields at once (batch mode with asset references)
+        # Set multiple fields at once (batch mode)
         unityflow set Scene.unity \\
-            --path "components/495733805" \\
-            --batch '{
-                "playerPrefab": "@Assets/Prefabs/Player.prefab",
-                "enemyPrefab": "@Assets/Prefabs/Enemy.prefab",
-                "spawnRate": 2.0
-            }' \\
-            --create
+            --path "Player/MonoBehaviour" \\
+            --batch '{"speed": 5.0, "health": 100}'
 
-        # Save to a new file
-        unityflow set Player.prefab \\
-            --path "components/12345/localScale" \\
-            --value '{"x": 2, "y": 2, "z": 2}' \\
-            -o Player_modified.prefab
-
-    Note:
-        New fields are appended at the end. Unity will reorder fields
-        according to the C# script declaration order when saved in editor.
-
-        Asset references (@path) are automatically resolved to Unity's
-        {fileID, guid, type} format using the asset's .meta file.
+    Asset References:
+        Use @ prefix to reference assets by path:
+            "@Assets/Sprites/icon.png"          -> Sprite reference
+            "@Assets/Sprites/atlas.png:idle_0"  -> Sub-sprite
+            "@Assets/Prefabs/Enemy.prefab"      -> Prefab reference
     """
     from unityflow.parser import UnityYAMLDocument
     from unityflow.query import set_value, merge_values
@@ -1183,6 +1346,14 @@ def set_value_cmd(
     output_path = output or file
     project_root = find_unity_project_root(file)
 
+    # Resolve path (convert "Player/Transform/localPosition" to "components/12345/localPosition")
+    original_path = set_path
+    resolved_path, error = _resolve_component_path(doc, set_path)
+    if error:
+        click.echo(f"Error: {error}", err=True)
+        sys.exit(1)
+    set_path = resolved_path
+
     # Extract field name from path for type validation
     # e.g., "components/12345/m_Sprite" -> "m_Sprite"
     field_name = set_path.rsplit("/", 1)[-1] if "/" in set_path else set_path
@@ -1199,6 +1370,13 @@ def set_value_cmd(
             click.echo("Error: --batch value must be a JSON object", err=True)
             sys.exit(1)
 
+        # Validate field types in batch values
+        for batch_field_name, batch_value in parsed_values.items():
+            is_valid, error_msg = _validate_field_value(batch_field_name, batch_value)
+            if not is_valid:
+                click.echo(f"Error: {error_msg}", err=True)
+                sys.exit(1)
+
         # Resolve asset references in batch values (keys are used as field names)
         try:
             resolved_values = resolve_value(parsed_values, project_root)
@@ -1209,14 +1387,14 @@ def set_value_cmd(
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
-        updated, created = merge_values(doc, set_path, resolved_values, create=create)
+        updated, created = merge_values(doc, set_path, resolved_values, create=True)
 
         if updated == 0 and created == 0:
-            click.echo(f"Error: Path not found or no fields set: {set_path}", err=True)
+            click.echo(f"Error: Path not found or no fields set: {original_path}", err=True)
             sys.exit(1)
 
         doc.save(output_path)
-        click.echo(f"Set {updated + created} fields at {set_path}")
+        click.echo(f"Set {updated + created} fields at {original_path}")
         click.echo(f"  Updated: {updated}, Created: {created}")
 
     else:
@@ -1225,6 +1403,12 @@ def set_value_cmd(
             parsed_value = json.loads(value)
         except json.JSONDecodeError:
             parsed_value = value
+
+        # Validate field type
+        is_valid, error_msg = _validate_field_value(field_name, parsed_value)
+        if not is_valid:
+            click.echo(f"Error: {error_msg}", err=True)
+            sys.exit(1)
 
         # Resolve asset references with field name for type validation
         try:
@@ -1239,19 +1423,14 @@ def set_value_cmd(
         # Show resolved asset info if it was an asset reference
         is_asset_ref = is_asset_reference(value) if isinstance(value, str) else False
 
-        if set_value(doc, set_path, resolved_value, create=create):
+        if set_value(doc, set_path, resolved_value, create=True):
             doc.save(output_path)
             if is_asset_ref:
-                click.echo(f"Set {set_path}:")
-                click.echo(f"  Asset: {value[1:]}")  # Remove @ prefix for display
-                click.echo(f"  fileID: {resolved_value['fileID']}")
-                click.echo(f"  guid: {resolved_value['guid']}")
-            elif create:
-                click.echo(f"Set (upsert) {set_path} = {value}")
+                click.echo(f"Set {original_path} = {value[1:]}")  # Remove @ prefix for display
             else:
-                click.echo(f"Set {set_path} = {value}")
+                click.echo(f"Set {original_path} = {value}")
         else:
-            click.echo(f"Error: Path not found: {set_path}", err=True)
+            click.echo(f"Error: Path not found: {original_path}", err=True)
             sys.exit(1)
 
     if output:
@@ -3046,25 +3225,22 @@ def sprite_info_cmd(
         click.echo(json.dumps(output, indent=2))
     else:
         click.echo(f"Sprite: {sprite}")
-        click.echo(f"GUID: {info.guid}")
-        click.echo(f"Mode: {'Single' if info.is_single else 'Multiple'} (spriteMode: {info.sprite_mode})")
+        click.echo(f"Mode: {'Single' if info.is_single else 'Multiple'}")
         click.echo()
 
         if info.is_single:
-            click.echo(f"Reference fileID: {SPRITE_SINGLE_MODE_FILE_ID}")
-            click.echo()
             click.echo("Usage:")
-            click.echo(f"  unityflow sprite-link <prefab> -c <component_id> -s \"{sprite}\"")
+            click.echo(f"  unityflow set <file> \"<path>/m_Sprite\" \"@{sprite}\"")
         else:
             click.echo(f"Sub-sprites ({len(info.sprites)}):")
             for s in info.sprites:
-                click.echo(f"  {s['name']}: {s['internalID']}")
+                click.echo(f"  {s['name']}")
 
             if info.sprites:
                 first_sprite = info.sprites[0]
                 click.echo()
                 click.echo("Usage (first sub-sprite):")
-                click.echo(f"  unityflow sprite-link <prefab> -c <component_id> -s \"{sprite}\" --sub-sprite \"{first_sprite['name']}\"")
+                click.echo(f"  unityflow set <file> \"<path>/m_Sprite\" \"@{sprite}#{first_sprite['name']}\"")
 
 
 @main.command(name="add-object")
@@ -3080,10 +3256,10 @@ def sprite_info_cmd(
 @click.option(
     "--parent",
     "-p",
-    "parent_id",
-    type=int,
-    default=0,
-    help="Parent Transform fileID (0 for root)",
+    "parent_path",
+    type=str,
+    default=None,
+    help="Parent GameObject path (e.g., 'Canvas/Panel')",
 )
 @click.option(
     "--position",
@@ -3117,7 +3293,7 @@ def sprite_info_cmd(
 def add_object(
     file: Path,
     obj_name: str,
-    parent_id: int,
+    parent_path: str | None,
     position: str | None,
     layer: int,
     tag: str,
@@ -3134,13 +3310,13 @@ def add_object(
         unityflow add-object Scene.unity --name "Player"
 
         # Add with parent
-        unityflow add-object Scene.unity --name "Child" --parent 12345
+        unityflow add-object Scene.unity --name "Child" --parent "Canvas"
 
         # Add with position
         unityflow add-object Scene.unity --name "Enemy" --position "10,0,5"
 
         # Add UI GameObject (RectTransform)
-        unityflow add-object Scene.unity --name "Button" --ui --parent 67890
+        unityflow add-object Scene.unity --name "Button" --ui --parent "Canvas/Panel"
 
         # Add with layer and tag
         unityflow add-object Scene.unity --name "Enemy" --layer 8 --tag "Enemy"
@@ -3159,6 +3335,30 @@ def add_object(
         sys.exit(1)
 
     output_path = output or file
+
+    # Resolve parent path to Transform ID
+    parent_transform_id = 0
+    if parent_path:
+        parent_go_id, error = _resolve_gameobject_by_path(doc, parent_path)
+        if error:
+            click.echo(f"Error: {error}", err=True)
+            sys.exit(1)
+
+        # Find the Transform component of the parent GameObject
+        parent_go = doc.get_by_file_id(parent_go_id)
+        if parent_go:
+            go_content = parent_go.get_content()
+            if go_content and "m_Component" in go_content:
+                for comp_ref in go_content["m_Component"]:
+                    comp_id = comp_ref.get("component", {}).get("fileID", 0)
+                    comp = doc.get_by_file_id(comp_id)
+                    if comp and comp.class_id in (4, 224):  # Transform or RectTransform
+                        parent_transform_id = comp_id
+                        break
+
+        if parent_transform_id == 0:
+            click.echo(f"Error: Could not find Transform for parent '{parent_path}'", err=True)
+            sys.exit(1)
 
     # Parse position
     pos = None
@@ -3181,14 +3381,14 @@ def add_object(
             game_object_id=go_id,
             file_id=transform_id,
             position=pos,
-            parent_id=parent_id,
+            parent_id=parent_transform_id,
         )
     else:
         transform = create_transform(
             game_object_id=go_id,
             file_id=transform_id,
             position=pos,
-            parent_id=parent_id,
+            parent_id=parent_transform_id,
         )
 
     # Create GameObject
@@ -3205,8 +3405,8 @@ def add_object(
     doc.add_object(transform)
 
     # Update parent's children list if parent specified
-    if parent_id != 0:
-        parent_obj = doc.get_by_file_id(parent_id)
+    if parent_transform_id != 0:
+        parent_obj = doc.get_by_file_id(parent_transform_id)
         if parent_obj:
             content = parent_obj.get_content()
             if content and "m_Children" in content:
@@ -3214,11 +3414,322 @@ def add_object(
 
     doc.save(output_path)
     click.echo(f"Added GameObject '{obj_name}'")
-    click.echo(f"  GameObject fileID: {go_id}")
-    click.echo(f"  {'RectTransform' if ui else 'Transform'} fileID: {transform_id}")
 
     if output:
         click.echo(f"Saved to: {output}")
+
+
+# Package component name to GUID mapping
+# These are MonoBehaviour components from Unity packages
+PACKAGE_COMPONENT_GUIDS: dict[str, str] = {
+    # Unity UI (com.unity.ugui)
+    "Image": "fe87c0e1cc204ed48ad3b37840f39efc",
+    "Button": "4e29b1a8efbd4b44bb3f3716e73f07ff",
+    "ScrollRect": "1aa08ab6e0800fa44ae55d278d1423e3",
+    "Mask": "31a19414c41e5ae4aae2af33fee712f6",
+    "RectMask2D": "3312d7739989d2b4e91e6319e9a96d76",
+    "GraphicRaycaster": "dc42784cf147c0c48a680349fa168899",
+    "CanvasScaler": "0cd44c1031e13a943bb63640046fad76",
+    "VerticalLayoutGroup": "59f8146938fff824cb5fd77236b75775",
+    "HorizontalLayoutGroup": "30649d3a9faa99c48a7b1166b86bf2a0",
+    "ContentSizeFitter": "3245ec927659c4140ac4f8d17403cc18",
+    "TextMeshProUGUI": "f4688fdb7df04437aeb418b961361dc5",
+    "TMP_InputField": "2da0c512f12947e489f739169773d7ca",
+    "EventSystem": "76c392e42b5098c458856cdf6ecaaaa1",
+    "InputSystemUIInputModule": "01614664b831546d2ae94a42149d80ac",
+    # URP 2D Lighting
+    "Light2D": "073797afb82c5a1438f328866b10b3f0",
+}
+
+# Built-in component types (native Unity components)
+BUILTIN_COMPONENT_TYPES = [
+    "SpriteRenderer", "Camera", "Light", "AudioSource",
+    "BoxCollider2D", "CircleCollider2D", "Rigidbody2D",
+]
+
+# All supported component types for --type option
+ALL_COMPONENT_TYPES = BUILTIN_COMPONENT_TYPES + list(PACKAGE_COMPONENT_GUIDS.keys())
+
+
+# ============================================================================
+# Field Type Validation
+# ============================================================================
+
+class FieldType:
+    """Unity field types for validation."""
+    VECTOR2 = "Vector2"      # {x, y}
+    VECTOR3 = "Vector3"      # {x, y, z}
+    VECTOR4 = "Vector4"      # {x, y, z, w}
+    QUATERNION = "Quaternion"  # {x, y, z, w}
+    COLOR = "Color"          # {r, g, b, a}
+    BOOL = "bool"            # 0 or 1
+    INT = "int"              # integer
+    FLOAT = "float"          # number
+    STRING = "string"        # string
+    ASSET_REF = "AssetRef"   # {fileID, guid, type}
+
+
+# Field name to type mapping
+FIELD_TYPES: dict[str, str] = {
+    # Transform / RectTransform - Vector3
+    "m_LocalPosition": FieldType.VECTOR3,
+    "m_LocalScale": FieldType.VECTOR3,
+    "m_LocalEulerAnglesHint": FieldType.VECTOR3,
+    "localPosition": FieldType.VECTOR3,
+    "localScale": FieldType.VECTOR3,
+
+    # Transform - Quaternion
+    "m_LocalRotation": FieldType.QUATERNION,
+    "localRotation": FieldType.QUATERNION,
+
+    # RectTransform - Vector2
+    "m_AnchorMin": FieldType.VECTOR2,
+    "m_AnchorMax": FieldType.VECTOR2,
+    "m_AnchoredPosition": FieldType.VECTOR2,
+    "m_SizeDelta": FieldType.VECTOR2,
+    "m_Pivot": FieldType.VECTOR2,
+    "anchorMin": FieldType.VECTOR2,
+    "anchorMax": FieldType.VECTOR2,
+    "anchoredPosition": FieldType.VECTOR2,
+    "sizeDelta": FieldType.VECTOR2,
+    "pivot": FieldType.VECTOR2,
+
+    # RectTransform - Vector4
+    "m_RaycastPadding": FieldType.VECTOR4,
+    "m_margin": FieldType.VECTOR4,
+    "m_maskOffset": FieldType.VECTOR4,
+
+    # Color fields
+    "m_Color": FieldType.COLOR,
+    "m_fontColor": FieldType.COLOR,
+    "color": FieldType.COLOR,
+
+    # Bool fields (0 or 1)
+    "m_IsActive": FieldType.BOOL,
+    "m_Enabled": FieldType.BOOL,
+    "m_RaycastTarget": FieldType.BOOL,
+    "m_Maskable": FieldType.BOOL,
+    "m_isRightToLeft": FieldType.BOOL,
+    "m_isRichText": FieldType.BOOL,
+    "m_isOrthographic": FieldType.BOOL,
+    "m_CullTransparentMesh": FieldType.BOOL,
+    "m_ShowMaskGraphic": FieldType.BOOL,
+    "m_FlipX": FieldType.BOOL,
+    "m_FlipY": FieldType.BOOL,
+    "m_ConstrainProportionsScale": FieldType.BOOL,
+    "isActive": FieldType.BOOL,
+    "enabled": FieldType.BOOL,
+
+    # Int fields
+    "m_Layer": FieldType.INT,
+    "m_SortingOrder": FieldType.INT,
+    "m_SortingLayerID": FieldType.INT,
+    "m_ObjectHideFlags": FieldType.INT,
+    "m_NavMeshLayer": FieldType.INT,
+    "m_StaticEditorFlags": FieldType.INT,
+    "m_HorizontalAlignment": FieldType.INT,
+    "m_VerticalAlignment": FieldType.INT,
+    "m_fontStyle": FieldType.INT,
+    "m_overflowMode": FieldType.INT,
+    "sortingOrder": FieldType.INT,
+    "layer": FieldType.INT,
+
+    # Float fields
+    "m_fontSize": FieldType.FLOAT,
+    "m_fontSizeBase": FieldType.FLOAT,
+    "m_fontSizeMin": FieldType.FLOAT,
+    "m_fontSizeMax": FieldType.FLOAT,
+    "m_characterSpacing": FieldType.FLOAT,
+    "m_wordSpacing": FieldType.FLOAT,
+    "m_lineSpacing": FieldType.FLOAT,
+    "m_paragraphSpacing": FieldType.FLOAT,
+    "m_FillAmount": FieldType.FLOAT,
+    "fontSize": FieldType.FLOAT,
+    "fillAmount": FieldType.FLOAT,
+
+    # String fields
+    "m_Name": FieldType.STRING,
+    "m_TagString": FieldType.STRING,
+    "m_text": FieldType.STRING,
+    "name": FieldType.STRING,
+    "text": FieldType.STRING,
+
+    # Asset reference fields
+    "m_Sprite": FieldType.ASSET_REF,
+    "m_Material": FieldType.ASSET_REF,
+    "m_Script": FieldType.ASSET_REF,
+    "m_fontAsset": FieldType.ASSET_REF,
+    "m_sharedMaterial": FieldType.ASSET_REF,
+    "sprite": FieldType.ASSET_REF,
+    "material": FieldType.ASSET_REF,
+}
+
+
+def _validate_field_value(field_name: str, value: any) -> tuple[bool, str | None]:
+    """Validate a value against its expected field type.
+
+    Args:
+        field_name: The field name (e.g., "m_LocalPosition")
+        value: The value to validate
+
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is None.
+    """
+    field_type = FIELD_TYPES.get(field_name)
+
+    if field_type is None:
+        # Unknown field, skip validation
+        return True, None
+
+    if field_type == FieldType.VECTOR2:
+        if not isinstance(value, dict):
+            return False, f"'{field_name}'은(는) Vector2 형식이어야 합니다: {{\"x\": 0, \"y\": 0}}"
+        required = {"x", "y"}
+        if not required.issubset(value.keys()):
+            missing = required - set(value.keys())
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"x\": 0, \"y\": 0}}"
+        for k in ["x", "y"]:
+            if not isinstance(value.get(k), (int, float)):
+                return False, f"'{field_name}.{k}'는 숫자여야 합니다"
+        return True, None
+
+    if field_type == FieldType.VECTOR3:
+        if not isinstance(value, dict):
+            return False, f"'{field_name}'은(는) Vector3 형식이어야 합니다: {{\"x\": 0, \"y\": 0, \"z\": 0}}"
+        required = {"x", "y", "z"}
+        if not required.issubset(value.keys()):
+            missing = required - set(value.keys())
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"x\": 0, \"y\": 0, \"z\": 0}}"
+        for k in ["x", "y", "z"]:
+            if not isinstance(value.get(k), (int, float)):
+                return False, f"'{field_name}.{k}'는 숫자여야 합니다"
+        return True, None
+
+    if field_type == FieldType.VECTOR4:
+        if not isinstance(value, dict):
+            return False, f"'{field_name}'은(는) Vector4 형식이어야 합니다: {{\"x\": 0, \"y\": 0, \"z\": 0, \"w\": 0}}"
+        required = {"x", "y", "z", "w"}
+        if not required.issubset(value.keys()):
+            missing = required - set(value.keys())
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"x\": 0, \"y\": 0, \"z\": 0, \"w\": 0}}"
+        for k in ["x", "y", "z", "w"]:
+            if not isinstance(value.get(k), (int, float)):
+                return False, f"'{field_name}.{k}'는 숫자여야 합니다"
+        return True, None
+
+    if field_type == FieldType.QUATERNION:
+        if not isinstance(value, dict):
+            return False, f"'{field_name}'은(는) Quaternion 형식이어야 합니다: {{\"x\": 0, \"y\": 0, \"z\": 0, \"w\": 1}}"
+        required = {"x", "y", "z", "w"}
+        if not required.issubset(value.keys()):
+            missing = required - set(value.keys())
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"x\": 0, \"y\": 0, \"z\": 0, \"w\": 1}}"
+        for k in ["x", "y", "z", "w"]:
+            if not isinstance(value.get(k), (int, float)):
+                return False, f"'{field_name}.{k}'는 숫자여야 합니다"
+        return True, None
+
+    if field_type == FieldType.COLOR:
+        if not isinstance(value, dict):
+            return False, f"'{field_name}'은(는) Color 형식이어야 합니다: {{\"r\": 1, \"g\": 1, \"b\": 1, \"a\": 1}}"
+        required = {"r", "g", "b", "a"}
+        if not required.issubset(value.keys()):
+            missing = required - set(value.keys())
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"r\": 1, \"g\": 1, \"b\": 1, \"a\": 1}}"
+        for k in ["r", "g", "b", "a"]:
+            if not isinstance(value.get(k), (int, float)):
+                return False, f"'{field_name}.{k}'는 숫자여야 합니다"
+        return True, None
+
+    if field_type == FieldType.BOOL:
+        if value not in (0, 1, True, False):
+            return False, f"'{field_name}'은(는) bool 형식이어야 합니다: 0 또는 1"
+        return True, None
+
+    if field_type == FieldType.INT:
+        if not isinstance(value, int) or isinstance(value, bool):
+            return False, f"'{field_name}'은(는) 정수여야 합니다"
+        return True, None
+
+    if field_type == FieldType.FLOAT:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return False, f"'{field_name}'은(는) 숫자여야 합니다"
+        return True, None
+
+    if field_type == FieldType.STRING:
+        if not isinstance(value, str):
+            return False, f"'{field_name}'은(는) 문자열이어야 합니다"
+        return True, None
+
+    if field_type == FieldType.ASSET_REF:
+        # Asset references are validated separately by asset_resolver
+        # Skip validation here if it's already a resolved reference
+        if isinstance(value, dict) and "fileID" in value:
+            return True, None
+        # If it's a string starting with @, it will be resolved later
+        if isinstance(value, str) and value.startswith("@"):
+            return True, None
+        return False, f"'{field_name}'은(는) 에셋 참조 형식이어야 합니다: \"@Assets/path/to/asset.ext\""
+
+    return True, None
+
+
+def _resolve_script_to_guid(script_ref: str, file_path: Path) -> tuple[str | None, str | None]:
+    """Resolve a script reference (GUID or name) to a GUID.
+
+    Args:
+        script_ref: Either a 32-char hex GUID or a script class name
+        file_path: Path to the Unity file being edited (for project root detection)
+
+    Returns:
+        Tuple of (guid, error_message). If successful, error_message is None.
+    """
+    import re
+
+    # Check if it's already a GUID (32 hex characters)
+    if re.match(r"^[a-f0-9]{32}$", script_ref, re.IGNORECASE):
+        return script_ref, None
+
+    # It's a script name - search for matching .cs file
+    from unityflow.asset_tracker import find_unity_project_root
+
+    project_root = find_unity_project_root(file_path)
+    if not project_root:
+        return None, f"Unity 프로젝트 루트를 찾을 수 없습니다."
+
+    # Search for matching .cs files
+    script_name = script_ref
+    if script_name.endswith(".cs"):
+        script_name = script_name[:-3]
+
+    # Search in Assets folder
+    assets_dir = project_root / "Assets"
+    if not assets_dir.exists():
+        return None, f"Assets 폴더를 찾을 수 없습니다: {assets_dir}"
+
+    # Find all matching .cs files
+    matches: list[tuple[Path, str]] = []
+    guid_pattern = re.compile(r"^guid:\s*([a-f0-9]{32})\s*$", re.MULTILINE)
+
+    for cs_file in assets_dir.rglob(f"{script_name}.cs"):
+        meta_file = cs_file.with_suffix(".cs.meta")
+        if meta_file.exists():
+            try:
+                meta_content = meta_file.read_text(encoding="utf-8")
+                guid_match = guid_pattern.search(meta_content)
+                if guid_match:
+                    matches.append((cs_file, guid_match.group(1)))
+            except Exception:
+                pass
+
+    if not matches:
+        return None, f"스크립트를 찾을 수 없습니다: '{script_name}'. Assets 폴더에 {script_name}.cs 파일이 있는지 확인하세요."
+
+    if len(matches) > 1:
+        paths = "\n  ".join(str(m[0].relative_to(project_root)) for m in matches)
+        return None, f"'{script_name}' 이름의 스크립트가 여러 개 있습니다:\n  {paths}\n정확한 경로를 지정하세요."
+
+    return matches[0][1], None
 
 
 @main.command(name="add-component")
@@ -3226,27 +3737,24 @@ def add_object(
 @click.option(
     "--to",
     "-t",
-    "target_id",
-    type=int,
+    "target_path",
+    type=str,
     required=True,
-    help="Target GameObject fileID",
+    help="Target GameObject path (e.g., 'Canvas/Panel/Button')",
 )
 @click.option(
     "--type",
     "component_type",
-    type=click.Choice([
-        "SpriteRenderer", "Camera", "Light", "AudioSource",
-        "BoxCollider2D", "CircleCollider2D", "Rigidbody2D",
-    ]),
+    type=click.Choice(ALL_COMPONENT_TYPES),
     default=None,
-    help="Built-in component type to add",
+    help="Component type to add (built-in or package component)",
 )
 @click.option(
     "--script",
-    "script_guid",
+    "script_ref",
     type=str,
     default=None,
-    help="GUID of the MonoBehaviour script to add",
+    help="Script name to add (e.g., 'PlayerController')",
 )
 @click.option(
     "--props",
@@ -3262,30 +3770,37 @@ def add_object(
 )
 def add_component(
     file: Path,
-    target_id: int,
+    target_path: str,
     component_type: str | None,
-    script_guid: str | None,
+    script_ref: str | None,
     props: str | None,
     output: Path | None,
 ) -> None:
     """Add a component to an existing GameObject.
 
-    Requires either --type for built-in components or --script for MonoBehaviour.
+    Requires either --type for components or --script for custom MonoBehaviour.
+
+    Supported component types include:
+    - Built-in: SpriteRenderer, Camera, Light, AudioSource, BoxCollider2D, etc.
+    - Package: Image, Button, TextMeshProUGUI, Light2D, EventSystem, etc.
 
     Examples:
 
         # Add a built-in component
-        unityflow add-component Scene.unity --to 12345 --type SpriteRenderer
+        unityflow add-component Scene.unity --to "Player" --type SpriteRenderer
 
-        # Add a MonoBehaviour
-        unityflow add-component Scene.unity --to 12345 --script "abc123def456..."
+        # Add to nested GameObject
+        unityflow add-component Scene.unity --to "Canvas/Panel/Button" --type Image
+
+        # When multiple GameObjects have the same path, use index
+        unityflow add-component Scene.unity --to "Canvas/Panel/Button[1]" --type Image
+
+        # Add a custom MonoBehaviour by script name
+        unityflow add-component Scene.unity --to "Player" --script PlayerController
 
         # Add with properties
-        unityflow add-component Scene.unity --to 12345 --script "abc123..." \\
-            --props '{"speed": 5.0, "health": 100}'
-
-        # Add Camera component
-        unityflow add-component Scene.unity --to 12345 --type Camera
+        unityflow add-component Scene.unity --to "Canvas/Panel" --type Image \\
+            --props '{"m_Color": {"r": 1, "g": 0, "b": 0, "a": 1}}'
     """
     from unityflow.parser import (
         UnityYAMLDocument,
@@ -3293,13 +3808,21 @@ def add_component(
     )
     import json
 
-    if not component_type and not script_guid:
+    if not component_type and not script_ref:
         click.echo("Error: Specify --type or --script", err=True)
         sys.exit(1)
 
-    if component_type and script_guid:
+    if component_type and script_ref:
         click.echo("Error: Cannot use both --type and --script", err=True)
         sys.exit(1)
+
+    # Resolve script reference to GUID if specified
+    script_guid = None
+    if script_ref:
+        script_guid, error = _resolve_script_to_guid(script_ref, file)
+        if error:
+            click.echo(f"Error: {error}", err=True)
+            sys.exit(1)
 
     try:
         doc = UnityYAMLDocument.load(file)
@@ -3318,21 +3841,21 @@ def add_component(
             click.echo(f"Error: Invalid JSON for --props: {e}", err=True)
             sys.exit(1)
 
-    # Find target GameObject
-    target_go = doc.get_by_file_id(target_id)
-    if target_go is None:
-        click.echo(f"Error: GameObject with fileID {target_id} not found", err=True)
+    # Resolve target GameObject by path
+    target_id, error = _resolve_gameobject_by_path(doc, target_path)
+    if error:
+        click.echo(f"Error: {error}", err=True)
         sys.exit(1)
 
-    if target_go.class_id != 1:
-        click.echo(f"Error: fileID {target_id} is not a GameObject", err=True)
-        click.echo(f"  Found: {target_go.class_name}", err=True)
+    target_go = doc.get_by_file_id(target_id)
+    if target_go is None or target_go.class_id != 1:
+        click.echo(f"Error: Failed to resolve GameObject at '{target_path}'", err=True)
         sys.exit(1)
 
     component_id = doc.generate_unique_file_id()
 
     if script_guid:
-        # Create MonoBehaviour
+        # Create MonoBehaviour with explicit script GUID
         component = create_mono_behaviour(
             game_object_id=target_id,
             script_guid=script_guid,
@@ -3340,6 +3863,16 @@ def add_component(
             properties=properties,
         )
         click.echo(f"Added MonoBehaviour component")
+    elif component_type in PACKAGE_COMPONENT_GUIDS:
+        # Create package component (MonoBehaviour with known GUID)
+        package_guid = PACKAGE_COMPONENT_GUIDS[component_type]
+        component = create_mono_behaviour(
+            game_object_id=target_id,
+            script_guid=package_guid,
+            file_id=component_id,
+            properties=properties,
+        )
+        click.echo(f"Added {component_type} component (package)")
     else:
         # Create built-in component
         component = _create_builtin_component(
@@ -3359,8 +3892,7 @@ def add_component(
         go_content["m_Component"].append({"component": {"fileID": component_id}})
 
     doc.save(output_path)
-    click.echo(f"  Component fileID: {component_id}")
-    click.echo(f"  Target GameObject: {target_id}")
+    click.echo(f"  Target: {target_path}")
 
     if output:
         click.echo(f"Saved to: {output}")
@@ -3511,10 +4043,10 @@ def _create_builtin_component(
 @click.option(
     "--id",
     "-i",
-    "gameobject_id",
-    type=int,
+    "gameobject_path",
+    type=str,
     required=True,
-    help="FileID of the GameObject to delete",
+    help="GameObject path (e.g., 'Canvas/Panel/Button')",
 )
 @click.option(
     "--cascade",
@@ -3535,7 +4067,7 @@ def _create_builtin_component(
 )
 def delete_object(
     file: Path,
-    gameobject_id: int,
+    gameobject_path: str,
     cascade: bool,
     force: bool,
     output: Path | None,
@@ -3548,13 +4080,16 @@ def delete_object(
     Examples:
 
         # Delete a GameObject (keeps children)
-        unityflow delete-object Scene.unity --id 12345
+        unityflow delete-object Scene.unity --id "Canvas/Panel/Button"
 
         # Delete a GameObject and all its children
-        unityflow delete-object Scene.unity --id 12345 --cascade
+        unityflow delete-object Scene.unity --id "Enemy" --cascade
 
         # Delete without confirmation
-        unityflow delete-object Scene.unity --id 12345 --force
+        unityflow delete-object Scene.unity --id "Player" --force
+
+        # When multiple GameObjects have the same path, use index
+        unityflow delete-object Scene.unity --id "Canvas/Panel/Button[1]"
     """
     from unityflow.parser import UnityYAMLDocument
 
@@ -3566,16 +4101,15 @@ def delete_object(
 
     output_path = output or file
 
-    # Find GameObject
-    obj = doc.get_by_file_id(gameobject_id)
-    if obj is None:
-        click.echo(f"Error: GameObject with fileID {gameobject_id} not found", err=True)
+    # Resolve GameObject by path
+    gameobject_id, error = _resolve_gameobject_by_path(doc, gameobject_path)
+    if error:
+        click.echo(f"Error: {error}", err=True)
         sys.exit(1)
 
-    if obj.class_id != 1:
-        click.echo(f"Error: fileID {gameobject_id} is not a GameObject", err=True)
-        click.echo(f"  Found: {obj.class_name}", err=True)
-        click.echo("Use delete-component for components", err=True)
+    obj = doc.get_by_file_id(gameobject_id)
+    if obj is None or obj.class_id != 1:
+        click.echo(f"Error: Failed to resolve GameObject at '{gameobject_path}'", err=True)
         sys.exit(1)
 
     # Collect all objects to delete
@@ -3590,7 +4124,7 @@ def delete_object(
                 content = del_obj.get_content()
                 if content and "m_Name" in content:
                     name = f" '{content['m_Name']}'"
-                click.echo(f"  {del_obj.class_name}{name} (fileID: {obj_id})")
+                click.echo(f"  {del_obj.class_name}{name}")
         if len(objects_to_delete) > 10:
             click.echo(f"  ... and {len(objects_to_delete) - 10} more")
 
@@ -3684,11 +4218,11 @@ def delete_component(
     # Find component
     obj = doc.get_by_file_id(component_id)
     if obj is None:
-        click.echo(f"Error: Component with fileID {component_id} not found", err=True)
+        click.echo(f"Error: Component not found", err=True)
         sys.exit(1)
 
     if obj.class_id == 1:
-        click.echo(f"Error: fileID {component_id} is a GameObject, not a component", err=True)
+        click.echo(f"Error: Target is a GameObject, not a component", err=True)
         click.echo("Use delete-object for GameObjects", err=True)
         sys.exit(1)
 
@@ -3706,14 +4240,14 @@ def delete_component(
                 ]
 
     if not force:
-        click.echo(f"Will delete {obj.class_name} (fileID: {component_id})")
+        click.echo(f"Will delete {obj.class_name}")
         if not click.confirm("Continue?"):
             click.echo("Aborted")
             return
 
     doc.remove_object(component_id)
     doc.save(output_path)
-    click.echo(f"Deleted component {obj.class_name} (fileID: {component_id})")
+    click.echo(f"Deleted component {obj.class_name}")
 
     if output:
         click.echo(f"Saved to: {output}")
@@ -3775,10 +4309,10 @@ def _collect_objects_to_delete(
 @click.option(
     "--id",
     "-i",
-    "source_id",
-    type=int,
+    "source_path",
+    type=str,
     required=True,
-    help="FileID of the GameObject to clone",
+    help="GameObject path to clone (e.g., 'Canvas/Panel/Button')",
 )
 @click.option(
     "--name",
@@ -3791,10 +4325,10 @@ def _collect_objects_to_delete(
 @click.option(
     "--parent",
     "-p",
-    "parent_id",
-    type=int,
+    "parent_path",
+    type=str,
     default=None,
-    help="Parent Transform fileID for the clone (default: same as source)",
+    help="Parent GameObject path for the clone (default: same as source)",
 )
 @click.option(
     "--position",
@@ -3815,9 +4349,9 @@ def _collect_objects_to_delete(
 )
 def clone_object(
     file: Path,
-    source_id: int,
+    source_path: str,
     new_name: str | None,
-    parent_id: int | None,
+    parent_path: str | None,
     position: str | None,
     deep: bool,
     output: Path | None,
@@ -3829,19 +4363,22 @@ def clone_object(
     Examples:
 
         # Simple clone (shallow)
-        unityflow clone-object Scene.unity --id 12345
+        unityflow clone-object Scene.unity --id "Player"
 
         # Clone with new name
-        unityflow clone-object Scene.unity --id 12345 --name "Player2"
+        unityflow clone-object Scene.unity --id "Player" --name "Player2"
 
         # Clone to different parent
-        unityflow clone-object Scene.unity --id 12345 --parent 67890
+        unityflow clone-object Scene.unity --id "Enemy" --parent "Enemies"
 
         # Clone with position offset
-        unityflow clone-object Scene.unity --id 12345 --position "5,0,0"
+        unityflow clone-object Scene.unity --id "Player" --position "5,0,0"
 
         # Deep clone (include children)
-        unityflow clone-object Scene.unity --id 12345 --deep
+        unityflow clone-object Scene.unity --id "Canvas/Panel" --deep
+
+        # When multiple GameObjects have the same path, use index
+        unityflow clone-object Scene.unity --id "Canvas/Panel/Button[1]"
     """
     from unityflow.parser import UnityYAMLDocument, UnityYAMLObject
     import copy
@@ -3854,16 +4391,35 @@ def clone_object(
 
     output_path = output or file
 
-    # Find source GameObject
-    source_go = doc.get_by_file_id(source_id)
-    if source_go is None:
-        click.echo(f"Error: GameObject with fileID {source_id} not found", err=True)
+    # Resolve source GameObject by path
+    source_id, error = _resolve_gameobject_by_path(doc, source_path)
+    if error:
+        click.echo(f"Error: {error}", err=True)
         sys.exit(1)
 
-    if source_go.class_id != 1:
-        click.echo(f"Error: fileID {source_id} is not a GameObject", err=True)
-        click.echo(f"  Found: {source_go.class_name}", err=True)
+    source_go = doc.get_by_file_id(source_id)
+    if source_go is None or source_go.class_id != 1:
+        click.echo(f"Error: Failed to resolve GameObject at '{source_path}'", err=True)
         sys.exit(1)
+
+    # Resolve parent if specified
+    parent_id = None
+    if parent_path:
+        parent_go_id, error = _resolve_gameobject_by_path(doc, parent_path)
+        if error:
+            click.echo(f"Error: {error}", err=True)
+            sys.exit(1)
+        # Find the Transform component of the parent GameObject
+        parent_go = doc.get_by_file_id(parent_go_id)
+        if parent_go:
+            parent_content = parent_go.get_content()
+            if parent_content and "m_Component" in parent_content:
+                for comp_ref in parent_content["m_Component"]:
+                    comp_id = comp_ref.get("component", {}).get("fileID", 0)
+                    comp = doc.get_by_file_id(comp_id)
+                    if comp and comp.class_id in (4, 224):  # Transform or RectTransform
+                        parent_id = comp_id
+                        break
 
     # Parse position offset
     pos_offset = None
@@ -3980,10 +4536,8 @@ def clone_object(
 
     doc.save(output_path)
 
-    new_go_id = id_map[source_id]
     click.echo(f"Cloned GameObject")
-    click.echo(f"  Source fileID: {source_id}")
-    click.echo(f"  New fileID: {new_go_id}")
+    click.echo(f"  Source: {source_path}")
     click.echo(f"  Total objects cloned: {len(cloned_objects)}")
 
     if output:

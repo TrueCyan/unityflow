@@ -28,17 +28,6 @@ class TestDocumentSorting:
         sorted_order = [obj.file_id for obj in doc.objects]
         assert sorted_order == sorted(original_order)
 
-    def test_sort_disabled(self):
-        """Test that sorting can be disabled."""
-        normalizer = UnityPrefabNormalizer(sort_documents=False)
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "unsorted_prefab.prefab")
-
-        original_order = [obj.file_id for obj in doc.objects]
-        normalizer.normalize_document(doc)
-        new_order = [obj.file_id for obj in doc.objects]
-
-        assert original_order == new_order
-
 
 class TestModificationsSorting:
     """Tests for m_Modifications array sorting."""
@@ -64,25 +53,6 @@ class TestModificationsSorting:
             next_key = (next_mod["target"]["fileID"], next_mod["propertyPath"])
 
             assert current_key <= next_key, f"Modifications not sorted: {current_key} > {next_key}"
-
-    def test_modifications_sorting_disabled(self):
-        """Test that modifications sorting can be disabled."""
-        normalizer = UnityPrefabNormalizer(sort_modifications=False)
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "prefab_with_modifications.prefab")
-
-        # Get original order
-        prefab_instance = doc.get_by_class_id(1001)[0]
-        content = prefab_instance.get_content()
-        original_paths = [m["propertyPath"] for m in content["m_Modification"]["m_Modifications"]]
-
-        normalizer.normalize_document(doc)
-
-        # Get new order
-        prefab_instance = doc.get_by_class_id(1001)[0]
-        content = prefab_instance.get_content()
-        new_paths = [m["propertyPath"] for m in content["m_Modification"]["m_Modifications"]]
-
-        assert original_paths == new_paths
 
 
 class TestQuaternionNormalization:
@@ -121,18 +91,6 @@ class TestQuaternionNormalization:
 
         length = math.sqrt(q["x"]**2 + q["y"]**2 + q["z"]**2 + q["w"]**2)
         assert abs(length - 1.0) < 0.0001
-
-    def test_quaternion_normalization_disabled(self):
-        """Test that quaternion normalization can be disabled."""
-        normalizer = UnityPrefabNormalizer(normalize_quaternions=False)
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "negative_quaternion.prefab")
-
-        normalizer.normalize_document(doc)
-
-        transform = doc.get_by_file_id(400000)
-        content = transform.get_content()
-        # w should still be negative
-        assert content["m_LocalRotation"]["w"] == -1
 
 
 class TestFloatNormalization:
@@ -305,8 +263,7 @@ class TestConvenienceFunction:
         """Test normalize_prefab with custom options."""
         content = normalize_prefab(
             FIXTURES_DIR / "basic_prefab.prefab",
-            sort_documents=False,
-            normalize_floats=False,
+            float_precision=3,
         )
 
         assert content.startswith("%YAML 1.1")

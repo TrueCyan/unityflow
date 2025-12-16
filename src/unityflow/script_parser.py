@@ -25,13 +25,29 @@ class SerializedField:
     is_public: bool = False
     has_serialize_field: bool = False
     line_number: int = 0
+    former_names: list[str] = field(default_factory=list)  # FormerlySerializedAs names
+    default_value: any = None  # Parsed default value for Unity serialization
 
     @classmethod
-    def from_field_name(cls, name: str, field_type: str = "", **kwargs) -> "SerializedField":
+    def from_field_name(
+        cls,
+        name: str,
+        field_type: str = "",
+        former_names: list[str] | None = None,
+        default_value: any = None,
+        **kwargs,
+    ) -> "SerializedField":
         """Create a SerializedField with auto-generated Unity name."""
         # Unity uses m_FieldName format for serialized fields
         unity_name = f"m_{name[0].upper()}{name[1:]}" if name else ""
-        return cls(name=name, unity_name=unity_name, field_type=field_type, **kwargs)
+        return cls(
+            name=name,
+            unity_name=unity_name,
+            field_type=field_type,
+            former_names=former_names or [],
+            default_value=default_value,
+            **kwargs,
+        )
 
 
 @dataclass
@@ -59,6 +75,45 @@ class ScriptInfo:
                 return i
         return -1
 
+    def get_valid_field_names(self) -> set[str]:
+        """Get all valid field names (current names only)."""
+        return {f.unity_name for f in self.fields}
+
+    def get_rename_mapping(self) -> dict[str, str]:
+        """Get mapping of old field names to new field names.
+
+        Returns:
+            Dict mapping old Unity name -> new Unity name
+        """
+        mapping = {}
+        for f in self.fields:
+            for former in f.former_names:
+                mapping[former] = f.unity_name
+        return mapping
+
+    def is_obsolete_field(self, unity_name: str) -> bool:
+        """Check if a field name is obsolete (not in current script).
+
+        Note: FormerlySerializedAs names are considered obsolete.
+        """
+        valid_names = self.get_valid_field_names()
+        return unity_name not in valid_names
+
+    def get_missing_fields(self, existing_names: set[str]) -> list["SerializedField"]:
+        """Get fields that exist in script but not in the existing set.
+
+        Args:
+            existing_names: Set of field names already present
+
+        Returns:
+            List of SerializedField objects that are missing
+        """
+        missing = []
+        for f in self.fields:
+            if f.unity_name not in existing_names:
+                missing.append(f)
+        return missing
+
 
 # Regex patterns for C# parsing
 # Note: These are simplified patterns that work for common cases
@@ -78,7 +133,7 @@ NAMESPACE_PATTERN = re.compile(
 )
 
 # Match field declarations with attributes
-# Captures: attributes, access_modifier, static/const/readonly, type, name
+# Captures: attributes, access_modifier, static/const/readonly, type, name, default_value
 # Note: Access modifier is required to avoid matching method parameters
 FIELD_PATTERN = re.compile(
     r"(?P<attrs>(?:\[\s*[\w.()=,\s\"\']+\s*\]\s*)*)"  # Attributes
@@ -86,7 +141,7 @@ FIELD_PATTERN = re.compile(
     r"(?P<modifiers>(?:(?:static|const|readonly|volatile|new)\s+)*)"  # Other modifiers
     r"(?P<type>[\w.<>,\[\]\s?]+?)\s+"  # Type (including generics, arrays, nullable)
     r"(?P<name>\w+)\s*"  # Field name
-    r"(?:=\s*[^;]+)?\s*;",  # Optional initializer and semicolon
+    r"(?:=\s*(?P<default>[^;]+))?\s*;",  # Optional initializer and semicolon
     re.MULTILINE
 )
 
@@ -98,6 +153,250 @@ NON_SERIALIZED_ATTR = re.compile(r"\[\s*(?:System\.)?NonSerialized\s*\]", re.IGN
 
 # Match HideInInspector attribute (still serialized, just hidden)
 HIDE_IN_INSPECTOR_ATTR = re.compile(r"\[\s*HideInInspector\s*\]", re.IGNORECASE)
+
+# Match FormerlySerializedAs attribute - captures the old field name
+# Example: [FormerlySerializedAs("oldName")] or [UnityEngine.Serialization.FormerlySerializedAs("oldName")]
+FORMERLY_SERIALIZED_AS_ATTR = re.compile(
+    r"\[\s*(?:UnityEngine\.Serialization\.)?FormerlySerializedAs\s*\(\s*\"(\w+)\"\s*\)\s*\]",
+    re.IGNORECASE
+)
+
+
+def _parse_default_value(value_str: str | None, field_type: str) -> any:
+    """Parse a C# default value string into a Unity-compatible Python value.
+
+    Args:
+        value_str: The default value string from C# code (e.g., "100", "5.5f", '"hello"')
+        field_type: The C# type name
+
+    Returns:
+        Python value suitable for Unity YAML serialization, or None if cannot parse
+    """
+    if value_str is None:
+        # Return type-appropriate default for common types
+        return _get_type_default(field_type)
+
+    value_str = value_str.strip()
+
+    # Handle null/default
+    if value_str in ("null", "default"):
+        return _get_type_default(field_type)
+
+    # Handle boolean
+    if value_str == "true":
+        return 1  # Unity uses 1 for true
+    if value_str == "false":
+        return 0  # Unity uses 0 for false
+
+    # Handle string literals
+    if value_str.startswith('"') and value_str.endswith('"'):
+        return value_str[1:-1]  # Remove quotes
+
+    # Handle character literals
+    if value_str.startswith("'") and value_str.endswith("'"):
+        return value_str[1:-1]
+
+    # Handle float/double (remove suffix)
+    if value_str.endswith("f") or value_str.endswith("F"):
+        try:
+            return float(value_str[:-1])
+        except ValueError:
+            pass
+    if value_str.endswith("d") or value_str.endswith("D"):
+        try:
+            return float(value_str[:-1])
+        except ValueError:
+            pass
+
+    # Handle integer (remove suffix)
+    int_suffixes = ["u", "U", "l", "L", "ul", "UL", "lu", "LU"]
+    for suffix in int_suffixes:
+        if value_str.endswith(suffix):
+            value_str = value_str[:-len(suffix)]
+            break
+
+    # Try integer
+    try:
+        return int(value_str)
+    except ValueError:
+        pass
+
+    # Try float
+    try:
+        return float(value_str)
+    except ValueError:
+        pass
+
+    # Handle Vector2/Vector3/Vector4 constructors
+    # new Vector3(1, 2, 3) or Vector3.zero etc.
+    vector_match = re.match(
+        r"new\s+(Vector[234]|Quaternion|Color)\s*\(\s*([^)]*)\s*\)",
+        value_str,
+        re.IGNORECASE
+    )
+    if vector_match:
+        vec_type = vector_match.group(1).lower()
+        args_str = vector_match.group(2)
+        return _parse_vector_args(vec_type, args_str)
+
+    # Handle static members like Vector3.zero, Color.white
+    static_match = re.match(r"(Vector[234]|Quaternion|Color)\.(\w+)", value_str, re.IGNORECASE)
+    if static_match:
+        type_name = static_match.group(1).lower()
+        member = static_match.group(2).lower()
+        return _get_static_member_value(type_name, member)
+
+    # Cannot parse - return type default
+    return _get_type_default(field_type)
+
+
+def _parse_vector_args(vec_type: str, args_str: str) -> dict | None:
+    """Parse vector constructor arguments."""
+    if not args_str.strip():
+        return _get_type_default(vec_type)
+
+    # Split by comma and parse each value
+    parts = [p.strip() for p in args_str.split(",")]
+
+    try:
+        values = []
+        for p in parts:
+            # Remove float suffix
+            if p.endswith("f") or p.endswith("F"):
+                p = p[:-1]
+            values.append(float(p))
+    except ValueError:
+        return _get_type_default(vec_type)
+
+    if vec_type == "vector2" and len(values) >= 2:
+        return {"x": values[0], "y": values[1]}
+    elif vec_type == "vector3" and len(values) >= 3:
+        return {"x": values[0], "y": values[1], "z": values[2]}
+    elif vec_type == "vector4" and len(values) >= 4:
+        return {"x": values[0], "y": values[1], "z": values[2], "w": values[3]}
+    elif vec_type == "quaternion" and len(values) >= 4:
+        return {"x": values[0], "y": values[1], "z": values[2], "w": values[3]}
+    elif vec_type == "color" and len(values) >= 3:
+        r, g, b = values[0], values[1], values[2]
+        a = values[3] if len(values) >= 4 else 1.0
+        return {"r": r, "g": g, "b": b, "a": a}
+
+    return _get_type_default(vec_type)
+
+
+def _get_static_member_value(type_name: str, member: str) -> dict | None:
+    """Get value for static members like Vector3.zero, Color.white."""
+    static_values = {
+        "vector2": {
+            "zero": {"x": 0, "y": 0},
+            "one": {"x": 1, "y": 1},
+            "up": {"x": 0, "y": 1},
+            "down": {"x": 0, "y": -1},
+            "left": {"x": -1, "y": 0},
+            "right": {"x": 1, "y": 0},
+        },
+        "vector3": {
+            "zero": {"x": 0, "y": 0, "z": 0},
+            "one": {"x": 1, "y": 1, "z": 1},
+            "up": {"x": 0, "y": 1, "z": 0},
+            "down": {"x": 0, "y": -1, "z": 0},
+            "left": {"x": -1, "y": 0, "z": 0},
+            "right": {"x": 1, "y": 0, "z": 0},
+            "forward": {"x": 0, "y": 0, "z": 1},
+            "back": {"x": 0, "y": 0, "z": -1},
+        },
+        "vector4": {
+            "zero": {"x": 0, "y": 0, "z": 0, "w": 0},
+            "one": {"x": 1, "y": 1, "z": 1, "w": 1},
+        },
+        "quaternion": {
+            "identity": {"x": 0, "y": 0, "z": 0, "w": 1},
+        },
+        "color": {
+            "white": {"r": 1, "g": 1, "b": 1, "a": 1},
+            "black": {"r": 0, "g": 0, "b": 0, "a": 1},
+            "red": {"r": 1, "g": 0, "b": 0, "a": 1},
+            "green": {"r": 0, "g": 1, "b": 0, "a": 1},
+            "blue": {"r": 0, "g": 0, "b": 1, "a": 1},
+            "yellow": {"r": 1, "g": 0.92156863, "b": 0.015686275, "a": 1},
+            "cyan": {"r": 0, "g": 1, "b": 1, "a": 1},
+            "magenta": {"r": 1, "g": 0, "b": 1, "a": 1},
+            "gray": {"r": 0.5, "g": 0.5, "b": 0.5, "a": 1},
+            "grey": {"r": 0.5, "g": 0.5, "b": 0.5, "a": 1},
+            "clear": {"r": 0, "g": 0, "b": 0, "a": 0},
+        },
+    }
+
+    type_values = static_values.get(type_name, {})
+    return type_values.get(member, _get_type_default(type_name))
+
+
+def _get_type_default(field_type: str) -> any:
+    """Get the default value for a Unity field type."""
+    if field_type is None:
+        return None
+
+    type_lower = field_type.lower().strip()
+
+    # Remove nullable marker
+    if type_lower.endswith("?"):
+        type_lower = type_lower[:-1]
+
+    # Primitives
+    if type_lower in ("int", "int32", "uint", "uint32", "short", "ushort", "long", "ulong", "byte", "sbyte"):
+        return 0
+    if type_lower in ("float", "single", "double"):
+        return 0.0
+    if type_lower in ("bool", "boolean"):
+        return 0  # Unity uses 0 for false
+    if type_lower in ("string",):
+        return ""
+    if type_lower in ("char",):
+        return ""
+
+    # Unity types
+    if type_lower == "vector2":
+        return {"x": 0, "y": 0}
+    if type_lower == "vector3":
+        return {"x": 0, "y": 0, "z": 0}
+    if type_lower == "vector4":
+        return {"x": 0, "y": 0, "z": 0, "w": 0}
+    if type_lower == "quaternion":
+        return {"x": 0, "y": 0, "z": 0, "w": 1}
+    if type_lower == "color":
+        return {"r": 0, "g": 0, "b": 0, "a": 1}
+    if type_lower == "color32":
+        return {"r": 0, "g": 0, "b": 0, "a": 255}
+    if type_lower == "rect":
+        return {"x": 0, "y": 0, "width": 0, "height": 0}
+    if type_lower == "bounds":
+        return {"m_Center": {"x": 0, "y": 0, "z": 0}, "m_Extent": {"x": 0, "y": 0, "z": 0}}
+
+    # Reference types - use Unity's null reference format
+    # For GameObject, Component, etc. references, use fileID: 0
+    if _is_reference_type(type_lower):
+        return {"fileID": 0}
+
+    # Arrays/Lists - empty array
+    if type_lower.endswith("[]") or type_lower.startswith("list<"):
+        return []
+
+    # Unknown type - return None (will be skipped)
+    return None
+
+
+def _is_reference_type(type_name: str) -> bool:
+    """Check if a type is a Unity reference type."""
+    reference_types = {
+        "gameobject", "transform", "component", "monobehaviour",
+        "rigidbody", "rigidbody2d", "collider", "collider2d",
+        "renderer", "spriterenderer", "meshrenderer",
+        "animator", "animation", "audioSource",
+        "camera", "light",
+        "sprite", "texture", "texture2d", "material", "mesh",
+        "scriptableobject", "object",
+    }
+    return type_name.lower() in reference_types
 
 
 def parse_script(content: str, path: Path | None = None) -> ScriptInfo | None:
@@ -154,6 +453,7 @@ def parse_script(content: str, path: Path | None = None) -> ScriptInfo | None:
         modifiers = match.group("modifiers") or ""
         field_type = match.group("type").strip()
         field_name = match.group("name")
+        default_str = match.group("default")  # May be None
 
         # Skip static, const, readonly fields
         if any(mod in modifiers.lower() for mod in ["static", "const", "readonly"]):
@@ -174,9 +474,17 @@ def parse_script(content: str, path: Path | None = None) -> ScriptInfo | None:
             # Calculate line number
             line_num = content[:class_start + match.start()].count("\n") + 1
 
+            # Extract FormerlySerializedAs names
+            former_names = FORMERLY_SERIALIZED_AS_ATTR.findall(attrs)
+
+            # Parse default value
+            default_value = _parse_default_value(default_str, field_type)
+
             info.fields.append(SerializedField.from_field_name(
                 name=field_name,
                 field_type=field_type,
+                former_names=former_names,
+                default_value=default_value,
                 is_public=is_public,
                 has_serialize_field=has_serialize_field,
                 line_number=line_num,

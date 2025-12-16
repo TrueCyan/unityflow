@@ -57,7 +57,6 @@ class TestNormalizeCommand:
                 "normalize",
                 str(FIXTURES_DIR / "basic_prefab.prefab"),
                 "--stdout",
-                "--no-sort-documents",
                 "--precision",
                 "4",
             ],
@@ -395,8 +394,6 @@ class TestAddObjectCommand:
 
         assert result.exit_code == 0
         assert "Added GameObject 'NewObject'" in result.output
-        assert "GameObject fileID:" in result.output
-        assert "Transform fileID:" in result.output
 
         # Verify the file was modified
         content = test_file.read_text()
@@ -438,7 +435,7 @@ class TestAddObjectCommand:
         )
 
         assert result.exit_code == 0
-        assert "RectTransform fileID:" in result.output
+        assert "Added GameObject 'UIElement'" in result.output
         content = test_file.read_text()
         assert "RectTransform" in content
 
@@ -467,7 +464,7 @@ class TestAddComponentCommand:
                 "add-component",
                 str(test_file),
                 "--to",
-                "100000",  # GameObject fileID from basic_prefab
+                "BasicPrefab",  # GameObject path
                 "--type",
                 "SpriteRenderer",
             ],
@@ -490,9 +487,9 @@ class TestAddComponentCommand:
                 "add-component",
                 str(test_file),
                 "--to",
-                "100000",
+                "BasicPrefab",  # GameObject path
                 "--script",
-                "abc123def456",
+                "abc123def456abc123def456abc12345",  # 32-char GUID
             ],
         )
 
@@ -500,7 +497,7 @@ class TestAddComponentCommand:
         assert "Added MonoBehaviour component" in result.output
         content = test_file.read_text()
         assert "MonoBehaviour" in content
-        assert "abc123def456" in content
+        assert "abc123def456abc123def456abc12345" in content
 
     def test_add_component_requires_type_or_script(self, runner, tmp_path):
         """Test that add-component requires --type or --script."""
@@ -510,7 +507,7 @@ class TestAddComponentCommand:
 
         result = runner.invoke(
             main,
-            ["add-component", str(test_file), "--to", "100000"],
+            ["add-component", str(test_file), "--to", "BasicPrefab"],
         )
 
         assert result.exit_code != 0
@@ -541,7 +538,7 @@ class TestDeleteObjectCommand:
                 "delete-object",
                 str(test_file),
                 "--id",
-                "100000",
+                "BasicPrefab",  # GameObject path
                 "--force",
             ],
         )
@@ -561,7 +558,7 @@ class TestDeleteObjectCommand:
 
         result = runner.invoke(
             main,
-            ["delete-object", str(test_file), "--id", "999999", "--force"],
+            ["delete-object", str(test_file), "--id", "NonExistent/Path", "--force"],
         )
 
         assert result.exit_code != 0
@@ -619,13 +616,13 @@ class TestCloneObjectCommand:
 
         result = runner.invoke(
             main,
-            ["clone-object", str(test_file), "--id", "100000"],
+            ["clone-object", str(test_file), "--id", "BasicPrefab"],
         )
 
         assert result.exit_code == 0
         assert "Cloned GameObject" in result.output
-        assert "Source fileID: 100000" in result.output
-        assert "New fileID:" in result.output
+        assert "Source:" in result.output
+        assert "Total objects cloned:" in result.output
 
         # Verify the clone exists
         content = test_file.read_text()
@@ -639,7 +636,7 @@ class TestCloneObjectCommand:
 
         result = runner.invoke(
             main,
-            ["clone-object", str(test_file), "--id", "100000", "--name", "MyClone"],
+            ["clone-object", str(test_file), "--id", "BasicPrefab", "--name", "MyClone"],
         )
 
         assert result.exit_code == 0
@@ -658,7 +655,7 @@ class TestCloneObjectCommand:
                 "clone-object",
                 str(test_file),
                 "--id",
-                "100000",
+                "BasicPrefab",
                 "--position",
                 "5,0,0",
             ],
@@ -678,7 +675,7 @@ class TestCloneObjectCommand:
 
         result = runner.invoke(
             main,
-            ["clone-object", str(test_file), "--id", "999999"],
+            ["clone-object", str(test_file), "--id", "NonExistent/Path"],
         )
 
         assert result.exit_code != 0
@@ -711,7 +708,7 @@ class TestQueryEnhancements:
 
         assert result.exit_code == 0
         assert "BasicPrefab" in result.output
-        assert "fileID:" in result.output
+        assert "Found" in result.output
 
     def test_query_find_name_wildcard(self, runner):
         """Test query with --find-name using wildcard."""

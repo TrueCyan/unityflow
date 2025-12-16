@@ -3,11 +3,13 @@
 Implements deterministic serialization for Unity YAML files by:
 1. Sorting documents by fileID
 2. Sorting m_Modifications arrays
-3. Sorting order-independent arrays (m_Component, m_Children) by fileID
-4. Normalizing floating-point values
-5. Normalizing quaternions (w >= 0)
-6. Reordering MonoBehaviour fields according to C# script declaration order
+3. Normalizing floating-point values
+4. Normalizing quaternions (w >= 0)
+5. Reordering MonoBehaviour fields according to C# script declaration order
+6. Syncing fields with C# script (remove obsolete, add missing, merge renamed)
 7. Preserving original fileIDs for external reference compatibility
+
+Note: Script-based operations (5, 6) require project_root to be available.
 """
 
 from __future__ import annotations
@@ -54,36 +56,22 @@ class UnityPrefabNormalizer:
 
     def __init__(
         self,
-        sort_documents: bool = True,
-        sort_modifications: bool = True,
-        normalize_floats: bool = True,
         use_hex_floats: bool = False,  # Default to decimal for readability
-        normalize_quaternions: bool = True,
         float_precision: int = 6,
-        reorder_script_fields: bool = False,
         project_root: str | Path | None = None,
     ):
         """Initialize the normalizer.
 
         Args:
-            sort_documents: Sort YAML documents by fileID
-            sort_modifications: Sort m_Modifications arrays
-            normalize_floats: Normalize float representations
             use_hex_floats: Use IEEE 754 hex format for floats (lossless but less readable)
-            normalize_quaternions: Ensure quaternion w >= 0
             float_precision: Decimal places for float normalization (if not using hex)
-            reorder_script_fields: Reorder MonoBehaviour fields according to C# script
             project_root: Unity project root for script resolution (auto-detected if None)
         """
-        self.sort_documents = sort_documents
-        self.sort_modifications = sort_modifications
-        self.normalize_floats = normalize_floats
         self.use_hex_floats = use_hex_floats
-        self.normalize_quaternions = normalize_quaternions
         self.float_precision = float_precision
-        self.reorder_script_fields = reorder_script_fields
         self.project_root = Path(project_root) if project_root else None
         self._script_cache: Any = None  # Lazy initialized ScriptFieldCache
+        self._script_info_cache: dict[str, Any] = {}  # Cache for ScriptInfo by GUID
         self._guid_index: Any = None  # Lazy initialized GUIDIndex
 
     def normalize_file(self, input_path: str | Path, output_path: str | Path | None = None) -> str:
@@ -98,8 +86,8 @@ class UnityPrefabNormalizer:
         """
         input_path = Path(input_path)
 
-        # Auto-detect project root if not specified and reorder_script_fields is enabled
-        if self.reorder_script_fields and self.project_root is None:
+        # Auto-detect project root if not specified
+        if self.project_root is None:
             from unityflow.asset_tracker import find_unity_project_root
             self.project_root = find_unity_project_root(input_path)
 
@@ -124,8 +112,7 @@ class UnityPrefabNormalizer:
             self._normalize_object(obj)
 
         # Sort documents by fileID
-        if self.sort_documents:
-            doc.objects.sort(key=lambda o: o.file_id)
+        doc.objects.sort(key=lambda o: o.file_id)
 
     def _normalize_object(self, obj: UnityYAMLObject) -> None:
         """Normalize a single Unity YAML object."""
@@ -134,11 +121,15 @@ class UnityPrefabNormalizer:
             return
 
         # Sort m_Modifications if present
-        if self.sort_modifications and "m_Modification" in content:
+        if "m_Modification" in content:
             self._sort_modifications(content["m_Modification"])
 
-        # Reorder MonoBehaviour fields according to C# script declaration order
-        if self.reorder_script_fields and obj.class_id == 114:  # MonoBehaviour
+        # Process MonoBehaviour fields (requires project_root for script parsing)
+        if obj.class_id == 114 and self.project_root:  # MonoBehaviour
+            # Sync fields with C# script (remove obsolete, add missing, merge renamed)
+            self._cleanup_obsolete_fields(obj)
+
+            # Reorder MonoBehaviour fields according to C# script declaration order
             self._reorder_monobehaviour_fields(obj)
 
         # Recursively normalize the data
@@ -175,6 +166,121 @@ class UnityPrefabNormalizer:
         # Replace content in place
         content.clear()
         content.update(reordered)
+
+    def _cleanup_obsolete_fields(self, obj: UnityYAMLObject) -> None:
+        """Remove obsolete fields and merge FormerlySerializedAs renamed fields.
+
+        Args:
+            obj: The MonoBehaviour object to clean up
+        """
+        content = obj.get_content()
+        if content is None:
+            return
+
+        # Get script reference
+        script_ref = content.get("m_Script")
+        if not isinstance(script_ref, dict):
+            return
+
+        script_guid = script_ref.get("guid")
+        if not script_guid:
+            return
+
+        # Get script info
+        script_info = self._get_script_info(script_guid)
+        if script_info is None:
+            return
+
+        # Get valid field names and rename mapping
+        valid_names = script_info.get_valid_field_names()
+        rename_mapping = script_info.get_rename_mapping()
+
+        # Unity standard fields that should never be removed
+        unity_standard_fields = {
+            "m_ObjectHideFlags",
+            "m_CorrespondingSourceObject",
+            "m_PrefabInstance",
+            "m_PrefabAsset",
+            "m_GameObject",
+            "m_Enabled",
+            "m_EditorHideFlags",
+            "m_Script",
+            "m_Name",
+            "m_EditorClassIdentifier",
+        }
+
+        # First pass: handle FormerlySerializedAs renames
+        # If old name exists and new name doesn't, copy old value to new name
+        for old_name, new_name in rename_mapping.items():
+            if old_name in content and new_name not in content:
+                content[new_name] = content[old_name]
+
+        # Second pass: collect fields to remove
+        fields_to_remove = []
+        for field_name in content.keys():
+            # Skip Unity standard fields
+            if field_name in unity_standard_fields:
+                continue
+
+            # Check if field is valid (in current script) or is an old renamed field
+            if field_name not in valid_names:
+                # It's either an obsolete field or a FormerlySerializedAs old name
+                fields_to_remove.append(field_name)
+
+        # Remove obsolete fields
+        for field_name in fields_to_remove:
+            del content[field_name]
+
+        # Third pass: add missing fields with default values
+        existing_names = set(content.keys())
+        missing_fields = script_info.get_missing_fields(existing_names)
+
+        for field in missing_fields:
+            # Only add if we have a valid default value
+            if field.default_value is not None:
+                content[field.unity_name] = field.default_value
+
+    def _get_script_info(self, script_guid: str):
+        """Get script info for a script by GUID (with caching).
+
+        Args:
+            script_guid: The GUID of the script
+
+        Returns:
+            ScriptInfo object or None if not found
+        """
+        # Check cache first
+        if script_guid in self._script_info_cache:
+            return self._script_info_cache[script_guid]
+
+        if self.project_root is None:
+            return None
+
+        # Lazy initialize GUID index
+        if self._guid_index is None:
+            from unityflow.asset_tracker import build_guid_index
+            self._guid_index = build_guid_index(self.project_root)
+
+        # Find script path
+        script_path = self._guid_index.get_path(script_guid)
+        if script_path is None:
+            self._script_info_cache[script_guid] = None
+            return None
+
+        # Resolve to absolute path
+        if not script_path.is_absolute():
+            script_path = self.project_root / script_path
+
+        # Check if it's a C# script
+        if script_path.suffix.lower() != ".cs":
+            self._script_info_cache[script_guid] = None
+            return None
+
+        # Parse script
+        from unityflow.script_parser import parse_script_file
+        result = parse_script_file(script_path)
+        self._script_info_cache[script_guid] = result
+        return result
 
     def _get_script_field_order(self, script_guid: str) -> list[str] | None:
         """Get field order for a script by GUID (with caching).
@@ -287,12 +393,12 @@ class UnityPrefabNormalizer:
         """Recursively normalize a value."""
         if isinstance(value, dict):
             # Check if this is a quaternion
-            if self.normalize_quaternions and parent_key in QUATERNION_PROPERTIES:
+            if parent_key in QUATERNION_PROPERTIES:
                 if self._is_quaternion_dict(value):
                     return self._normalize_quaternion_dict(value)
 
             # Check if this is a vector/position that should use hex floats
-            if self.normalize_floats and self.use_hex_floats:
+            if self.use_hex_floats:
                 if parent_key in FLOAT_PROPERTIES_HEX and self._is_vector_dict(value):
                     return self._normalize_vector_to_hex(value)
 
@@ -320,9 +426,7 @@ class UnityPrefabNormalizer:
             return value
 
         elif isinstance(value, float):
-            if self.normalize_floats:
-                return self._normalize_float(value)
-            return value
+            return self._normalize_float(value)
 
         return value
 
