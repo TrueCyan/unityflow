@@ -289,64 +289,6 @@ unityflow find-refs Textures/player.png
 unityflow diff Player.prefab Player_backup.prefab
 ```
 
----
-
-## Python API (복잡한 경우)
-
-대부분의 작업은 CLI로 가능하지만, 복잡한 자동화가 필요한 경우 Python API를 사용합니다.
-
-```python
-from unityflow.parser import (
-    UnityYAMLDocument,
-    create_game_object,
-    create_transform,
-    create_rect_transform,
-    create_mono_behaviour,
-)
-
-# Unity YAML 파일 로드 (.prefab, .unity, .asset)
-doc = UnityYAMLDocument.load("Player.prefab")
-doc = UnityYAMLDocument.load("MainScene.unity")
-doc = UnityYAMLDocument.load("GameConfig.asset")
-
-# 고유 ID 생성
-go_id = doc.generate_unique_file_id()
-transform_id = doc.generate_unique_file_id()
-
-# GameObject 생성
-go = create_game_object(
-    name="NewObject",
-    file_id=go_id,
-    components=[transform_id],
-)
-
-# Transform 생성
-transform = create_transform(
-    game_object_id=go_id,
-    file_id=transform_id,
-    position={"x": 0, "y": 1, "z": 0},
-)
-
-# 문서에 추가
-doc.add_object(go)
-doc.add_object(transform)
-doc.save("output.prefab")  # 또는 .unity, .asset
-```
-
-### 앵커 프리셋 (RectTransform)
-
-| 프리셋 | 설명 |
-|--------|------|
-| `center` | 중앙 (0.5, 0.5) |
-| `top-left`, `top-center`, `top-right` | 상단 |
-| `middle-left`, `middle-center`, `middle-right` | 중앙 행 |
-| `bottom-left`, `bottom-center`, `bottom-right` | 하단 |
-| `stretch-top`, `stretch-middle`, `stretch-bottom` | 가로 스트레치 |
-| `stretch-left`, `stretch-center`, `stretch-right` | 세로 스트레치 |
-| `stretch-all` | 전체 스트레치 |
-
----
-
 ## 컴포넌트 추가 (add-component)
 
 `--to`로 대상 GameObject 경로를 지정하고 `--type`으로 컴포넌트를 추가합니다.
