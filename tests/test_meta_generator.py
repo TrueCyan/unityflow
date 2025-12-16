@@ -16,6 +16,13 @@ from unityflow.meta_generator import (
     generate_meta_files_recursive,
     ensure_meta_file,
     get_guid_from_meta,
+    # Meta modification functions
+    modify_meta_file,
+    set_texture_sprite_mode,
+    set_texture_max_size,
+    set_script_execution_order,
+    set_asset_bundle,
+    get_meta_info,
 )
 
 
@@ -443,3 +450,237 @@ class TestExtensionToTypeMapping:
         assert EXTENSION_TO_TYPE[".shader"] == AssetType.SHADER
         assert EXTENSION_TO_TYPE[".prefab"] == AssetType.PREFAB
         assert EXTENSION_TO_TYPE[".unity"] == AssetType.SCENE
+
+
+# ============================================================================
+# Meta File Modification Tests
+# ============================================================================
+
+
+class TestModifyMetaFile:
+    """Tests for modify_meta_file function."""
+
+    def test_modify_meta_file_guid_not_allowed(self, tmp_path):
+        """Test that GUID modification is not allowed."""
+        script = tmp_path / "Player.cs"
+        script.touch()
+        generate_meta_file(script)
+
+        meta_path = tmp_path / "Player.cs.meta"
+
+        with pytest.raises(ValueError, match="GUID modification is not allowed"):
+            modify_meta_file(meta_path, {"guid": "a" * 32})
+
+    def test_modify_meta_file_preserves_guid(self, tmp_path):
+        """Test that modifications preserve GUID."""
+        texture = tmp_path / "icon.png"
+        texture.touch()
+
+        custom_guid = "abcd1234" * 4
+        options = MetaFileOptions(guid=custom_guid)
+        generate_meta_file(texture, options=options)
+
+        meta_path = tmp_path / "icon.png.meta"
+        original_guid = get_guid_from_meta(meta_path)
+
+        # Modify sprite mode
+        set_texture_sprite_mode(meta_path, sprite_mode=1)
+
+        # GUID should be preserved
+        assert get_guid_from_meta(meta_path) == original_guid
+
+
+class TestSetTextureSpriteMode:
+    """Tests for set_texture_sprite_mode function."""
+
+    def test_set_sprite_mode_single(self, tmp_path):
+        """Test setting sprite mode to single."""
+        texture = tmp_path / "icon.png"
+        texture.touch()
+        generate_meta_file(texture)
+
+        meta_path = tmp_path / "icon.png.meta"
+        set_texture_sprite_mode(meta_path, sprite_mode=1)
+
+        info = get_meta_info(meta_path)
+        assert info["sprite_mode"] == 1
+        assert info["texture_type"] == 8  # Sprite
+
+    def test_set_sprite_mode_multiple(self, tmp_path):
+        """Test setting sprite mode to multiple."""
+        texture = tmp_path / "atlas.png"
+        texture.touch()
+        generate_meta_file(texture)
+
+        meta_path = tmp_path / "atlas.png.meta"
+        set_texture_sprite_mode(meta_path, sprite_mode=2)
+
+        info = get_meta_info(meta_path)
+        assert info["sprite_mode"] == 2
+
+    def test_set_pixels_per_unit(self, tmp_path):
+        """Test setting pixels per unit."""
+        texture = tmp_path / "icon.png"
+        texture.touch()
+        generate_meta_file(texture)
+
+        meta_path = tmp_path / "icon.png.meta"
+        set_texture_sprite_mode(meta_path, sprite_mode=1, pixels_per_unit=32)
+
+        info = get_meta_info(meta_path)
+        assert info["pixels_per_unit"] == 32
+
+    def test_set_filter_mode(self, tmp_path):
+        """Test setting filter mode."""
+        texture = tmp_path / "icon.png"
+        texture.touch()
+        generate_meta_file(texture)
+
+        meta_path = tmp_path / "icon.png.meta"
+        set_texture_sprite_mode(meta_path, sprite_mode=1, filter_mode=0)  # Point
+
+        info = get_meta_info(meta_path)
+        assert info["filter_mode"] == 0
+
+
+class TestSetTextureMaxSize:
+    """Tests for set_texture_max_size function."""
+
+    def test_set_max_size(self, tmp_path):
+        """Test setting max texture size."""
+        texture = tmp_path / "icon.png"
+        texture.touch()
+        generate_meta_file(texture)
+
+        meta_path = tmp_path / "icon.png.meta"
+        set_texture_max_size(meta_path, 512)
+
+        info = get_meta_info(meta_path)
+        assert info["max_texture_size"] == 512
+
+    def test_invalid_max_size(self, tmp_path):
+        """Test that invalid max size raises error."""
+        texture = tmp_path / "icon.png"
+        texture.touch()
+        generate_meta_file(texture)
+
+        meta_path = tmp_path / "icon.png.meta"
+
+        with pytest.raises(ValueError, match="Invalid max size"):
+            set_texture_max_size(meta_path, 100)  # Not a valid size
+
+
+class TestSetScriptExecutionOrder:
+    """Tests for set_script_execution_order function."""
+
+    def test_set_execution_order_positive(self, tmp_path):
+        """Test setting positive execution order."""
+        script = tmp_path / "Player.cs"
+        script.touch()
+        generate_meta_file(script)
+
+        meta_path = tmp_path / "Player.cs.meta"
+        set_script_execution_order(meta_path, 100)
+
+        info = get_meta_info(meta_path)
+        assert info["execution_order"] == 100
+
+    def test_set_execution_order_negative(self, tmp_path):
+        """Test setting negative execution order."""
+        script = tmp_path / "Bootstrap.cs"
+        script.touch()
+        generate_meta_file(script)
+
+        meta_path = tmp_path / "Bootstrap.cs.meta"
+        set_script_execution_order(meta_path, -100)
+
+        info = get_meta_info(meta_path)
+        assert info["execution_order"] == -100
+
+
+class TestSetAssetBundle:
+    """Tests for set_asset_bundle function."""
+
+    def test_set_bundle_name(self, tmp_path):
+        """Test setting asset bundle name."""
+        prefab = tmp_path / "Player.prefab"
+        prefab.touch()
+        generate_meta_file(prefab)
+
+        meta_path = tmp_path / "Player.prefab.meta"
+        set_asset_bundle(meta_path, bundle_name="characters")
+
+        info = get_meta_info(meta_path)
+        assert info["asset_bundle_name"] == "characters"
+
+    def test_set_bundle_name_and_variant(self, tmp_path):
+        """Test setting both bundle name and variant."""
+        prefab = tmp_path / "Player.prefab"
+        prefab.touch()
+        generate_meta_file(prefab)
+
+        meta_path = tmp_path / "Player.prefab.meta"
+        set_asset_bundle(meta_path, bundle_name="characters", bundle_variant="hd")
+
+        info = get_meta_info(meta_path)
+        assert info["asset_bundle_name"] == "characters"
+        assert info["asset_bundle_variant"] == "hd"
+
+    def test_clear_bundle_name(self, tmp_path):
+        """Test clearing asset bundle name."""
+        prefab = tmp_path / "Player.prefab"
+        prefab.touch()
+        generate_meta_file(prefab)
+
+        meta_path = tmp_path / "Player.prefab.meta"
+        set_asset_bundle(meta_path, bundle_name="characters")
+        set_asset_bundle(meta_path, bundle_name="")  # Clear
+
+        info = get_meta_info(meta_path)
+        assert info["asset_bundle_name"] is None
+
+
+class TestGetMetaInfo:
+    """Tests for get_meta_info function."""
+
+    def test_get_texture_info(self, tmp_path):
+        """Test getting texture meta info."""
+        texture = tmp_path / "icon.png"
+        texture.touch()
+
+        options = MetaFileOptions(
+            guid="a" * 32,
+            texture_type="Sprite",
+            sprite_mode=1,
+            sprite_pixels_per_unit=32,
+        )
+        generate_meta_file(texture, options=options)
+
+        meta_path = tmp_path / "icon.png.meta"
+        info = get_meta_info(meta_path)
+
+        assert info["guid"] == "a" * 32
+        assert info["importer_type"] == "TextureImporter"
+        assert info["sprite_mode"] == 1
+        assert info["pixels_per_unit"] == 32
+
+    def test_get_script_info(self, tmp_path):
+        """Test getting script meta info."""
+        script = tmp_path / "Player.cs"
+        script.touch()
+
+        options = MetaFileOptions(execution_order=50)
+        generate_meta_file(script, options=options)
+
+        meta_path = tmp_path / "Player.cs.meta"
+        info = get_meta_info(meta_path)
+
+        assert info["importer_type"] == "MonoImporter"
+        assert info["execution_order"] == 50
+
+    def test_get_info_nonexistent_file(self, tmp_path):
+        """Test error when meta file doesn't exist."""
+        nonexistent = tmp_path / "nonexistent.meta"
+
+        with pytest.raises(FileNotFoundError):
+            get_meta_info(nonexistent)

@@ -4362,5 +4362,222 @@ def generate_meta(
         sys.exit(1)
 
 
+@main.command(name="modify-meta")
+@click.argument("meta_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--sprite-mode",
+    type=click.Choice(["none", "single", "multiple"]),
+    default=None,
+    help="Set sprite mode (texture only)",
+)
+@click.option(
+    "--ppu",
+    "pixels_per_unit",
+    type=int,
+    default=None,
+    help="Set sprite pixels per unit (texture only)",
+)
+@click.option(
+    "--filter",
+    "filter_mode",
+    type=click.Choice(["point", "bilinear", "trilinear"]),
+    default=None,
+    help="Set filter mode (texture only)",
+)
+@click.option(
+    "--max-size",
+    type=click.Choice(["32", "64", "128", "256", "512", "1024", "2048", "4096", "8192", "16384"]),
+    default=None,
+    help="Set max texture size (texture only)",
+)
+@click.option(
+    "--execution-order",
+    type=int,
+    default=None,
+    help="Set script execution order (script only)",
+)
+@click.option(
+    "--bundle-name",
+    type=str,
+    default=None,
+    help="Set asset bundle name",
+)
+@click.option(
+    "--bundle-variant",
+    type=str,
+    default=None,
+    help="Set asset bundle variant",
+)
+@click.option(
+    "--info",
+    "show_info",
+    is_flag=True,
+    help="Show current meta file information",
+)
+def modify_meta(
+    meta_path: Path,
+    sprite_mode: str | None,
+    pixels_per_unit: int | None,
+    filter_mode: str | None,
+    max_size: str | None,
+    execution_order: int | None,
+    bundle_name: str | None,
+    bundle_variant: str | None,
+    show_info: bool,
+) -> None:
+    """Modify settings in an existing .meta file.
+
+    Note: GUID cannot be modified to prevent breaking asset references.
+
+    Examples:
+
+        # Show current meta file info
+        unityflow modify-meta icon.png.meta --info
+
+        # Change texture to sprite mode
+        unityflow modify-meta icon.png.meta --sprite-mode single
+
+        # Set sprite with custom PPU and filter
+        unityflow modify-meta icon.png.meta --sprite-mode single --ppu 32 --filter point
+
+        # Set max texture size
+        unityflow modify-meta icon.png.meta --max-size 512
+
+        # Set script execution order
+        unityflow modify-meta Player.cs.meta --execution-order -100
+
+        # Set asset bundle
+        unityflow modify-meta Player.prefab.meta --bundle-name "characters" --bundle-variant "hd"
+    """
+    from unityflow.meta_generator import (
+        get_meta_info,
+        set_texture_sprite_mode,
+        set_texture_max_size,
+        set_script_execution_order,
+        set_asset_bundle,
+    )
+
+    # Handle path - support both asset path and meta path
+    if not str(meta_path).endswith(".meta"):
+        meta_path = Path(str(meta_path) + ".meta")
+
+    if not meta_path.exists():
+        click.echo(f"Error: Meta file not found: {meta_path}", err=True)
+        sys.exit(1)
+
+    # Show info mode
+    if show_info:
+        try:
+            info = get_meta_info(meta_path)
+            click.echo(f"Meta file: {meta_path}")
+            click.echo(f"  GUID: {info['guid']}")
+            click.echo(f"  Importer: {info['importer_type']}")
+
+            if info.get("sprite_mode") is not None:
+                sprite_modes = {0: "None", 1: "Single", 2: "Multiple"}
+                click.echo(f"  Sprite Mode: {sprite_modes.get(info['sprite_mode'], info['sprite_mode'])}")
+
+            if info.get("pixels_per_unit") is not None:
+                click.echo(f"  Pixels Per Unit: {info['pixels_per_unit']}")
+
+            if info.get("max_texture_size") is not None:
+                click.echo(f"  Max Texture Size: {info['max_texture_size']}")
+
+            if info.get("filter_mode") is not None:
+                filter_modes = {0: "Point", 1: "Bilinear", 2: "Trilinear"}
+                click.echo(f"  Filter Mode: {filter_modes.get(info['filter_mode'], info['filter_mode'])}")
+
+            if info.get("texture_type") is not None:
+                texture_types = {0: "Default", 1: "NormalMap", 8: "Sprite"}
+                click.echo(f"  Texture Type: {texture_types.get(info['texture_type'], info['texture_type'])}")
+
+            if info.get("execution_order") is not None:
+                click.echo(f"  Execution Order: {info['execution_order']}")
+
+            if info.get("asset_bundle_name"):
+                click.echo(f"  Asset Bundle: {info['asset_bundle_name']}")
+                if info.get("asset_bundle_variant"):
+                    click.echo(f"  Bundle Variant: {info['asset_bundle_variant']}")
+
+        except Exception as e:
+            click.echo(f"Error reading meta file: {e}", err=True)
+            sys.exit(1)
+        return
+
+    # Check if any modification was requested
+    has_modifications = any([
+        sprite_mode is not None,
+        pixels_per_unit is not None,
+        filter_mode is not None,
+        max_size is not None,
+        execution_order is not None,
+        bundle_name is not None,
+        bundle_variant is not None,
+    ])
+
+    if not has_modifications:
+        click.echo("Error: No modifications specified. Use --info to view current settings.", err=True)
+        click.echo("Available options: --sprite-mode, --ppu, --filter, --max-size, --execution-order, --bundle-name, --bundle-variant")
+        sys.exit(1)
+
+    modified = False
+
+    try:
+        # Apply texture modifications
+        if sprite_mode is not None or pixels_per_unit is not None or filter_mode is not None:
+            sprite_mode_map = {"none": 0, "single": 1, "multiple": 2}
+            filter_mode_map = {"point": 0, "bilinear": 1, "trilinear": 2}
+
+            sm = sprite_mode_map.get(sprite_mode) if sprite_mode else None
+            fm = filter_mode_map.get(filter_mode) if filter_mode else None
+
+            if sm is not None:
+                set_texture_sprite_mode(meta_path, sprite_mode=sm, pixels_per_unit=pixels_per_unit, filter_mode=fm)
+                click.echo(f"Set sprite mode: {sprite_mode}")
+                if pixels_per_unit is not None:
+                    click.echo(f"Set pixels per unit: {pixels_per_unit}")
+                if filter_mode is not None:
+                    click.echo(f"Set filter mode: {filter_mode}")
+            elif pixels_per_unit is not None or fm is not None:
+                # Need to get current sprite mode
+                info = get_meta_info(meta_path)
+                current_sm = info.get("sprite_mode", 1)
+                set_texture_sprite_mode(meta_path, sprite_mode=current_sm, pixels_per_unit=pixels_per_unit, filter_mode=fm)
+                if pixels_per_unit is not None:
+                    click.echo(f"Set pixels per unit: {pixels_per_unit}")
+                if filter_mode is not None:
+                    click.echo(f"Set filter mode: {filter_mode}")
+            modified = True
+
+        if max_size is not None:
+            set_texture_max_size(meta_path, int(max_size))
+            click.echo(f"Set max texture size: {max_size}")
+            modified = True
+
+        if execution_order is not None:
+            set_script_execution_order(meta_path, execution_order)
+            click.echo(f"Set execution order: {execution_order}")
+            modified = True
+
+        if bundle_name is not None or bundle_variant is not None:
+            # Get current values if only one is being set
+            info = get_meta_info(meta_path)
+            bn = bundle_name if bundle_name is not None else (info.get("asset_bundle_name") or "")
+            bv = bundle_variant if bundle_variant is not None else (info.get("asset_bundle_variant") or "")
+            set_asset_bundle(meta_path, bn, bv)
+            if bundle_name is not None:
+                click.echo(f"Set asset bundle name: {bundle_name or '(cleared)'}")
+            if bundle_variant is not None:
+                click.echo(f"Set asset bundle variant: {bundle_variant or '(cleared)'}")
+            modified = True
+
+        if modified:
+            click.echo(f"\nModified: {meta_path}")
+
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     main()

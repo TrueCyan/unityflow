@@ -252,6 +252,38 @@ unityflow generate-meta Player.cs --overwrite
 - **Unity YAML** (.prefab, .unity, .asset, .mat) → `DefaultImporter`
 - **폴더** → `DefaultImporter` (folderAsset: yes)
 
+### .meta 파일 수정 (modify-meta)
+
+기존 `.meta` 파일의 설정을 수정합니다. **GUID는 수정할 수 없습니다** (에셋 참조 보호).
+
+```bash
+# 현재 설정 확인
+unityflow modify-meta icon.png.meta --info
+
+# 텍스처를 스프라이트로 변경
+unityflow modify-meta icon.png --sprite-mode single
+
+# 스프라이트 설정 (PPU, 필터)
+unityflow modify-meta icon.png --sprite-mode single --ppu 32 --filter point
+
+# 텍스처 최대 크기 설정
+unityflow modify-meta icon.png --max-size 512
+
+# 스크립트 실행 순서 설정
+unityflow modify-meta Player.cs --execution-order -100
+
+# 에셋 번들 설정
+unityflow modify-meta Player.prefab --bundle-name "characters" --bundle-variant "hd"
+
+# 에셋 번들 해제
+unityflow modify-meta Player.prefab --bundle-name ""
+```
+
+**수정 가능한 옵션:**
+- **텍스처**: `--sprite-mode`, `--ppu`, `--filter`, `--max-size`
+- **스크립트**: `--execution-order`
+- **모든 에셋**: `--bundle-name`, `--bundle-variant`
+
 ### 기타 유용한 명령어
 
 ```bash

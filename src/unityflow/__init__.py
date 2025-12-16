@@ -64,6 +64,13 @@ from unityflow.meta_generator import (
     generate_meta_files_recursive,
     ensure_meta_file,
     get_guid_from_meta,
+    # Meta modification functions
+    modify_meta_file,
+    set_texture_sprite_mode,
+    set_texture_max_size,
+    set_script_execution_order,
+    set_asset_bundle,
+    get_meta_info,
 )
 
 __all__ = [
@@ -124,6 +131,13 @@ __all__ = [
     "generate_meta_files_recursive",
     "ensure_meta_file",
     "get_guid_from_meta",
+    # Meta modification functions
+    "modify_meta_file",
+    "set_texture_sprite_mode",
+    "set_texture_max_size",
+    "set_script_execution_order",
+    "set_asset_bundle",
+    "get_meta_info",
     # Meta generator constants
     "EXTENSION_TO_TYPE",
 ]

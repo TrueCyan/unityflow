@@ -822,3 +822,473 @@ def get_guid_from_meta(meta_path: Path) -> str | None:
         pass
 
     return None
+
+
+# ============================================================================
+# Meta File Modification Functions
+# ============================================================================
+
+
+@dataclass
+class MetaModification:
+    """Represents a modification to be applied to a meta file."""
+
+    field_path: str  # Dot-separated path like "TextureImporter.spriteMode"
+    value: Any
+    create_if_missing: bool = False
+
+
+def parse_meta_file(meta_path: Path) -> dict[str, Any]:
+    """Parse a .meta file into a dictionary structure.
+
+    Args:
+        meta_path: Path to the .meta file
+
+    Returns:
+        Dictionary representation of the meta file
+
+    Raises:
+        FileNotFoundError: If meta file doesn't exist
+        ValueError: If meta file is invalid
+    """
+    import re
+
+    if not meta_path.exists():
+        raise FileNotFoundError(f"Meta file not found: {meta_path}")
+
+    content = meta_path.read_text(encoding="utf-8")
+    lines = content.split("\n")
+
+    result: dict[str, Any] = {}
+    stack: list[tuple[dict, int]] = [(result, -1)]  # (current_dict, indent_level)
+
+    for line in lines:
+        if not line.strip() or line.startswith("%"):
+            continue
+
+        # Calculate indent level
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+
+        # Parse key-value
+        if ":" in stripped:
+            colon_idx = stripped.index(":")
+            key = stripped[:colon_idx].strip()
+            value_part = stripped[colon_idx + 1:].strip()
+
+            # Pop stack until we find the right parent
+            while len(stack) > 1 and stack[-1][1] >= indent:
+                stack.pop()
+
+            current_dict = stack[-1][0]
+
+            if value_part == "" or value_part.startswith("#"):
+                # This is a nested object
+                new_dict: dict[str, Any] = {}
+                current_dict[key] = new_dict
+                stack.append((new_dict, indent))
+            elif value_part == "[]":
+                current_dict[key] = []
+            elif value_part == "{}":
+                current_dict[key] = {}
+            else:
+                # Parse the value
+                current_dict[key] = _parse_yaml_value(value_part)
+
+    return result
+
+
+def _parse_yaml_value(value_str: str) -> Any:
+    """Parse a YAML value string into Python type."""
+    value_str = value_str.strip()
+
+    # Handle inline dict like {x: 0, y: 0}
+    if value_str.startswith("{") and value_str.endswith("}"):
+        inner = value_str[1:-1].strip()
+        if not inner:
+            return {}
+        result = {}
+        # Simple parsing for Unity's inline format
+        parts = inner.split(",")
+        for part in parts:
+            if ":" in part:
+                k, v = part.split(":", 1)
+                result[k.strip()] = _parse_yaml_value(v.strip())
+        return result
+
+    # Handle numbers
+    if value_str.isdigit() or (value_str.startswith("-") and value_str[1:].isdigit()):
+        return int(value_str)
+
+    try:
+        return float(value_str)
+    except ValueError:
+        pass
+
+    # Handle booleans
+    if value_str.lower() in ("true", "yes", "on"):
+        return True
+    if value_str.lower() in ("false", "no", "off"):
+        return False
+
+    # Handle quoted strings
+    if (value_str.startswith('"') and value_str.endswith('"')) or \
+       (value_str.startswith("'") and value_str.endswith("'")):
+        return value_str[1:-1]
+
+    return value_str
+
+
+def _serialize_yaml_value(value: Any, indent: int = 0) -> str:
+    """Serialize a Python value to YAML string."""
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    elif isinstance(value, int):
+        return str(value)
+    elif isinstance(value, float):
+        # Format float without unnecessary trailing zeros
+        if value == int(value):
+            return str(int(value))
+        return str(value)
+    elif isinstance(value, dict):
+        if not value:
+            return "{}"
+        # Inline dict format for simple values
+        if all(isinstance(v, (int, float, str)) for v in value.values()):
+            parts = [f"{k}: {_serialize_yaml_value(v)}" for k, v in value.items()]
+            return "{" + ", ".join(parts) + "}"
+        # Multi-line dict
+        lines = []
+        for k, v in value.items():
+            lines.append(f"{' ' * indent}{k}: {_serialize_yaml_value(v, indent + 2)}")
+        return "\n" + "\n".join(lines)
+    elif isinstance(value, list):
+        if not value:
+            return "[]"
+        lines = []
+        for item in value:
+            lines.append(f"{' ' * indent}- {_serialize_yaml_value(item, indent + 2)}")
+        return "\n" + "\n".join(lines)
+    elif value is None:
+        return ""
+    else:
+        return str(value)
+
+
+def modify_meta_file(
+    meta_path: Path,
+    modifications: dict[str, Any],
+) -> Path:
+    """Modify specific fields in an existing .meta file.
+
+    Note: GUID modification is not allowed to prevent breaking asset references.
+    Use generate-meta with --overwrite if you need to regenerate with a new GUID.
+
+    Args:
+        meta_path: Path to the .meta file
+        modifications: Dictionary of field paths to new values
+                      Keys are dot-separated paths like "TextureImporter.spriteMode"
+
+    Returns:
+        Path to the modified .meta file
+
+    Raises:
+        FileNotFoundError: If meta file doesn't exist
+        ValueError: If attempting to modify GUID
+    """
+    meta_path = Path(meta_path)
+    if not meta_path.exists():
+        raise FileNotFoundError(f"Meta file not found: {meta_path}")
+
+    # GUID modification is not allowed
+    if "guid" in modifications:
+        raise ValueError(
+            "GUID modification is not allowed. "
+            "Changing GUID will break all references to this asset. "
+            "Use 'generate-meta --overwrite' if you need a new GUID."
+        )
+
+    content = meta_path.read_text(encoding="utf-8")
+
+    # Apply modifications line by line for precise control
+    lines = content.split("\n")
+    modified_lines = _apply_modifications(lines, modifications)
+
+    new_content = "\n".join(modified_lines)
+    meta_path.write_text(new_content, encoding="utf-8", newline="\n")
+
+    return meta_path
+
+
+def _apply_modifications(lines: list[str], modifications: dict[str, Any]) -> list[str]:
+    """Apply modifications to meta file lines."""
+    import re
+
+    result = lines.copy()
+
+    for field_path, value in modifications.items():
+        parts = field_path.split(".")
+        result = _modify_field(result, parts, value)
+
+    return result
+
+
+def _modify_field(lines: list[str], path_parts: list[str], value: Any) -> list[str]:
+    """Modify a specific field in the lines."""
+    result = lines.copy()
+
+    if len(path_parts) == 1:
+        # Top-level field
+        field_name = path_parts[0]
+        for i, line in enumerate(result):
+            stripped = line.lstrip()
+            if stripped.startswith(f"{field_name}:"):
+                indent = len(line) - len(stripped)
+                result[i] = f"{' ' * indent}{field_name}: {_serialize_yaml_value(value)}"
+                break
+    else:
+        # Nested field - find parent section first
+        parent_path = path_parts[:-1]
+        field_name = path_parts[-1]
+
+        # Find the section
+        section_start = -1
+        section_indent = -1
+
+        current_path: list[str] = []
+        indent_stack: list[int] = [-1]
+
+        for i, line in enumerate(result):
+            if not line.strip():
+                continue
+
+            stripped = line.lstrip()
+            indent = len(line) - len(stripped)
+
+            # Pop stack for lower indents
+            while indent_stack and indent <= indent_stack[-1]:
+                indent_stack.pop()
+                if current_path:
+                    current_path.pop()
+
+            if ":" in stripped:
+                key = stripped.split(":")[0].strip()
+                value_part = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+
+                if value_part == "" or value_part.startswith("#"):
+                    # Section header
+                    current_path.append(key)
+                    indent_stack.append(indent)
+
+                    if current_path == parent_path:
+                        section_start = i
+                        section_indent = indent
+                elif current_path == parent_path and key == field_name:
+                    # Found the field to modify
+                    result[i] = f"{' ' * indent}{field_name}: {_serialize_yaml_value(value)}"
+                    return result
+
+        # If we found the section but not the field, the field might need to be added
+        # For now, just return as-is if not found
+
+    return result
+
+
+
+
+def set_texture_sprite_mode(
+    meta_path: Path,
+    sprite_mode: int = 1,
+    pixels_per_unit: int | None = None,
+    filter_mode: int | None = None,
+) -> Path:
+    """Set texture import settings for sprite mode.
+
+    Args:
+        meta_path: Path to the texture .meta file
+        sprite_mode: 0=None, 1=Single, 2=Multiple
+        pixels_per_unit: Pixels per unit (default: keep existing)
+        filter_mode: 0=Point, 1=Bilinear, 2=Trilinear (default: keep existing)
+
+    Returns:
+        Path to the modified .meta file
+    """
+    meta_path = Path(meta_path)
+    content = meta_path.read_text(encoding="utf-8")
+    lines = content.split("\n")
+
+    modifications = []
+
+    # Set textureType to Sprite (8) if enabling sprite mode
+    if sprite_mode > 0:
+        modifications.append(("textureType", 8))
+    modifications.append(("spriteMode", sprite_mode))
+
+    if pixels_per_unit is not None:
+        modifications.append(("spritePixelsToUnits", pixels_per_unit))
+
+    if filter_mode is not None:
+        modifications.append(("filterMode", filter_mode))
+
+    for field_name, value in modifications:
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith(f"{field_name}:"):
+                indent = len(line) - len(stripped)
+                lines[i] = f"{' ' * indent}{field_name}: {value}"
+                break
+
+    new_content = "\n".join(lines)
+    meta_path.write_text(new_content, encoding="utf-8", newline="\n")
+
+    return meta_path
+
+
+def set_script_execution_order(meta_path: Path, execution_order: int) -> Path:
+    """Set script execution order in a MonoImporter .meta file.
+
+    Args:
+        meta_path: Path to the script .meta file
+        execution_order: Execution order value (negative = earlier, positive = later)
+
+    Returns:
+        Path to the modified .meta file
+    """
+    meta_path = Path(meta_path)
+    content = meta_path.read_text(encoding="utf-8")
+    lines = content.split("\n")
+
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("executionOrder:"):
+            indent = len(line) - len(stripped)
+            lines[i] = f"{' ' * indent}executionOrder: {execution_order}"
+            break
+
+    new_content = "\n".join(lines)
+    meta_path.write_text(new_content, encoding="utf-8", newline="\n")
+
+    return meta_path
+
+
+def set_asset_bundle(
+    meta_path: Path,
+    bundle_name: str = "",
+    bundle_variant: str = "",
+) -> Path:
+    """Set asset bundle name and variant in a .meta file.
+
+    Args:
+        meta_path: Path to the .meta file
+        bundle_name: Asset bundle name (empty string to clear)
+        bundle_variant: Asset bundle variant (empty string to clear)
+
+    Returns:
+        Path to the modified .meta file
+    """
+    meta_path = Path(meta_path)
+    content = meta_path.read_text(encoding="utf-8")
+    lines = content.split("\n")
+
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("assetBundleName:"):
+            indent = len(line) - len(stripped)
+            lines[i] = f"{' ' * indent}assetBundleName: {bundle_name}"
+        elif stripped.startswith("assetBundleVariant:"):
+            indent = len(line) - len(stripped)
+            lines[i] = f"{' ' * indent}assetBundleVariant: {bundle_variant}"
+
+    new_content = "\n".join(lines)
+    meta_path.write_text(new_content, encoding="utf-8", newline="\n")
+
+    return meta_path
+
+
+def set_texture_max_size(meta_path: Path, max_size: int) -> Path:
+    """Set maximum texture size in a TextureImporter .meta file.
+
+    Args:
+        meta_path: Path to the texture .meta file
+        max_size: Maximum texture size (32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384)
+
+    Returns:
+        Path to the modified .meta file
+    """
+    valid_sizes = {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384}
+    if max_size not in valid_sizes:
+        raise ValueError(f"Invalid max size: {max_size}. Must be one of {sorted(valid_sizes)}")
+
+    meta_path = Path(meta_path)
+    content = meta_path.read_text(encoding="utf-8")
+    lines = content.split("\n")
+
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("maxTextureSize:"):
+            indent = len(line) - len(stripped)
+            lines[i] = f"{' ' * indent}maxTextureSize: {max_size}"
+
+    new_content = "\n".join(lines)
+    meta_path.write_text(new_content, encoding="utf-8", newline="\n")
+
+    return meta_path
+
+
+def get_meta_info(meta_path: Path) -> dict[str, Any]:
+    """Get summary information from a .meta file.
+
+    Args:
+        meta_path: Path to the .meta file
+
+    Returns:
+        Dictionary with meta file information
+    """
+    meta_path = Path(meta_path)
+    if not meta_path.exists():
+        raise FileNotFoundError(f"Meta file not found: {meta_path}")
+
+    content = meta_path.read_text(encoding="utf-8")
+
+    info: dict[str, Any] = {
+        "path": str(meta_path),
+        "guid": get_guid_from_meta(meta_path),
+        "importer_type": None,
+        "asset_bundle_name": None,
+        "asset_bundle_variant": None,
+    }
+
+    # Detect importer type
+    importer_types = [
+        "DefaultImporter", "MonoImporter", "TextureImporter", "AudioImporter",
+        "VideoClipImporter", "ModelImporter", "ShaderImporter", "PluginImporter",
+        "TrueTypeFontImporter", "TextScriptImporter", "NativeFormatImporter",
+    ]
+    for importer in importer_types:
+        if f"{importer}:" in content:
+            info["importer_type"] = importer
+            break
+
+    # Extract specific fields
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("assetBundleName:"):
+            value = stripped.split(":", 1)[1].strip()
+            info["asset_bundle_name"] = value if value else None
+        elif stripped.startswith("assetBundleVariant:"):
+            value = stripped.split(":", 1)[1].strip()
+            info["asset_bundle_variant"] = value if value else None
+        elif stripped.startswith("spriteMode:"):
+            info["sprite_mode"] = int(stripped.split(":")[1].strip())
+        elif stripped.startswith("spritePixelsToUnits:"):
+            info["pixels_per_unit"] = int(stripped.split(":")[1].strip())
+        elif stripped.startswith("executionOrder:"):
+            info["execution_order"] = int(stripped.split(":")[1].strip())
+        elif stripped.startswith("maxTextureSize:") and "maxTextureSize" not in info:
+            info["max_texture_size"] = int(stripped.split(":")[1].strip())
+        elif stripped.startswith("textureType:"):
+            info["texture_type"] = int(stripped.split(":")[1].strip())
+        elif stripped.startswith("filterMode:"):
+            info["filter_mode"] = int(stripped.split(":")[1].strip())
+
+    return info
