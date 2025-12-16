@@ -198,17 +198,16 @@ unityflow sprite-info "Assets/Sprites/player.png"
 
 **지원 에셋 타입:**
 
-| 에셋 타입 | 예시 | 자동 fileID |
-|----------|------|------------|
-| Script (.cs) | `@Assets/Scripts/Player.cs` | 11500000 |
-| Sprite (Single) | `@Assets/Sprites/icon.png` | 21300000 |
-| Sprite (Multiple) | `@Assets/Sprites/atlas.png:idle_0` | meta에서 추출 |
-| AudioClip | `@Assets/Audio/jump.wav` | 8300000 |
-| Material | `@Assets/Materials/Custom.mat` | 2100000 |
-| Prefab | `@Assets/Prefabs/Enemy.prefab` | 루트 GameObject ID |
-| ScriptableObject | `@Assets/Data/Config.asset` | 11400000 |
-| Texture2D | `@Assets/Textures/bg.png` | 21300000 |
-| Animation | `@Assets/Animations/walk.anim` | 7400000 |
+| 에셋 타입 | 예시 |
+|----------|------|
+| Script | `@Assets/Scripts/Player.cs` |
+| Sprite (Single) | `@Assets/Sprites/icon.png` |
+| Sprite (Multiple) | `@Assets/Sprites/atlas.png:idle_0` |
+| AudioClip | `@Assets/Audio/jump.wav` |
+| Material | `@Assets/Materials/Custom.mat` |
+| Prefab | `@Assets/Prefabs/Enemy.prefab` |
+| ScriptableObject | `@Assets/Data/Config.asset` |
+| Animation | `@Assets/Animations/walk.anim` |
 
 ### JSON 내보내기/가져오기
 
@@ -419,23 +418,6 @@ RectTransform 컴포넌트는 두 가지 형식으로 값을 제공합니다:
 ```
 
 **`editorValues`를 수정하면 자동으로 파일 값으로 변환됩니다** (권장)
-
----
-
-## 에셋 참조 연결하기
-
-MonoBehaviour 필드에 에셋을 연결할 때는 **`@` 접두사**를 사용하면 GUID와 fileID가 자동으로 해석됩니다.
-
-### 권장 방식: @ 접두사 사용
-
-```bash
-# 에셋 경로만 지정하면 자동으로 올바른 참조 생성
-unityflow set Player.prefab \
-    --path "components/12345/audioClip" \
-    --value "@Assets/Audio/jump.wav"
-
-# 결과: {"fileID": 8300000, "guid": "...", "type": 3}
-```
 
 ---
 
