@@ -176,28 +176,28 @@ class TestScalarFormatting:
 
     def test_standalone_dash_is_quoted(self):
         """Test that standalone '-' is quoted to prevent YAML null interpretation."""
-        from prefab_tool.fast_parser import _format_scalar
+        from unityflow.fast_parser import _format_scalar
 
         result = _format_scalar("-")
         assert result == "'-'", "Standalone '-' must be quoted"
 
     def test_standalone_tilde_is_quoted(self):
         """Test that standalone '~' is quoted to prevent YAML null interpretation."""
-        from prefab_tool.fast_parser import _format_scalar
+        from unityflow.fast_parser import _format_scalar
 
         result = _format_scalar("~")
         assert result == "'~'", "Standalone '~' must be quoted"
 
     def test_dash_with_space_is_quoted(self):
         """Test that '- ' prefix is quoted to prevent list item interpretation."""
-        from prefab_tool.fast_parser import _format_scalar
+        from unityflow.fast_parser import _format_scalar
 
         result = _format_scalar("- test")
         assert result.startswith("'"), "'- ' prefixed strings must be quoted"
 
     def test_normal_strings_not_quoted(self):
         """Test that normal strings are not unnecessarily quoted."""
-        from prefab_tool.fast_parser import _format_scalar
+        from unityflow.fast_parser import _format_scalar
 
         assert _format_scalar("hello") == "hello"
         assert _format_scalar("test_value") == "test_value"
