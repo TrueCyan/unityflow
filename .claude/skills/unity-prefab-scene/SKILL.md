@@ -505,16 +505,18 @@ doc.save("output.prefab")  # 또는 .unity, .asset
 | 225 | CanvasGroup | 캔버스 그룹 |
 | 1001 | PrefabInstance | 프리팹 인스턴스 |
 
-**참고**: 패키지 컴포넌트(Light2D, TextMeshPro 등)는 `MonoBehaviour(114)`를 사용하며, **컴포넌트 이름으로 직접 추가**할 수 있습니다.
-
 ---
 
-## 패키지 컴포넌트 추가
+## 컴포넌트 추가 (add-component)
 
-패키지 컴포넌트들은 **이름으로 직접 추가**할 수 있습니다. GUID를 외울 필요 없이 `--type` 옵션으로 컴포넌트 이름만 지정하세요.
+`--type` 옵션으로 컴포넌트를 추가합니다.
 
 ```bash
-# UI 컴포넌트 추가
+# 빌트인 컴포넌트
+unityflow add-component Scene.unity --to 12345 --type SpriteRenderer
+unityflow add-component Scene.unity --to 12345 --type Camera
+
+# UI 컴포넌트
 unityflow add-component Scene.unity --to 12345 --type Image
 unityflow add-component Scene.unity --to 12345 --type Button
 unityflow add-component Scene.unity --to 12345 --type TextMeshProUGUI
@@ -523,50 +525,34 @@ unityflow add-component Scene.unity --to 12345 --type TextMeshProUGUI
 unityflow add-component Scene.unity --to 12345 --type VerticalLayoutGroup
 unityflow add-component Scene.unity --to 12345 --type ContentSizeFitter
 
-# 렌더링 컴포넌트
-unityflow add-component Scene.unity --to 12345 --type Light2D
-
-# 시스템 컴포넌트
-unityflow add-component Scene.unity --to 12345 --type EventSystem
-
 # 속성과 함께 추가
 unityflow add-component Scene.unity --to 12345 --type Image \
     --props '{"m_Color": {"r": 1, "g": 0, "b": 0, "a": 1}}'
 ```
 
-### 지원되는 패키지 컴포넌트
+### 지원 컴포넌트
 
 | 카테고리 | 컴포넌트 |
 |----------|----------|
-| **UI 기본** | Image, Button, ScrollRect, Mask, RectMask2D |
-| **UI 시스템** | GraphicRaycaster, CanvasScaler, EventSystem, InputSystemUIInputModule |
+| **빌트인** | SpriteRenderer, Camera, Light, AudioSource, BoxCollider2D, CircleCollider2D, Rigidbody2D |
+| **UI** | Image, Button, ScrollRect, Mask, RectMask2D, GraphicRaycaster, CanvasScaler |
 | **레이아웃** | VerticalLayoutGroup, HorizontalLayoutGroup, ContentSizeFitter |
 | **텍스트** | TextMeshProUGUI, TMP_InputField |
-| **렌더링** | Light2D (URP 2D) |
+| **시스템** | EventSystem, InputSystemUIInputModule |
+| **렌더링** | Light2D |
 
 ### 커스텀 스크립트 추가
 
-등록되지 않은 커스텀 스크립트는 `--script` 옵션으로 GUID를 직접 지정합니다:
+프로젝트 스크립트는 `--script` 옵션으로 GUID를 지정합니다:
 
 ```bash
-# 커스텀 스크립트 GUID로 추가
 unityflow add-component Scene.unity --to 12345 --script "abc123def456..."
-
-# @ 프리픽스로 자동 GUID 해석 (set 명령에서 사용)
-unityflow set Player.prefab --path "components/12345/m_Script" \
-    --value "@Assets/Scripts/Player.cs"
 ```
 
-### GUID 조회 방법
+스크립트 GUID 조회:
 
 ```bash
-# 사용 중인 스크립트 GUID 추출
 unityflow scan-scripts Scene.unity --show-properties
-
-# 패키지 폴더에서 GUID 추출
-unityflow scan-meta "Library/PackageCache/com.unity.ugui@*" -r --scripts-only
-
-# 프로젝트 스크립트 GUID 추출
 unityflow scan-meta Assets/Scripts -r --scripts-only
 ```
 
