@@ -53,6 +53,18 @@ from unityflow.script_parser import (
     get_script_field_order,
     reorder_fields,
 )
+from unityflow.meta_generator import (
+    AssetType,
+    MetaFileOptions,
+    EXTENSION_TO_TYPE,
+    generate_guid,
+    detect_asset_type,
+    generate_meta_content,
+    generate_meta_file,
+    generate_meta_files_recursive,
+    ensure_meta_file,
+    get_guid_from_meta,
+)
 
 __all__ = [
     # Classes
@@ -101,4 +113,17 @@ __all__ = [
     "UNITY_AUDIO_EXTENSIONS",
     "UNITY_UI_EXTENSIONS",
     "BINARY_ASSET_EXTENSIONS",
+    # Meta generator classes
+    "AssetType",
+    "MetaFileOptions",
+    # Meta generator functions
+    "generate_guid",
+    "detect_asset_type",
+    "generate_meta_content",
+    "generate_meta_file",
+    "generate_meta_files_recursive",
+    "ensure_meta_file",
+    "get_guid_from_meta",
+    # Meta generator constants
+    "EXTENSION_TO_TYPE",
 ]

@@ -4133,5 +4133,234 @@ def _remap_file_ids(data: Any, id_map: dict[int, int]) -> Any:
         return data
 
 
+@main.command(name="generate-meta")
+@click.argument("paths", nargs=-1, type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "-r", "--recursive",
+    is_flag=True,
+    help="Process directories recursively",
+)
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    help="Overwrite existing .meta files",
+)
+@click.option(
+    "--guid",
+    type=str,
+    default=None,
+    help="Use specific GUID (32 hex chars) instead of random",
+)
+@click.option(
+    "--seed",
+    type=str,
+    default=None,
+    help="Use seed for deterministic GUID generation (e.g., file path)",
+)
+@click.option(
+    "--type",
+    "asset_type",
+    type=click.Choice([
+        "auto", "folder", "script", "texture", "audio", "video",
+        "model", "shader", "material", "prefab", "scene", "text", "default"
+    ]),
+    default="auto",
+    help="Force asset type (default: auto-detect)",
+)
+@click.option(
+    "--sprite",
+    is_flag=True,
+    help="Generate texture meta as sprite (sets sprite mode)",
+)
+@click.option(
+    "--ppu",
+    "pixels_per_unit",
+    type=int,
+    default=100,
+    help="Sprite pixels per unit (default: 100)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be created without writing files",
+)
+def generate_meta(
+    paths: tuple[Path, ...],
+    recursive: bool,
+    overwrite: bool,
+    guid: str | None,
+    seed: str | None,
+    asset_type: str,
+    sprite: bool,
+    pixels_per_unit: int,
+    dry_run: bool,
+) -> None:
+    """Generate .meta files for Unity assets.
+
+    Creates .meta files with appropriate importer settings based on file type.
+    Supports various asset types: scripts, textures, audio, models, shaders, etc.
+
+    Examples:
+
+        # Generate meta for a single file
+        unityflow generate-meta Assets/Scripts/Player.cs
+
+        # Generate meta for multiple files
+        unityflow generate-meta Assets/Textures/*.png
+
+        # Generate meta for a folder recursively
+        unityflow generate-meta Assets/NewFolder -r
+
+        # Generate sprite meta with custom PPU
+        unityflow generate-meta icon.png --sprite --ppu 32
+
+        # Generate with deterministic GUID (reproducible builds)
+        unityflow generate-meta Assets/Data/config.json --seed "config.json"
+
+        # Dry run to preview
+        unityflow generate-meta Assets/ -r --dry-run
+    """
+    from unityflow.meta_generator import (
+        AssetType,
+        MetaFileOptions,
+        generate_meta_file,
+        generate_meta_files_recursive,
+        detect_asset_type,
+        generate_meta_content,
+    )
+
+    if not paths:
+        click.echo("Error: No paths provided", err=True)
+        sys.exit(1)
+
+    # Validate GUID if provided
+    if guid:
+        if len(guid) != 32 or not all(c in "0123456789abcdef" for c in guid.lower()):
+            click.echo("Error: GUID must be 32 hexadecimal characters", err=True)
+            sys.exit(1)
+        guid = guid.lower()
+
+    # Map string type to AssetType enum
+    type_map = {
+        "auto": None,
+        "folder": AssetType.FOLDER,
+        "script": AssetType.SCRIPT,
+        "texture": AssetType.TEXTURE,
+        "audio": AssetType.AUDIO,
+        "video": AssetType.VIDEO,
+        "model": AssetType.MODEL,
+        "shader": AssetType.SHADER,
+        "material": AssetType.MATERIAL,
+        "prefab": AssetType.PREFAB,
+        "scene": AssetType.SCENE,
+        "text": AssetType.TEXT,
+        "default": AssetType.DEFAULT,
+    }
+    forced_type = type_map.get(asset_type)
+
+    # Build options
+    options = MetaFileOptions(
+        guid=guid,
+        guid_seed=seed,
+        texture_type="Sprite" if sprite else "Default",
+        sprite_mode=1 if sprite else 0,
+        sprite_pixels_per_unit=pixels_per_unit,
+    )
+
+    total_created = 0
+    total_skipped = 0
+    total_failed = 0
+
+    for path in paths:
+        # Resolve to absolute path for consistent handling
+        abs_path = path.resolve()
+
+        if recursive and abs_path.is_dir():
+            if dry_run:
+                click.echo(f"Would process directory: {path}")
+                # Count files that would be processed
+                for item in abs_path.rglob("*"):
+                    if item.suffix == ".meta":
+                        continue
+                    if any(part.startswith(".") for part in item.parts):
+                        continue
+                    meta_path = Path(str(item) + ".meta")
+                    if meta_path.exists() and not overwrite:
+                        click.echo(f"  [skip] {item.relative_to(abs_path)} (meta exists)")
+                        total_skipped += 1
+                    else:
+                        detected = detect_asset_type(item)
+                        click.echo(f"  [create] {item.relative_to(abs_path)} ({detected.value})")
+                        total_created += 1
+            else:
+                results = generate_meta_files_recursive(
+                    abs_path,
+                    overwrite=overwrite,
+                    skip_existing=not overwrite,
+                    options=options,
+                )
+                for item_path, success, message in results:
+                    if success:
+                        try:
+                            rel_path = item_path.relative_to(abs_path)
+                            display_path = str(rel_path) if str(rel_path) != "." else abs_path.name
+                        except ValueError:
+                            display_path = item_path.name
+                        click.echo(f"Created: {display_path}.meta")
+                        total_created += 1
+                    else:
+                        if "already exists" in message:
+                            total_skipped += 1
+                        else:
+                            click.echo(f"Failed: {item_path}: {message}", err=True)
+                            total_failed += 1
+        else:
+            # Single file or non-recursive directory
+            meta_path = Path(str(path) + ".meta")
+
+            if meta_path.exists() and not overwrite:
+                click.echo(f"Skipped: {path} (meta already exists)")
+                total_skipped += 1
+                continue
+
+            if dry_run:
+                detected = forced_type or detect_asset_type(path)
+                content = generate_meta_content(path, detected, options)
+                click.echo(f"Would create: {meta_path}")
+                click.echo(f"  Type: {detected.value}")
+                # Extract GUID from content for display
+                for line in content.split("\n"):
+                    if line.startswith("guid:"):
+                        click.echo(f"  GUID: {line.split(':')[1].strip()}")
+                        break
+                total_created += 1
+            else:
+                try:
+                    generate_meta_file(path, forced_type, options, overwrite=overwrite)
+                    click.echo(f"Created: {meta_path}")
+                    total_created += 1
+                except FileExistsError:
+                    click.echo(f"Skipped: {path} (meta already exists)")
+                    total_skipped += 1
+                except Exception as e:
+                    click.echo(f"Failed: {path}: {e}", err=True)
+                    total_failed += 1
+
+    # Summary
+    click.echo("")
+    if dry_run:
+        click.echo("Dry run summary:")
+    else:
+        click.echo("Summary:")
+    click.echo(f"  Created: {total_created}")
+    if total_skipped > 0:
+        click.echo(f"  Skipped: {total_skipped}")
+    if total_failed > 0:
+        click.echo(f"  Failed: {total_failed}")
+
+    if total_failed > 0:
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     main()
