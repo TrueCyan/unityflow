@@ -81,31 +81,30 @@ unityflow query Scene.unity --find-script "abc123def456..."
 **에셋 참조 자동 해석**: `@` 접두사로 에셋 경로를 지정하면 GUID와 fileID가 자동으로 해석됩니다.
 
 ```bash
-# 단일 값 설정
+# Transform 위치 설정
 unityflow set Player.prefab \
-    --path "components/12345/localPosition" \
+    --path "Player/Transform/localPosition" \
     --value '{"x": 0, "y": 5, "z": 0}'
 
-# 이름 변경
+# SpriteRenderer 색상 설정
 unityflow set Player.prefab \
-    --path "gameObjects/12345/name" \
+    --path "Player/SpriteRenderer/m_Color" \
+    --value '{"r": 1, "g": 0, "b": 0, "a": 1}'
+
+# GameObject 이름 변경
+unityflow set Player.prefab \
+    --path "Player/name" \
     --value '"NewName"'
 
 # 에셋 참조 (@ 접두사로 자동 해석)
-unityflow set Player.prefab \
-    --path "components/12345/m_Sprite" \
-    --value "@Assets/Sprites/player.png"
-
-# 여러 필드 한번에 수정 (batch 모드 + 에셋 참조)
 unityflow set Scene.unity \
-    --path "components/495733805" \
-    --batch '{"playerPrefab": "@Assets/Prefabs/Player.prefab", "spawnRate": 2.0}' \
-    --create
+    --path "Canvas/Panel/Button/Image/m_Sprite" \
+    --value "@Assets/Sprites/icon.png"
 
-# 새 필드 생성 (--create 플래그)
-unityflow set Player.prefab \
-    --path "components/12345/newProperty" \
-    --value '5.0' \
+# 여러 필드 한번에 수정 (batch 모드)
+unityflow set Scene.unity \
+    --path "Player/MonoBehaviour" \
+    --batch '{"speed": 5.0, "health": 100}' \
     --create
 ```
 
@@ -151,43 +150,31 @@ unityflow delete-component Scene.unity --id 67890
 ```bash
 # 스프라이트 연결 (Single 모드)
 unityflow set Player.prefab \
-    --path "components/1234567890/m_Sprite" \
+    --path "Player/SpriteRenderer/m_Sprite" \
     --value "@Assets/Sprites/player.png"
 
 # 스프라이트 연결 (Multiple 모드 - 서브 스프라이트)
-# 경로:서브스프라이트명 형식 사용
 unityflow set Player.prefab \
-    --path "components/1234567890/m_Sprite" \
+    --path "Player/SpriteRenderer/m_Sprite" \
     --value "@Assets/Sprites/atlas.png:player_idle_0"
 
-# 오디오 클립 연결
-unityflow set Player.prefab \
-    --path "components/1234567890/audioClip" \
-    --value "@Assets/Audio/jump.wav"
-
-# 프리팹 참조 연결
+# UI Image 스프라이트 연결
 unityflow set Scene.unity \
-    --path "components/495733805/enemyPrefab" \
+    --path "Canvas/Panel/Button/Image/m_Sprite" \
+    --value "@Assets/Sprites/icon.png"
+
+# 프리팹 참조 연결 (MonoBehaviour 필드)
+unityflow set Scene.unity \
+    --path "Player/MonoBehaviour/enemyPrefab" \
     --value "@Assets/Prefabs/Enemy.prefab" \
     --create
 
-# 머티리얼 연결
-unityflow set Player.prefab \
-    --path "components/1234567890/m_Materials/0" \
-    --value "@Assets/Materials/Custom.mat"
-
-# 스크립트 참조
-unityflow set Player.prefab \
-    --path "components/1234567890/m_Script" \
-    --value "@Assets/Scripts/PlayerController.cs"
-
 # 여러 에셋 참조를 한번에 (batch 모드)
 unityflow set Scene.unity \
-    --path "components/495733805" \
+    --path "Player/MonoBehaviour" \
     --batch '{
         "playerPrefab": "@Assets/Prefabs/Player.prefab",
         "enemyPrefab": "@Assets/Prefabs/Enemy.prefab",
-        "bgMusic": "@Assets/Audio/background.mp3",
         "spawnRate": 2.0
     }' \
     --create

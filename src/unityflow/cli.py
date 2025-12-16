@@ -873,6 +873,146 @@ def _resolve_gameobject_by_path(
     return None, "\n".join(error_lines)
 
 
+def _resolve_component_path(
+    doc: "UnityYAMLDocument",
+    path_spec: str,
+) -> tuple[str | None, str | None]:
+    """Resolve a component path to the internal format.
+
+    Converts paths like:
+        "Player/SpriteRenderer/m_Color" -> "components/12345/m_Color"
+        "Canvas/Panel/Button/Image/m_Sprite" -> "components/67890/m_Sprite"
+        "Canvas/Button/Image[1]/m_Color" -> "components/11111/m_Color"
+        "Player/name" -> "gameObjects/12345/name"
+
+    Args:
+        doc: The Unity YAML document
+        path_spec: Path like "Player/SpriteRenderer/m_Color"
+
+    Returns:
+        Tuple of (resolved_path, error_message). If successful, error_message is None.
+    """
+    import re
+    from unityflow.parser import CLASS_IDS
+
+    # Check if already in internal format (components/12345/... or gameObjects/12345/...)
+    if re.match(r"^(components|gameObjects)/\d+", path_spec):
+        return path_spec, None
+
+    parts = path_spec.split("/")
+    if len(parts) < 2:
+        return None, f"Invalid path format: {path_spec}"
+
+    # Last part is the property name
+    property_name = parts[-1]
+
+    # Check if second-to-last part is a component type (with optional index)
+    component_match = re.match(r"^([A-Za-z][A-Za-z0-9]*)(?:\[(\d+)\])?$", parts[-2])
+
+    # Build reverse mapping: class name -> class IDs
+    name_to_ids: dict[str, list[int]] = {}
+    for class_id, class_name in CLASS_IDS.items():
+        name_lower = class_name.lower()
+        if name_lower not in name_to_ids:
+            name_to_ids[name_lower] = []
+        name_to_ids[name_lower].append(class_id)
+
+    # Also add package component names (they're MonoBehaviour)
+    package_components = {
+        "image", "button", "scrollrect", "mask", "rectmask2d",
+        "graphicraycaster", "canvasscaler", "verticallayoutgroup",
+        "horizontallayoutgroup", "contentsizefitter", "textmeshprougui",
+        "tmp_inputfield", "eventsystem", "inputsystemuiinputmodule", "light2d"
+    }
+
+    if component_match:
+        component_type = component_match.group(1)
+        component_index = int(component_match.group(2)) if component_match.group(2) else None
+        component_type_lower = component_type.lower()
+
+        # Check if it's a known component type
+        is_component = (
+            component_type_lower in name_to_ids or
+            component_type_lower in package_components or
+            component_type == "MonoBehaviour"
+        )
+
+        if is_component:
+            # Path format: GameObject.../ComponentType/property
+            go_path = "/".join(parts[:-2])
+            if not go_path:
+                return None, f"Invalid path: missing GameObject path before {component_type}"
+
+            # Resolve GameObject
+            go_id, error = _resolve_gameobject_by_path(doc, go_path)
+            if error:
+                return None, error
+
+            # Find the component
+            go = doc.get_by_file_id(go_id)
+            if not go:
+                return None, f"GameObject not found"
+
+            go_content = go.get_content()
+            if not go_content or "m_Component" not in go_content:
+                return None, f"GameObject has no components"
+
+            # Find matching components
+            matching_components: list[int] = []
+            for comp_ref in go_content["m_Component"]:
+                comp_id = comp_ref.get("component", {}).get("fileID", 0)
+                comp = doc.get_by_file_id(comp_id)
+                if not comp:
+                    continue
+
+                # Check if component matches the type
+                comp_class_name = comp.class_name.lower()
+
+                # For package components (MonoBehaviour), check script GUID
+                if component_type_lower in package_components:
+                    if comp.class_id == 114:  # MonoBehaviour
+                        comp_content = comp.get_content()
+                        if comp_content:
+                            script_ref = comp_content.get("m_Script", {})
+                            script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+                            # Check if GUID matches the package component
+                            expected_guid = PACKAGE_COMPONENT_GUIDS.get(component_type, "").lower()
+                            if script_guid.lower() == expected_guid:
+                                matching_components.append(comp_id)
+                elif comp_class_name == component_type_lower:
+                    matching_components.append(comp_id)
+
+            if not matching_components:
+                return None, f"Component '{component_type}' not found on '{go_path}'"
+
+            if len(matching_components) == 1:
+                return f"components/{matching_components[0]}/{property_name}", None
+
+            # Multiple matches
+            if component_index is not None:
+                if component_index < len(matching_components):
+                    return f"components/{matching_components[component_index]}/{property_name}", None
+                else:
+                    return None, f"Index [{component_index}] out of range. Found {len(matching_components)} {component_type} components"
+
+            # No index specified
+            error_lines = [f"Multiple '{component_type}' components on '{go_path}':"]
+            for i, comp_id in enumerate(matching_components):
+                error_lines.append(f"  [{i}] fileID: {comp_id}")
+            error_lines.append(f"")
+            error_lines.append(f"Use index: \"{go_path}/{component_type}[0]/{property_name}\"")
+            return None, "\n".join(error_lines)
+
+    # Not a component path - treat as GameObject property
+    # Path format: GameObject.../property
+    go_path = "/".join(parts[:-1])
+    go_id, error = _resolve_gameobject_by_path(doc, go_path)
+    if error:
+        return None, error
+
+    return f"gameObjects/{go_id}/{property_name}", None
+
+
 def _find_by_name(doc: "UnityYAMLDocument", pattern: str) -> list[dict]:
     """Find GameObjects by name pattern."""
     import fnmatch
@@ -1142,7 +1282,7 @@ def import_json(
     "-p",
     "set_path",
     required=True,
-    help="Path to the value to set (e.g., 'components/12345/localPosition')",
+    help="Path to the value (e.g., 'Player/Transform/localPosition')",
 )
 @click.option(
     "--value",
@@ -1179,74 +1319,48 @@ def set_value_cmd(
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
-    This enables surgical editing of prefab data.
-
-    Value Modes (mutually exclusive):
-        --value: Set a single value (JSON or string)
-        --batch: Set multiple key-value pairs at once
-
-    Asset References:
-        Use @ prefix to reference assets by path. The GUID and fileID are
-        automatically resolved from the asset's .meta file.
-
-        Supported formats:
-            "@Assets/Scripts/Player.cs"         -> Script reference
-            "@Assets/Sprites/icon.png"          -> Sprite (Single mode)
-            "@Assets/Sprites/atlas.png:idle_0"  -> Sprite sub-sprite (Multiple mode)
-            "@Assets/Audio/jump.wav"            -> AudioClip reference
-            "@Assets/Prefabs/Enemy.prefab"      -> Prefab reference
-            "@Assets/Materials/Custom.mat"      -> Material reference
+    Path Format:
+        GameObject/ComponentType/property - Component property
+        GameObject/property               - GameObject property
 
     Examples:
 
-        # Set position
+        # Set Transform position
         unityflow set Player.prefab \\
-            --path "components/12345/localPosition" \\
+            --path "Player/Transform/localPosition" \\
             --value '{"x": 0, "y": 5, "z": 0}'
 
-        # Set a simple value
+        # Set SpriteRenderer color
         unityflow set Player.prefab \\
-            --path "gameObjects/12345/name" \\
+            --path "Player/SpriteRenderer/m_Color" \\
+            --value '{"r": 1, "g": 0, "b": 0, "a": 1}'
+
+        # Set Image sprite (with asset reference)
+        unityflow set Scene.unity \\
+            --path "Canvas/Panel/Button/Image/m_Sprite" \\
+            --value "@Assets/Sprites/icon.png"
+
+        # Set GameObject name
+        unityflow set Player.prefab \\
+            --path "Player/name" \\
             --value '"NewName"'
 
-        # Set asset reference (auto-resolves GUID and fileID)
-        unityflow set Player.prefab \\
-            --path "components/12345/m_Sprite" \\
-            --value "@Assets/Sprites/player.png"
-
-        # Set sprite with sub-sprite (Multiple mode / atlas)
-        unityflow set Player.prefab \\
-            --path "components/12345/m_Sprite" \\
-            --value "@Assets/Sprites/atlas.png:player_idle_0"
-
-        # Set prefab reference
+        # When multiple components of same type exist, use index
         unityflow set Scene.unity \\
-            --path "components/495733805/enemyPrefab" \\
-            --value "@Assets/Prefabs/Enemy.prefab" \\
+            --path "Canvas/Panel/Image[1]/m_Color" \\
+            --value '{"r": 0, "g": 1, "b": 0, "a": 1}'
+
+        # Set multiple fields at once (batch mode)
+        unityflow set Scene.unity \\
+            --path "Player/MonoBehaviour" \\
+            --batch '{"speed": 5.0, "health": 100}' \\
             --create
 
-        # Set multiple fields at once (batch mode with asset references)
-        unityflow set Scene.unity \\
-            --path "components/495733805" \\
-            --batch '{
-                "playerPrefab": "@Assets/Prefabs/Player.prefab",
-                "enemyPrefab": "@Assets/Prefabs/Enemy.prefab",
-                "spawnRate": 2.0
-            }' \\
-            --create
-
-        # Save to a new file
-        unityflow set Player.prefab \\
-            --path "components/12345/localScale" \\
-            --value '{"x": 2, "y": 2, "z": 2}' \\
-            -o Player_modified.prefab
-
-    Note:
-        New fields are appended at the end. Unity will reorder fields
-        according to the C# script declaration order when saved in editor.
-
-        Asset references (@path) are automatically resolved to Unity's
-        {fileID, guid, type} format using the asset's .meta file.
+    Asset References:
+        Use @ prefix to reference assets by path:
+            "@Assets/Sprites/icon.png"          -> Sprite reference
+            "@Assets/Sprites/atlas.png:idle_0"  -> Sub-sprite
+            "@Assets/Prefabs/Enemy.prefab"      -> Prefab reference
     """
     from unityflow.parser import UnityYAMLDocument
     from unityflow.query import set_value, merge_values
@@ -1279,6 +1393,14 @@ def set_value_cmd(
 
     output_path = output or file
     project_root = find_unity_project_root(file)
+
+    # Resolve path (convert "Player/Transform/localPosition" to "components/12345/localPosition")
+    original_path = set_path
+    resolved_path, error = _resolve_component_path(doc, set_path)
+    if error:
+        click.echo(f"Error: {error}", err=True)
+        sys.exit(1)
+    set_path = resolved_path
 
     # Extract field name from path for type validation
     # e.g., "components/12345/m_Sprite" -> "m_Sprite"
