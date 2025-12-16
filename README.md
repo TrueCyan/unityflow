@@ -7,7 +7,6 @@ Unity 워크플로우 자동화 도구입니다. Unity 에디터 없이 프리�
 - **정규화**: Unity YAML 파일을 결정적 형식으로 변환하여 불필요한 diff 제거
 - **검증**: 참조 유효성, 순환 참조, 중복 fileID 검사
 - **비교/병합**: 정규화된 diff 및 3-way 병합 지원
-- **JSON 변환**: LLM 친화적 JSON 포맷으로 내보내기/가져오기
 - **에셋 추적**: 의존성 분석 및 역참조 검색
 - **Git 통합**: textconv, merge 드라이버, pre-commit 훅 지원
 
@@ -86,18 +85,6 @@ unityflow diff Scene_v1.unity Scene_v2.unity
 
 # 정규화 없이 비교
 unityflow diff old.prefab new.prefab --no-normalize
-```
-
-### JSON 변환 (LLM 통합)
-
-```bash
-# JSON으로 내보내기
-unityflow export Player.prefab -o player.json
-unityflow export MainScene.unity -o scene.json
-unityflow export GameConfig.asset -o config.json
-
-# JSON에서 가져오기
-unityflow import player.json -o Player.prefab
 ```
 
 ### 에셋 의존성 분석
@@ -236,8 +223,6 @@ unityflow diff        # 두 파일 비교
 unityflow merge       # 3-way 병합
 unityflow query       # 경로 기반 데이터 조회
 unityflow set         # 경로 기반 값 설정
-unityflow export      # JSON으로 내보내기
-unityflow import      # JSON에서 가져오기
 unityflow deps        # 에셋 의존성 분석
 unityflow find-refs   # 역참조 검색
 unityflow stats       # 파일 통계 조회

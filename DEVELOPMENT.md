@@ -11,7 +11,7 @@ unityflow/
 │   ├── validator.py     # 구조적 무결성 검증
 │   ├── diff.py          # 비교
 │   ├── merge.py         # 3-way 병합
-│   ├── formats.py       # JSON 변환, RectTransform 변환
+│   ├── formats.py       # RectTransform 변환
 │   ├── query.py         # 경로 기반 쿼리
 │   ├── git_utils.py     # Git 연동
 │   ├── asset_tracker.py # 에셋 의존성 추적
@@ -105,52 +105,6 @@ file_vals = create_rect_transform_file_values(
     left=20, right=20, top=10, bottom=10,
 )
 ```
-
-### JSON 스키마
-
-`unityflow export` 출력 형식:
-
-```json
-{
-  "metadata": {
-    "sourcePath": "Player.prefab",
-    "objectCount": 42
-  },
-  "gameObjects": {
-    "100000": {
-      "name": "Player",
-      "layer": 0,
-      "components": ["400000"]
-    }
-  },
-  "components": {
-    "400000": {
-      "type": "Transform",
-      "localPosition": {"x": 0, "y": 0, "z": 0}
-    }
-  },
-  "_rawFields": { }
-}
-```
-
-RectTransform 컴포넌트는 `editorValues` 필드도 포함:
-
-```json
-{
-  "type": "RectTransform",
-  "rectTransform": {
-    "anchorMin": {"x": 0, "y": 0},
-    "anchorMax": {"x": 1, "y": 1},
-    "anchoredPosition": {"x": 0, "y": 0},
-    "sizeDelta": {"x": -20, "y": -20}
-  },
-  "editorValues": {
-    "left": 10, "right": 10, "top": 10, "bottom": 10
-  }
-}
-```
-
-Import 시 `editorValues`로 직관적 설정 가능.
 
 ### 성능 옵션
 
