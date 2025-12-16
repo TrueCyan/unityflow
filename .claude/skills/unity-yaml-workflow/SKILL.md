@@ -1,9 +1,9 @@
 ---
-name: unity-prefab-scene
-description: Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 편집합니다. unityflow을 사용하여 프리팹 분석, GameObject 생성/수정/삭제/복제, UI 레이아웃 조정, 컴포넌트 추가/삭제, 스프라이트 연결, ScriptableObject 편집 등의 작업을 수행합니다.
+name: unity-yaml-workflow
+description: Unity YAML 파일(.prefab, .unity, .asset)을 편집합니다. unityflow를 사용하여 프리팹 분석, GameObject 생성/수정/삭제/복제, 컴포넌트 추가/삭제, 에셋 연결, ScriptableObject 편집 등의 작업을 수행합니다.
 ---
 
-# Unity Prefab, Scene & ScriptableObject Editing Skill
+# Unity YAML Workflow Skill
 
 Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 프로그래매틱하게 편집하기 위한 skill입니다.
 
@@ -27,8 +27,7 @@ Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 프로
 - ✅ `unityflow set` - 값 수정 (단일 값, 배치 수정, 새 필드 생성)
 - ✅ `unityflow set --value "@에셋경로"` - 에셋 연결
 - ✅ `unityflow add-object` / `delete-object` / `clone-object` - GameObject 조작
-- ✅ `unityflow add-component` - 컴포넌트 조작
-- ✅ `unityflow export` + `unityflow import` - 복잡한 구조 편집
+- ✅ `unityflow add-component` / `delete-component` - 컴포넌트 조작
 
 ### 이유
 
@@ -95,11 +94,6 @@ unityflow set Player.prefab \
     --path "Player/name" \
     --value '"NewName"'
 
-# 에셋 참조 (@ 접두사로 자동 해석)
-unityflow set Scene.unity \
-    --path "Canvas/Panel/Button/Image/m_Sprite" \
-    --value "@Assets/Sprites/icon.png"
-
 # 여러 필드 한번에 수정 (batch 모드)
 unityflow set Scene.unity \
     --path "Player/MonoBehaviour" \
@@ -112,18 +106,17 @@ unityflow set Scene.unity \
 ```bash
 # 새 GameObject 추가
 unityflow add-object Scene.unity --name "Player"
-unityflow add-object Scene.unity --name "Child" --parent "Canvas"
+unityflow add-object Scene.unity --name "Child" --parent "Player"
 unityflow add-object Scene.unity --name "Enemy" --position "10,0,5"
-unityflow add-object Scene.unity --name "Button" --ui --parent "Canvas/Panel"  # UI용 RectTransform
 
 # GameObject 복제
 unityflow clone-object Scene.unity --id "Player"
 unityflow clone-object Scene.unity --id "Player" --name "Player2"
-unityflow clone-object Scene.unity --id "Canvas/Panel" --deep  # 자식 포함 복제
+unityflow clone-object Scene.unity --id "Player" --deep  # 자식 포함 복제
 
 # GameObject 삭제
 unityflow delete-object Scene.unity --id "Enemy"
-unityflow delete-object Scene.unity --id "Canvas/Panel" --cascade  # 자식 포함 삭제
+unityflow delete-object Scene.unity --id "Parent" --cascade  # 자식 포함 삭제
 ```
 
 ### 컴포넌트 조작
@@ -131,7 +124,11 @@ unityflow delete-object Scene.unity --id "Canvas/Panel" --cascade  # 자식 포�
 ```bash
 # 컴포넌트 추가 (경로로 대상 지정)
 unityflow add-component Scene.unity --to "Player" --type SpriteRenderer
-unityflow add-component Scene.unity --to "Canvas/Panel/Button" --type Image
+unityflow add-component Scene.unity --to "Player" --type BoxCollider2D
+
+# 속성과 함께 추가
+unityflow add-component Scene.unity --to "Player" --type SpriteRenderer \
+    --props '{"m_Color": {"r": 1, "g": 0, "b": 0, "a": 1}}'
 
 # 커스텀 스크립트 추가 (스크립트 이름으로 지정)
 unityflow add-component Scene.unity --to "Player" --script PlayerController \
@@ -139,11 +136,22 @@ unityflow add-component Scene.unity --to "Player" --script PlayerController \
 
 # 컴포넌트 삭제 (경로로 대상 지정)
 unityflow delete-component Scene.unity --from "Player" --type SpriteRenderer
-unityflow delete-component Scene.unity --from "Canvas/Panel/Button" --type Image
 
 # 커스텀 스크립트 삭제 (스크립트 이름으로 지정)
 unityflow delete-component Scene.unity --from "Player" --script PlayerController
+
+# 확인 없이 삭제
+unityflow delete-component Scene.unity --from "Player" --type SpriteRenderer --force
 ```
+
+### 지원 컴포넌트 (일반)
+
+| 카테고리 | 컴포넌트 |
+|----------|----------|
+| **2D** | SpriteRenderer, BoxCollider2D, CircleCollider2D, Rigidbody2D, Light2D |
+| **3D** | Camera, Light, AudioSource |
+
+**참고:** Transform은 삭제할 수 없습니다 (GameObject의 필수 컴포넌트).
 
 ### 에셋 연결 (@ 접두사)
 
@@ -159,11 +167,6 @@ unityflow set Player.prefab \
 unityflow set Player.prefab \
     --path "Player/SpriteRenderer/m_Sprite" \
     --value "@Assets/Sprites/atlas.png:player_idle_0"
-
-# UI Image 스프라이트 연결
-unityflow set Scene.unity \
-    --path "Canvas/Panel/Button/Image/m_Sprite" \
-    --value "@Assets/Sprites/icon.png"
 
 # 프리팹 참조 연결 (MonoBehaviour 필드)
 unityflow set Scene.unity \
@@ -289,60 +292,6 @@ unityflow find-refs Textures/player.png
 unityflow diff Player.prefab Player_backup.prefab
 ```
 
-## 컴포넌트 추가 (add-component)
-
-`--to`로 대상 GameObject 경로를 지정하고 `--type`으로 컴포넌트를 추가합니다.
-
-```bash
-# 기본 사용
-unityflow add-component Scene.unity --to "Player" --type SpriteRenderer
-unityflow add-component Scene.unity --to "Canvas/Panel/Button" --type Image
-
-# 같은 경로에 동일 이름이 여러 개일 때 인덱스 사용
-unityflow add-component Scene.unity --to "Canvas/Panel/Button[1]" --type Image
-
-# 속성과 함께 추가
-unityflow add-component Scene.unity --to "Canvas/Panel" --type Image \
-    --props '{"m_Color": {"r": 1, "g": 0, "b": 0, "a": 1}}'
-
-# 커스텀 스크립트 추가 (이름으로 지정)
-unityflow add-component Scene.unity --to "Player" --script PlayerController
-```
-
-### 지원 컴포넌트
-
-| 카테고리 | 컴포넌트 |
-|----------|----------|
-| **빌트인** | SpriteRenderer, Camera, Light, AudioSource, BoxCollider2D, CircleCollider2D, Rigidbody2D |
-| **UI** | Image, Button, ScrollRect, Mask, RectMask2D, GraphicRaycaster, CanvasScaler |
-| **레이아웃** | VerticalLayoutGroup, HorizontalLayoutGroup, ContentSizeFitter |
-| **텍스트** | TextMeshProUGUI, TMP_InputField |
-| **시스템** | EventSystem, InputSystemUIInputModule |
-| **렌더링** | Light2D |
-
----
-
-## 컴포넌트 삭제 (delete-component)
-
-`--from`으로 대상 GameObject 경로를 지정하고 `--type`으로 컴포넌트를 삭제합니다.
-
-```bash
-# 기본 사용
-unityflow delete-component Scene.unity --from "Player" --type SpriteRenderer
-unityflow delete-component Scene.unity --from "Canvas/Panel/Button" --type Image
-
-# 같은 경로에 동일 이름이 여러 개일 때 인덱스 사용
-unityflow delete-component Scene.unity --from "Canvas/Panel/Button[1]" --type Image
-
-# 커스텀 스크립트 삭제 (이름으로 지정)
-unityflow delete-component Scene.unity --from "Player" --script PlayerController
-
-# 확인 없이 삭제
-unityflow delete-component Scene.unity --from "Player" --type SpriteRenderer --force
-```
-
-**참고:** Transform과 RectTransform은 삭제할 수 없습니다 (GameObject의 필수 컴포넌트).
-
 ---
 
 ## 주의사항
@@ -350,8 +299,6 @@ unityflow delete-component Scene.unity --from "Player" --type SpriteRenderer --f
 1. **항상 백업**: 원본 파일을 수정하기 전에 백업하거나 `-o` 옵션으로 새 파일에 저장
 2. **정규화 필수**: 편집 후 `unityflow normalize`로 정규화하여 Git 노이즈 방지
 3. **검증 권장**: 중요한 수정 후 `unityflow validate`로 무결성 확인
-4. **Mask + Image 알파값**: Mask 컴포넌트 사용 시 Image 알파값이 0이면 마스킹이 작동하지 않음. `m_Color.a: 1` 설정 후 `m_ShowMaskGraphic: 0`으로 숨기기
-5. **EventSystem 필수**: UI가 클릭에 반응하려면 씬에 반드시 EventSystem이 있어야 함
 
 ---
 
