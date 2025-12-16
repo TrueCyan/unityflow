@@ -394,8 +394,6 @@ class TestAddObjectCommand:
 
         assert result.exit_code == 0
         assert "Added GameObject 'NewObject'" in result.output
-        assert "GameObject fileID:" in result.output
-        assert "Transform fileID:" in result.output
 
         # Verify the file was modified
         content = test_file.read_text()
@@ -437,7 +435,7 @@ class TestAddObjectCommand:
         )
 
         assert result.exit_code == 0
-        assert "RectTransform fileID:" in result.output
+        assert "Added GameObject 'UIElement'" in result.output
         content = test_file.read_text()
         assert "RectTransform" in content
 
@@ -624,7 +622,7 @@ class TestCloneObjectCommand:
         assert result.exit_code == 0
         assert "Cloned GameObject" in result.output
         assert "Source:" in result.output
-        assert "New fileID:" in result.output
+        assert "Total objects cloned:" in result.output
 
         # Verify the clone exists
         content = test_file.read_text()
@@ -710,7 +708,7 @@ class TestQueryEnhancements:
 
         assert result.exit_code == 0
         assert "BasicPrefab" in result.output
-        assert "fileID:" in result.output
+        assert "Found" in result.output
 
     def test_query_find_name_wildcard(self, runner):
         """Test query with --find-name using wildcard."""

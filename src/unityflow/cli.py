@@ -660,7 +660,7 @@ def query(
         else:
             click.echo(f"Found {len(results)} GameObject(s) matching '{find_name}':")
             for r in results:
-                click.echo(f"  {r['name']} (fileID: {r['fileID']})")
+                click.echo(f"  {r['name']}")
                 if r.get("components"):
                     click.echo(f"    Components: {', '.join(r['components'])}")
         return
@@ -677,8 +677,7 @@ def query(
         else:
             click.echo(f"Found {len(results)} GameObject(s) with '{find_component}':")
             for r in results:
-                click.echo(f"  {r['name']} (fileID: {r['fileID']})")
-                click.echo(f"    Component fileID: {r['componentFileID']}")
+                click.echo(f"  {r['name']}")
         return
 
     # Handle find-script query
@@ -699,8 +698,7 @@ def query(
         else:
             click.echo(f"Found {len(results)} GameObject(s) with script '{find_script}':")
             for r in results:
-                click.echo(f"  {r['name']} (fileID: {r['fileID']})")
-                click.echo(f"    MonoBehaviour fileID: {r['componentFileID']}")
+                click.echo(f"  {r['name']}")
         return
 
     if not query_path_str:
@@ -833,11 +831,8 @@ def _resolve_gameobject_by_path(
             return None, f"Index [{index}] out of range. Found {len(matches)} GameObjects at path '{path}'"
 
     # No index specified, show options
-    error_lines = [f"Multiple GameObjects at path '{path}':"]
-    for i, (go_id, _) in enumerate(matches):
-        error_lines.append(f"  [{i}] fileID: {go_id}")
-    error_lines.append(f"")
-    error_lines.append(f"Use index: --to \"{path}[0]\"")
+    error_lines = [f"Multiple GameObjects at path '{path}'."]
+    error_lines.append(f"Use index to select: --to \"{path}[0]\" (0 to {len(matches) - 1})")
     return None, "\n".join(error_lines)
 
 
@@ -964,11 +959,8 @@ def _resolve_component_path(
                     return None, f"Index [{component_index}] out of range. Found {len(matching_components)} {component_type} components"
 
             # No index specified
-            error_lines = [f"Multiple '{component_type}' components on '{go_path}':"]
-            for i, comp_id in enumerate(matching_components):
-                error_lines.append(f"  [{i}] fileID: {comp_id}")
-            error_lines.append(f"")
-            error_lines.append(f"Use index: \"{go_path}/{component_type}[0]/{property_name}\"")
+            error_lines = [f"Multiple '{component_type}' components on '{go_path}'."]
+            error_lines.append(f"Use index to select: \"{go_path}/{component_type}[0]/{property_name}\" (0 to {len(matching_components) - 1})")
             return None, "\n".join(error_lines)
 
     # Not a component path - treat as GameObject property
@@ -1434,10 +1426,7 @@ def set_value_cmd(
         if set_value(doc, set_path, resolved_value, create=True):
             doc.save(output_path)
             if is_asset_ref:
-                click.echo(f"Set {original_path}:")
-                click.echo(f"  Asset: {value[1:]}")  # Remove @ prefix for display
-                click.echo(f"  fileID: {resolved_value['fileID']}")
-                click.echo(f"  guid: {resolved_value['guid']}")
+                click.echo(f"Set {original_path} = {value[1:]}")  # Remove @ prefix for display
             else:
                 click.echo(f"Set {original_path} = {value}")
         else:
@@ -3236,25 +3225,22 @@ def sprite_info_cmd(
         click.echo(json.dumps(output, indent=2))
     else:
         click.echo(f"Sprite: {sprite}")
-        click.echo(f"GUID: {info.guid}")
-        click.echo(f"Mode: {'Single' if info.is_single else 'Multiple'} (spriteMode: {info.sprite_mode})")
+        click.echo(f"Mode: {'Single' if info.is_single else 'Multiple'}")
         click.echo()
 
         if info.is_single:
-            click.echo(f"Reference fileID: {SPRITE_SINGLE_MODE_FILE_ID}")
-            click.echo()
             click.echo("Usage:")
-            click.echo(f"  unityflow sprite-link <prefab> -c <component_id> -s \"{sprite}\"")
+            click.echo(f"  unityflow set <file> \"<path>/m_Sprite\" \"@{sprite}\"")
         else:
             click.echo(f"Sub-sprites ({len(info.sprites)}):")
             for s in info.sprites:
-                click.echo(f"  {s['name']}: {s['internalID']}")
+                click.echo(f"  {s['name']}")
 
             if info.sprites:
                 first_sprite = info.sprites[0]
                 click.echo()
                 click.echo("Usage (first sub-sprite):")
-                click.echo(f"  unityflow sprite-link <prefab> -c <component_id> -s \"{sprite}\" --sub-sprite \"{first_sprite['name']}\"")
+                click.echo(f"  unityflow set <file> \"<path>/m_Sprite\" \"@{sprite}#{first_sprite['name']}\"")
 
 
 @main.command(name="add-object")
@@ -3270,10 +3256,10 @@ def sprite_info_cmd(
 @click.option(
     "--parent",
     "-p",
-    "parent_id",
-    type=int,
-    default=0,
-    help="Parent Transform fileID (0 for root)",
+    "parent_path",
+    type=str,
+    default=None,
+    help="Parent GameObject path (e.g., 'Canvas/Panel')",
 )
 @click.option(
     "--position",
@@ -3307,7 +3293,7 @@ def sprite_info_cmd(
 def add_object(
     file: Path,
     obj_name: str,
-    parent_id: int,
+    parent_path: str | None,
     position: str | None,
     layer: int,
     tag: str,
@@ -3324,13 +3310,13 @@ def add_object(
         unityflow add-object Scene.unity --name "Player"
 
         # Add with parent
-        unityflow add-object Scene.unity --name "Child" --parent 12345
+        unityflow add-object Scene.unity --name "Child" --parent "Canvas"
 
         # Add with position
         unityflow add-object Scene.unity --name "Enemy" --position "10,0,5"
 
         # Add UI GameObject (RectTransform)
-        unityflow add-object Scene.unity --name "Button" --ui --parent 67890
+        unityflow add-object Scene.unity --name "Button" --ui --parent "Canvas/Panel"
 
         # Add with layer and tag
         unityflow add-object Scene.unity --name "Enemy" --layer 8 --tag "Enemy"
@@ -3349,6 +3335,30 @@ def add_object(
         sys.exit(1)
 
     output_path = output or file
+
+    # Resolve parent path to Transform ID
+    parent_transform_id = 0
+    if parent_path:
+        parent_go_id, error = _resolve_gameobject_by_path(doc, parent_path)
+        if error:
+            click.echo(f"Error: {error}", err=True)
+            sys.exit(1)
+
+        # Find the Transform component of the parent GameObject
+        parent_go = doc.get_by_file_id(parent_go_id)
+        if parent_go:
+            go_content = parent_go.get_content()
+            if go_content and "m_Component" in go_content:
+                for comp_ref in go_content["m_Component"]:
+                    comp_id = comp_ref.get("component", {}).get("fileID", 0)
+                    comp = doc.get_by_file_id(comp_id)
+                    if comp and comp.class_id in (4, 224):  # Transform or RectTransform
+                        parent_transform_id = comp_id
+                        break
+
+        if parent_transform_id == 0:
+            click.echo(f"Error: Could not find Transform for parent '{parent_path}'", err=True)
+            sys.exit(1)
 
     # Parse position
     pos = None
@@ -3371,14 +3381,14 @@ def add_object(
             game_object_id=go_id,
             file_id=transform_id,
             position=pos,
-            parent_id=parent_id,
+            parent_id=parent_transform_id,
         )
     else:
         transform = create_transform(
             game_object_id=go_id,
             file_id=transform_id,
             position=pos,
-            parent_id=parent_id,
+            parent_id=parent_transform_id,
         )
 
     # Create GameObject
@@ -3395,8 +3405,8 @@ def add_object(
     doc.add_object(transform)
 
     # Update parent's children list if parent specified
-    if parent_id != 0:
-        parent_obj = doc.get_by_file_id(parent_id)
+    if parent_transform_id != 0:
+        parent_obj = doc.get_by_file_id(parent_transform_id)
         if parent_obj:
             content = parent_obj.get_content()
             if content and "m_Children" in content:
@@ -3404,8 +3414,6 @@ def add_object(
 
     doc.save(output_path)
     click.echo(f"Added GameObject '{obj_name}'")
-    click.echo(f"  GameObject fileID: {go_id}")
-    click.echo(f"  {'RectTransform' if ui else 'Transform'} fileID: {transform_id}")
 
     if output:
         click.echo(f"Saved to: {output}")
@@ -3884,7 +3892,6 @@ def add_component(
         go_content["m_Component"].append({"component": {"fileID": component_id}})
 
     doc.save(output_path)
-    click.echo(f"  Component fileID: {component_id}")
     click.echo(f"  Target: {target_path}")
 
     if output:
@@ -4117,7 +4124,7 @@ def delete_object(
                 content = del_obj.get_content()
                 if content and "m_Name" in content:
                     name = f" '{content['m_Name']}'"
-                click.echo(f"  {del_obj.class_name}{name} (fileID: {obj_id})")
+                click.echo(f"  {del_obj.class_name}{name}")
         if len(objects_to_delete) > 10:
             click.echo(f"  ... and {len(objects_to_delete) - 10} more")
 
@@ -4211,11 +4218,11 @@ def delete_component(
     # Find component
     obj = doc.get_by_file_id(component_id)
     if obj is None:
-        click.echo(f"Error: Component with fileID {component_id} not found", err=True)
+        click.echo(f"Error: Component not found", err=True)
         sys.exit(1)
 
     if obj.class_id == 1:
-        click.echo(f"Error: fileID {component_id} is a GameObject, not a component", err=True)
+        click.echo(f"Error: Target is a GameObject, not a component", err=True)
         click.echo("Use delete-object for GameObjects", err=True)
         sys.exit(1)
 
@@ -4233,14 +4240,14 @@ def delete_component(
                 ]
 
     if not force:
-        click.echo(f"Will delete {obj.class_name} (fileID: {component_id})")
+        click.echo(f"Will delete {obj.class_name}")
         if not click.confirm("Continue?"):
             click.echo("Aborted")
             return
 
     doc.remove_object(component_id)
     doc.save(output_path)
-    click.echo(f"Deleted component {obj.class_name} (fileID: {component_id})")
+    click.echo(f"Deleted component {obj.class_name}")
 
     if output:
         click.echo(f"Saved to: {output}")
@@ -4529,10 +4536,8 @@ def clone_object(
 
     doc.save(output_path)
 
-    new_go_id = id_map[source_id]
     click.echo(f"Cloned GameObject")
     click.echo(f"  Source: {source_path}")
-    click.echo(f"  New fileID: {new_go_id}")
     click.echo(f"  Total objects cloned: {len(cloned_objects)}")
 
     if output:
