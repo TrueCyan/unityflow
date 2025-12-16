@@ -2945,6 +2945,17 @@ def parse_script_cmd(
     is_flag=True,
     help="Overwrite existing configuration",
 )
+@click.option(
+    "--with-claude",
+    is_flag=True,
+    help="Also setup Claude Code integration (MCP server, skills, Unity editor script)",
+)
+@click.option(
+    "--mcp-scope",
+    type=click.Choice(["local", "user"]),
+    default="local",
+    help="MCP server registration scope (default: local)",
+)
 def setup(
     use_global: bool,
     with_hooks: bool,
@@ -2952,6 +2963,8 @@ def setup(
     with_difftool: bool,
     difftool_backend: str,
     force: bool,
+    with_claude: bool,
+    mcp_scope: str,
 ) -> None:
     """Set up Git integration with a single command.
 
@@ -2960,23 +2973,37 @@ def setup(
 
     Examples:
 
+    \b
         # Basic setup (local to current repo)
         unityflow setup
 
+    \b
         # Global setup (applies to all repos)
         unityflow setup --global
 
+    \b
         # Setup with pre-commit hooks
         unityflow setup --with-hooks
 
+    \b
         # Setup with pre-commit framework
         unityflow setup --with-pre-commit
 
+    \b
         # Setup with difftool for Git Fork
         unityflow setup --with-difftool
 
+    \b
         # Setup difftool with specific backend
         unityflow setup --with-difftool --difftool-backend vscode
+
+    \b
+        # Setup with Claude Code integration (MCP, skills, editor script)
+        unityflow setup --with-claude
+
+    \b
+        # Full setup with Claude Code (global MCP registration)
+        unityflow setup --with-hooks --with-claude --mcp-scope user
     """
     import subprocess
 
@@ -3164,12 +3191,116 @@ repos:
             except subprocess.CalledProcessError:
                 click.echo("  Warning: Failed to run 'pre-commit install'", err=True)
 
+    # Claude Code integration
+    if with_claude and repo_root:
+        import shutil
+
+        click.echo()
+        click.echo("=== Claude Code Integration Setup ===")
+
+        # Find unityflow package root
+        import unityflow
+        package_root = Path(unityflow.__file__).parent.parent.parent
+
+        # Find Unity project root (look for Assets folder)
+        unity_root = repo_root
+        assets_path = unity_root / "Assets"
+        if not assets_path.exists():
+            # Maybe we're inside a subfolder
+            for parent in repo_root.parents:
+                if (parent / "Assets").exists():
+                    unity_root = parent
+                    assets_path = parent / "Assets"
+                    break
+
+        if not assets_path.exists():
+            click.echo("  Warning: Assets folder not found", err=True)
+            click.echo("  Skipping Unity Editor Script installation", err=True)
+        else:
+            # 1. Copy Unity Editor Script
+            editor_src = package_root / "unity-mcp" / "Editor" / "UnityMCPServer.cs"
+            editor_dst_dir = assets_path / "Editor"
+            editor_dst = editor_dst_dir / "UnityMCPServer.cs"
+
+            if editor_src.exists():
+                editor_dst_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(editor_src, editor_dst)
+                click.echo(f"  ✓ Unity Editor Script: {editor_dst}")
+            else:
+                click.echo(f"  ✗ Unity Editor Script not found: {editor_src}", err=True)
+
+        # 2. Copy Claude Code skills
+        skills_src = package_root / ".claude" / "skills"
+        skills_dst = unity_root / ".claude" / "skills"
+
+        if skills_src.exists():
+            skills_dst.mkdir(parents=True, exist_ok=True)
+
+            copied_skills = []
+            for skill_dir in skills_src.iterdir():
+                if skill_dir.is_dir():
+                    dst_skill_dir = skills_dst / skill_dir.name
+                    if dst_skill_dir.exists():
+                        shutil.rmtree(dst_skill_dir)
+                    shutil.copytree(skill_dir, dst_skill_dir)
+                    copied_skills.append(skill_dir.name)
+
+            click.echo(f"  ✓ Claude Code skills: {skills_dst}")
+            for skill in copied_skills:
+                click.echo(f"      - {skill}")
+        else:
+            click.echo(f"  ✗ Skills not found: {skills_src}", err=True)
+
+        # 3. Register MCP server
+        click.echo()
+        click.echo("  Registering MCP server...")
+
+        try:
+            cmd = [
+                "claude", "mcp", "add", "unity-mcp",
+                "-s", mcp_scope,
+                "--",
+                "python", "-m", "unityflow.mcp"
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=unity_root,
+            )
+
+            if result.returncode == 0:
+                click.echo(f"  ✓ MCP server registered (scope: {mcp_scope})")
+            else:
+                if "already exists" in result.stderr.lower() or "already exists" in result.stdout.lower():
+                    click.echo(f"  ✓ MCP server already registered (scope: {mcp_scope})")
+                else:
+                    click.echo("  ✗ MCP server registration failed", err=True)
+                    if result.stderr:
+                        click.echo(f"    {result.stderr.strip()}", err=True)
+                    click.echo()
+                    click.echo("  Manual registration:")
+                    click.echo(f"    claude mcp add unity-mcp -s {mcp_scope} -- python -m unityflow.mcp")
+
+        except FileNotFoundError:
+            click.echo("  ✗ 'claude' command not found", err=True)
+            click.echo()
+            click.echo("  Manual registration:")
+            click.echo(f"    claude mcp add unity-mcp -s {mcp_scope} -- python -m unityflow.mcp")
+
     click.echo()
     click.echo("=== Setup Complete ===")
     click.echo()
     click.echo("Git is now configured to use unityflow for Unity files.")
+    if with_claude:
+        click.echo()
+        click.echo("Claude Code integration:")
+        click.echo("  1. Open/restart Unity Editor")
+        click.echo("  2. Tools > Unity MCP > Start Server")
+        click.echo("  3. Use Claude Code with Unity tools")
     click.echo()
-    click.echo("Test with:")
+    click.echo("Test git integration:")
     click.echo("  git diff HEAD~1 -- '*.prefab'")
     click.echo()
 
@@ -5174,183 +5305,6 @@ def modify_meta(
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
-
-
-@main.command("setup-unity")
-@click.argument("unity_project", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--skip-mcp",
-    is_flag=True,
-    help="MCP 서버 등록을 건너뜁니다",
-)
-@click.option(
-    "--skip-skills",
-    is_flag=True,
-    help="Claude Code skills 복사를 건너뜁니다",
-)
-@click.option(
-    "--skip-editor",
-    is_flag=True,
-    help="Unity Editor Script 복사를 건너뜁니다",
-)
-@click.option(
-    "--mcp-scope",
-    type=click.Choice(["local", "user"]),
-    default="local",
-    help="MCP 서버 등록 범위 (default: local)",
-)
-def setup_unity(
-    unity_project: Path,
-    skip_mcp: bool,
-    skip_skills: bool,
-    skip_editor: bool,
-    mcp_scope: str,
-) -> None:
-    """Unity 프로젝트에 unityflow를 설정합니다.
-
-    UNITY_PROJECT: Unity 프로젝트 루트 경로 (Assets 폴더가 있는 곳)
-
-    이 명령은 다음을 수행합니다:
-
-    \b
-    1. Unity Editor Script 복사 (Assets/Editor/UnityMCPServer.cs)
-    2. Claude Code skills 복사 (.claude/skills/)
-    3. Claude Code MCP 서버 등록
-
-    예시:
-
-    \b
-        # Unity 프로젝트에 전체 설정
-        unityflow setup-unity /path/to/unity/project
-
-    \b
-        # MCP 등록만 건너뛰기
-        unityflow setup-unity /path/to/unity/project --skip-mcp
-
-    \b
-        # 전역 MCP 등록
-        unityflow setup-unity /path/to/unity/project --mcp-scope user
-    """
-    import shutil
-    import subprocess
-
-    unity_project = unity_project.resolve()
-
-    # Unity 프로젝트 검증
-    assets_path = unity_project / "Assets"
-    if not assets_path.exists():
-        click.echo(f"Error: Assets 폴더를 찾을 수 없습니다: {assets_path}", err=True)
-        click.echo("Unity 프로젝트 루트 경로를 지정해주세요.", err=True)
-        sys.exit(1)
-
-    # unityflow 패키지 경로 찾기
-    import unityflow
-    package_root = Path(unityflow.__file__).parent.parent.parent
-
-    click.echo(f"Unity 프로젝트: {unity_project}")
-    click.echo(f"unityflow 경로: {package_root}")
-    click.echo()
-
-    success_count = 0
-    total_count = 0
-
-    # 1. Unity Editor Script 복사
-    if not skip_editor:
-        total_count += 1
-        editor_src = package_root / "unity-mcp" / "Editor" / "UnityMCPServer.cs"
-        editor_dst_dir = assets_path / "Editor"
-        editor_dst = editor_dst_dir / "UnityMCPServer.cs"
-
-        if editor_src.exists():
-            editor_dst_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(editor_src, editor_dst)
-            click.echo(f"✓ Unity Editor Script 복사: {editor_dst}")
-            success_count += 1
-        else:
-            click.echo(f"✗ Unity Editor Script를 찾을 수 없습니다: {editor_src}", err=True)
-
-    # 2. Claude Code skills 복사
-    if not skip_skills:
-        total_count += 1
-        skills_src = package_root / ".claude" / "skills"
-        skills_dst = unity_project / ".claude" / "skills"
-
-        if skills_src.exists():
-            # 기존 skills 디렉토리가 있으면 백업하지 않고 병합
-            skills_dst.mkdir(parents=True, exist_ok=True)
-
-            copied_skills = []
-            for skill_dir in skills_src.iterdir():
-                if skill_dir.is_dir():
-                    dst_skill_dir = skills_dst / skill_dir.name
-                    if dst_skill_dir.exists():
-                        shutil.rmtree(dst_skill_dir)
-                    shutil.copytree(skill_dir, dst_skill_dir)
-                    copied_skills.append(skill_dir.name)
-
-            click.echo(f"✓ Claude Code skills 복사: {skills_dst}")
-            for skill in copied_skills:
-                click.echo(f"  - {skill}")
-            success_count += 1
-        else:
-            click.echo(f"✗ Skills 폴더를 찾을 수 없습니다: {skills_src}", err=True)
-
-    # 3. MCP 서버 등록
-    if not skip_mcp:
-        total_count += 1
-        click.echo()
-        click.echo("MCP 서버 등록 중...")
-
-        try:
-            # claude mcp add 명령 실행
-            cmd = [
-                "claude", "mcp", "add", "unity-mcp",
-                "-s", mcp_scope,
-                "--",
-                "python", "-m", "unityflow.mcp"
-            ]
-
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=unity_project,
-            )
-
-            if result.returncode == 0:
-                click.echo(f"✓ MCP 서버 등록 완료 (scope: {mcp_scope})")
-                success_count += 1
-            else:
-                # 이미 등록되어 있을 수 있음
-                if "already exists" in result.stderr.lower() or "already exists" in result.stdout.lower():
-                    click.echo(f"✓ MCP 서버가 이미 등록되어 있습니다 (scope: {mcp_scope})")
-                    success_count += 1
-                else:
-                    click.echo(f"✗ MCP 서버 등록 실패", err=True)
-                    if result.stderr:
-                        click.echo(f"  {result.stderr}", err=True)
-                    click.echo()
-                    click.echo("수동으로 등록하려면:")
-                    click.echo(f"  claude mcp add unity-mcp -s {mcp_scope} -- python -m unityflow.mcp")
-
-        except FileNotFoundError:
-            click.echo("✗ 'claude' 명령을 찾을 수 없습니다", err=True)
-            click.echo()
-            click.echo("Claude Code가 설치되어 있는지 확인하세요.")
-            click.echo("수동으로 MCP 서버를 등록하려면:")
-            click.echo(f"  claude mcp add unity-mcp -s {mcp_scope} -- python -m unityflow.mcp")
-
-    # 결과 요약
-    click.echo()
-    click.echo("=" * 50)
-    click.echo(f"설정 완료: {success_count}/{total_count}")
-    click.echo()
-
-    if success_count > 0:
-        click.echo("다음 단계:")
-        click.echo("  1. Unity Editor를 열거나 재시작하세요")
-        click.echo("  2. Tools > Unity MCP > Start Server로 서버를 시작하세요")
-        click.echo("  3. Claude Code에서 Unity 도구를 사용할 수 있습니다")
 
 
 if __name__ == "__main__":
