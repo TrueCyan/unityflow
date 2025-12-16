@@ -284,6 +284,35 @@ unityflow modify-meta Player.prefab --bundle-name ""
 - **스크립트**: `--execution-order`
 - **모든 에셋**: `--bundle-name`, `--bundle-variant`
 
+**참고: Multiple 스프라이트의 영역 정보**
+
+Multiple 모드(`--sprite-mode multiple`)로 설정하면, 각 스프라이트의 영역 정보는 `.meta` 파일 내부 `spriteSheet.sprites` 섹션에 저장됩니다:
+
+```yaml
+spriteSheet:
+  sprites:
+  - name: player_idle_0
+    rect: {x: 0, y: 0, width: 32, height: 32}
+    pivot: {x: 0.5, y: 0.5}
+    border: {x: 0, y: 0, z: 0, w: 0}
+    spriteID: a1b2c3d4e5f67890
+    internalID: 1234567890
+  - name: player_idle_1
+    rect: {x: 32, y: 0, width: 32, height: 32}
+    # ...
+  nameFileIdTable:
+    player_idle_0: 1234567890
+    player_idle_1: 1234567891
+```
+
+- **rect**: 이미지 내 영역 (x, y, width, height 픽셀 좌표)
+- **pivot**: 피벗 포인트
+- **border**: 9-slice 경계 (UI용)
+- **internalID**: fileID (스프라이트 참조 시 사용)
+- **nameFileIdTable**: 스프라이트 이름 → fileID 매핑
+
+> ⚠️ Multiple 스프라이트 슬라이싱은 Unity Sprite Editor에서 수행하는 것이 권장됩니다. `modify-meta`는 기본 설정만 변경합니다.
+
 ### 기타 유용한 명령어
 
 ```bash
