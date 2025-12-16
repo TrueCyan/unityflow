@@ -292,8 +292,6 @@ unityflow generate-meta Player.cs --overwrite
 
 ### .meta 파일 수정 (modify-meta)
 
-기존 `.meta` 파일의 설정을 수정합니다. **GUID는 수정할 수 없습니다** (에셋 참조 보호).
-
 ```bash
 # 현재 설정 확인
 unityflow modify-meta icon.png.meta --info
