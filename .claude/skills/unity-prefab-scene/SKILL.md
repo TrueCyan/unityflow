@@ -1,6 +1,6 @@
 ---
 name: unity-prefab-scene
-description: Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 편집합니다. unityflow을 사용하여 프리팹 분석, JSON 변환, GameObject 생성/수정/삭제/복제, UI 레이아웃 조정, 컴포넌트 추가/삭제, 스프라이트 연결, ScriptableObject 편집 등의 작업을 수행합니다.
+description: Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 편집합니다. unityflow을 사용하여 프리팹 분석, GameObject 생성/수정/삭제/복제, UI 레이아웃 조정, 컴포넌트 추가/삭제, 스프라이트 연결, ScriptableObject 편집 등의 작업을 수행합니다.
 ---
 
 # Unity Prefab, Scene & ScriptableObject Editing Skill
@@ -191,22 +191,6 @@ unityflow sprite-info "Assets/Sprites/player.png"
 | ScriptableObject | `@Assets/Data/Config.asset` |
 | Animation | `@Assets/Animations/walk.anim` |
 
-### JSON 내보내기/가져오기
-
-구조적 변경(대량 편집, 복잡한 계층 수정)이 필요한 경우:
-
-```bash
-# JSON으로 내보내기
-unityflow export Player.prefab -o player.json
-unityflow export MainScene.unity -o scene.json
-unityflow export GameConfig.asset -o config.json
-
-# JSON 파일 편집 후 다시 Unity 파일로 변환
-unityflow import player.json -o Player.prefab
-unityflow import scene.json -o MainScene.unity
-unityflow import config.json -o GameConfig.asset
-```
-
 ### 검증 및 정규화
 
 ```bash
@@ -300,81 +284,9 @@ unityflow diff Player.prefab Player_backup.prefab
 
 ---
 
-## JSON 형식
-
-### 내보낸 JSON 구조
-
-```json
-{
-  "metadata": {
-    "sourcePath": "Player.prefab",
-    "objectCount": 15
-  },
-  "gameObjects": {
-    "...": {
-      "name": "Player",
-      "layer": 0,
-      "tag": "Player",
-      "isActive": true,
-      "components": ["..."]
-    }
-  },
-  "components": {
-    "...": {
-      "type": "Transform",
-      "localPosition": {"x": 0, "y": 0, "z": 0},
-      "localRotation": {"x": 0, "y": 0, "z": 0, "w": 1},
-      "localScale": {"x": 1, "y": 1, "z": 1},
-      "parent": null,
-      "children": ["..."]
-    },
-    "...": {
-      "type": "MonoBehaviour",
-      "enabled": true,
-      "properties": {
-        "speed": 5.0
-      }
-    }
-  }
-}
-```
-
-### RectTransform JSON 구조
-
-RectTransform 컴포넌트는 두 가지 형식으로 값을 제공합니다:
-
-```json
-{
-  "type": "RectTransform",
-  "rectTransform": {
-    "anchorMin": {"x": 0, "y": 0},
-    "anchorMax": {"x": 1, "y": 1},
-    "anchoredPosition": {"x": 0, "y": 0},
-    "sizeDelta": {"x": -20, "y": -20},
-    "pivot": {"x": 0.5, "y": 0.5}
-  },
-  "editorValues": {
-    "anchorMin": {"x": 0, "y": 0},
-    "anchorMax": {"x": 1, "y": 1},
-    "pivot": {"x": 0.5, "y": 0.5},
-    "posZ": 0,
-    "left": 10,
-    "right": 10,
-    "top": 10,
-    "bottom": 10
-  }
-}
-```
-
-**`editorValues`를 수정하면 자동으로 파일 값으로 변환됩니다** (권장)
-
----
-
 ## Python API (복잡한 경우)
 
 대부분의 작업은 CLI로 가능하지만, 복잡한 자동화가 필요한 경우 Python API를 사용합니다.
-
-> ⚠️ **주의**: Python API는 `unityflow export` → JSON 수정 → `unityflow import` 워크플로우에서 JSON 파일을 수정할 때만 사용하세요.
 
 ```python
 from unityflow.parser import (
@@ -383,11 +295,6 @@ from unityflow.parser import (
     create_transform,
     create_rect_transform,
     create_mono_behaviour,
-)
-from unityflow.formats import (
-    export_to_json,
-    import_from_json,
-    create_rect_transform_file_values,
 )
 
 # Unity YAML 파일 로드 (.prefab, .unity, .asset)
@@ -483,12 +390,4 @@ unityflow add-component Scene.unity --to "Player" --script PlayerController
 ```bash
 unityflow stats problematic.prefab --format json
 unityflow validate problematic.prefab --format json
-```
-
-### JSON 왕복 변환 시 데이터 손실 방지
-
-`_rawFields`를 포함하여 내보내기:
-
-```bash
-unityflow export Player.prefab -o player.json  # --no-raw 없이
 ```
