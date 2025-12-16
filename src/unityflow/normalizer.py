@@ -41,11 +41,12 @@ FLOAT_PROPERTIES_HEX = {
     "m_Offset",
 }
 
-# Properties that contain order-independent arrays of references (should be sorted)
-ORDER_INDEPENDENT_ARRAYS = {
-    "m_Component",      # GameObject's component list
-    "m_Children",       # Transform's children list
-}
+# Properties that contain order-independent arrays of references
+# NOTE: We no longer sort any of these arrays because:
+# - m_Children: affects Hierarchy order (rendering order, UI overlays)
+# - m_Component: affects Inspector display order and GetComponents() order
+# - Both may be intentionally ordered by developers for readability
+ORDER_INDEPENDENT_ARRAYS: set[str] = set()  # Empty - preserve all array orders
 
 
 class UnityPrefabNormalizer:

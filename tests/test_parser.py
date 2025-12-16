@@ -169,3 +169,58 @@ class TestFileReference:
         assert ref["fileID"] == 11500000
         assert ref["guid"] == "abc123"
         assert ref["type"] == 3
+
+
+class TestScalarFormatting:
+    """Tests for YAML scalar formatting."""
+
+    def test_standalone_dash_is_quoted(self):
+        """Test that standalone '-' is quoted to prevent YAML null interpretation."""
+        from prefab_tool.fast_parser import _format_scalar
+
+        result = _format_scalar("-")
+        assert result == "'-'", "Standalone '-' must be quoted"
+
+    def test_standalone_tilde_is_quoted(self):
+        """Test that standalone '~' is quoted to prevent YAML null interpretation."""
+        from prefab_tool.fast_parser import _format_scalar
+
+        result = _format_scalar("~")
+        assert result == "'~'", "Standalone '~' must be quoted"
+
+    def test_dash_with_space_is_quoted(self):
+        """Test that '- ' prefix is quoted to prevent list item interpretation."""
+        from prefab_tool.fast_parser import _format_scalar
+
+        result = _format_scalar("- test")
+        assert result.startswith("'"), "'- ' prefixed strings must be quoted"
+
+    def test_normal_strings_not_quoted(self):
+        """Test that normal strings are not unnecessarily quoted."""
+        from prefab_tool.fast_parser import _format_scalar
+
+        assert _format_scalar("hello") == "hello"
+        assert _format_scalar("test_value") == "test_value"
+
+    def test_roundtrip_dash_string(self):
+        """Test that '-' string survives a parse-dump roundtrip."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &12345
+MonoBehaviour:
+  m_SomeField: '-'
+"""
+        doc = UnityYAMLDocument.parse(content)
+        obj = doc.get_by_file_id(12345)
+        content_data = obj.get_content()
+
+        # The value should be preserved as string "-"
+        assert content_data["m_SomeField"] == "-", "'-' value should be preserved as string"
+
+        # Dump and parse again
+        dumped = doc.dump()
+        doc2 = UnityYAMLDocument.parse(dumped)
+        obj2 = doc2.get_by_file_id(12345)
+        content_data2 = obj2.get_content()
+
+        assert content_data2["m_SomeField"] == "-", "'-' value should survive roundtrip"
