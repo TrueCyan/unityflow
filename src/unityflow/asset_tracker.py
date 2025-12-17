@@ -555,3 +555,220 @@ def analyze_dependencies(
         dependencies=sorted_deps,
         guid_index=guid_index,
     )
+
+
+# ============================================================================
+# GUID Cache System
+# ============================================================================
+
+CACHE_DIR_NAME = ".unityflow"
+CACHE_FILE_NAME = "guid_cache.json"
+CACHE_VERSION = 1
+
+
+@dataclass
+class CachedGUIDIndex:
+    """GUID index with file-based caching for performance.
+
+    Caches GUID mappings to avoid rescanning large directories.
+    Automatically invalidates cache when:
+    - Package versions change
+    - Cache file is missing or corrupted
+    - Cache version mismatch
+    """
+
+    project_root: Path
+    _index: GUIDIndex | None = field(default=None, repr=False)
+    _cache_dir: Path | None = field(default=None, repr=False)
+
+    def __post_init__(self):
+        self._cache_dir = self.project_root / CACHE_DIR_NAME
+
+    @property
+    def cache_file(self) -> Path:
+        """Path to the cache file."""
+        return self._cache_dir / CACHE_FILE_NAME
+
+    def get_index(self, include_packages: bool = True) -> GUIDIndex:
+        """Get GUID index, using cache if available.
+
+        Args:
+            include_packages: Whether to include Library/PackageCache/
+
+        Returns:
+            GUIDIndex with GUID to path mappings
+        """
+        if self._index is not None:
+            return self._index
+
+        # Try to load from cache
+        cache_data = self._load_cache()
+        package_versions = self._get_package_versions() if include_packages else {}
+
+        if cache_data and self._is_cache_valid(cache_data, package_versions, include_packages):
+            self._index = self._build_index_from_cache(cache_data)
+            return self._index
+
+        # Build fresh index
+        self._index = self._build_full_index(include_packages)
+
+        # Save to cache
+        self._save_cache(self._index, package_versions, include_packages)
+
+        return self._index
+
+    def invalidate(self) -> None:
+        """Invalidate the cache."""
+        self._index = None
+        if self.cache_file.exists():
+            self.cache_file.unlink()
+
+    def _load_cache(self) -> dict | None:
+        """Load cache from file."""
+        import json
+
+        if not self.cache_file.exists():
+            return None
+
+        try:
+            with open(self.cache_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    def _save_cache(
+        self,
+        index: GUIDIndex,
+        package_versions: dict[str, str],
+        include_packages: bool,
+    ) -> None:
+        """Save cache to file."""
+        import json
+
+        # Ensure cache directory exists
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+
+        cache_data = {
+            "version": CACHE_VERSION,
+            "include_packages": include_packages,
+            "package_versions": package_versions,
+            "guid_to_path": {
+                guid: str(path) for guid, path in index.guid_to_path.items()
+            },
+        }
+
+        try:
+            with open(self.cache_file, "w", encoding="utf-8") as f:
+                json.dump(cache_data, f, indent=2)
+        except OSError:
+            pass  # Ignore cache write errors
+
+    def _is_cache_valid(
+        self,
+        cache_data: dict,
+        current_package_versions: dict[str, str],
+        include_packages: bool,
+    ) -> bool:
+        """Check if cache is still valid."""
+        # Check version
+        if cache_data.get("version") != CACHE_VERSION:
+            return False
+
+        # Check include_packages flag
+        if cache_data.get("include_packages") != include_packages:
+            return False
+
+        # Check package versions
+        cached_versions = cache_data.get("package_versions", {})
+        if cached_versions != current_package_versions:
+            return False
+
+        return True
+
+    def _build_index_from_cache(self, cache_data: dict) -> GUIDIndex:
+        """Build GUIDIndex from cached data."""
+        index = GUIDIndex(project_root=self.project_root)
+
+        for guid, path_str in cache_data.get("guid_to_path", {}).items():
+            path = Path(path_str)
+            index.guid_to_path[guid] = path
+            index.path_to_guid[path] = guid
+
+        return index
+
+    def _build_full_index(self, include_packages: bool) -> GUIDIndex:
+        """Build full GUID index by scanning directories."""
+        index = GUIDIndex(project_root=self.project_root)
+
+        # Scan Assets folder
+        assets_dir = self.project_root / "Assets"
+        if assets_dir.is_dir():
+            self._scan_directory(assets_dir, index)
+
+        # Scan Packages folder (manifest packages)
+        packages_dir = self.project_root / "Packages"
+        if packages_dir.is_dir():
+            self._scan_directory(packages_dir, index)
+
+        # Scan Library/PackageCache (downloaded packages)
+        if include_packages:
+            package_cache_dir = self.project_root / "Library" / "PackageCache"
+            if package_cache_dir.is_dir():
+                self._scan_directory(package_cache_dir, index)
+
+        return index
+
+    def _scan_directory(self, directory: Path, index: GUIDIndex) -> None:
+        """Scan a directory for .meta files and extract GUIDs."""
+        for meta_path in directory.rglob("*.meta"):
+            try:
+                content = meta_path.read_text(encoding="utf-8", errors="replace")
+                match = META_GUID_PATTERN.search(content)
+                if match:
+                    guid = match.group(1)
+                    asset_path = meta_path.with_suffix("")
+
+                    # Store relative path from project root if possible
+                    try:
+                        rel_path = asset_path.relative_to(self.project_root)
+                        index.guid_to_path[guid] = rel_path
+                        index.path_to_guid[rel_path] = guid
+                    except ValueError:
+                        index.guid_to_path[guid] = asset_path
+                        index.path_to_guid[asset_path] = guid
+            except (OSError, UnicodeDecodeError):
+                continue
+
+    def _get_package_versions(self) -> dict[str, str]:
+        """Get installed package versions from Library/PackageCache."""
+        versions = {}
+        package_cache_dir = self.project_root / "Library" / "PackageCache"
+
+        if not package_cache_dir.is_dir():
+            return versions
+
+        # Parse directory names like "com.unity.ugui@1.0.0"
+        for entry in package_cache_dir.iterdir():
+            if entry.is_dir() and "@" in entry.name:
+                parts = entry.name.rsplit("@", 1)
+                if len(parts) == 2:
+                    package_name, version = parts
+                    versions[package_name] = version
+
+        return versions
+
+
+def get_cached_guid_index(project_root: Path, include_packages: bool = True) -> GUIDIndex:
+    """Get GUID index with caching support.
+
+    This is the recommended way to get a GUID index for performance.
+
+    Args:
+        project_root: Path to Unity project root
+        include_packages: Whether to include Library/PackageCache/
+
+    Returns:
+        GUIDIndex with GUID to path mappings
+    """
+    cache = CachedGUIDIndex(project_root=project_root)
+    return cache.get_index(include_packages=include_packages)

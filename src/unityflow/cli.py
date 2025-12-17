@@ -3085,6 +3085,22 @@ def setup(
             click.echo("  Creating .gitattributes...")
             gitattributes_path.write_text(gitattributes_content)
 
+        # Setup .gitignore for .unityflow cache directory
+        gitignore_path = repo_root / ".gitignore"
+        unityflow_ignore_entry = ".unityflow/"
+
+        if gitignore_path.exists():
+            existing_gitignore = gitignore_path.read_text()
+            if unityflow_ignore_entry in existing_gitignore or ".unityflow" in existing_gitignore:
+                click.echo("  .gitignore already includes .unityflow/")
+            else:
+                click.echo("  Adding .unityflow/ to .gitignore...")
+                with open(gitignore_path, "a") as f:
+                    f.write(f"\n# unityflow cache\n{unityflow_ignore_entry}\n")
+        else:
+            click.echo("  Creating .gitignore with .unityflow/...")
+            gitignore_path.write_text(f"# unityflow cache\n{unityflow_ignore_entry}\n")
+
     # Install hooks if requested
     if with_hooks and repo_root:
         click.echo()
@@ -3443,8 +3459,25 @@ PACKAGE_COMPONENT_GUIDS: dict[str, str] = {
 
 # Built-in component types (native Unity components)
 BUILTIN_COMPONENT_TYPES = [
-    "SpriteRenderer", "Camera", "Light", "AudioSource",
-    "BoxCollider2D", "CircleCollider2D", "Rigidbody2D",
+    # Renderer
+    "SpriteRenderer", "MeshRenderer", "TrailRenderer", "LineRenderer", "SkinnedMeshRenderer",
+    # Camera & Light
+    "Camera", "Light",
+    # Audio
+    "AudioSource", "AudioListener",
+    # 3D Colliders
+    "BoxCollider", "SphereCollider", "CapsuleCollider", "MeshCollider",
+    # 2D Colliders
+    "BoxCollider2D", "CircleCollider2D", "PolygonCollider2D", "EdgeCollider2D",
+    "CapsuleCollider2D", "CompositeCollider2D",
+    # Physics
+    "Rigidbody", "Rigidbody2D", "CharacterController",
+    # Animation
+    "Animator", "Animation",
+    # UI
+    "Canvas", "CanvasGroup", "CanvasRenderer",
+    # Misc
+    "MeshFilter", "TextMesh", "ParticleSystem", "SpriteMask",
 ]
 
 # All supported component types for --type option
@@ -3674,12 +3707,22 @@ def _validate_field_value(field_name: str, value: any) -> tuple[bool, str | None
     return True, None
 
 
-def _resolve_script_to_guid(script_ref: str, file_path: Path) -> tuple[str | None, str | None]:
+def _resolve_script_to_guid(
+    script_ref: str,
+    file_path: Path,
+    include_packages: bool = True,
+) -> tuple[str | None, str | None]:
     """Resolve a script reference (GUID or name) to a GUID.
+
+    Searches in order:
+    1. Assets/ folder (user scripts)
+    2. Packages/ folder (local packages)
+    3. Library/PackageCache/ (downloaded packages) - if include_packages=True
 
     Args:
         script_ref: Either a 32-char hex GUID or a script class name
         file_path: Path to the Unity file being edited (for project root detection)
+        include_packages: Whether to search in Library/PackageCache/
 
     Returns:
         Tuple of (guid, error_message). If successful, error_message is None.
@@ -3691,7 +3734,7 @@ def _resolve_script_to_guid(script_ref: str, file_path: Path) -> tuple[str | Non
         return script_ref, None
 
     # It's a script name - search for matching .cs file
-    from unityflow.asset_tracker import find_unity_project_root
+    from unityflow.asset_tracker import find_unity_project_root, get_cached_guid_index
 
     project_root = find_unity_project_root(file_path)
     if not project_root:
@@ -3702,34 +3745,96 @@ def _resolve_script_to_guid(script_ref: str, file_path: Path) -> tuple[str | Non
     if script_name.endswith(".cs"):
         script_name = script_name[:-3]
 
-    # Search in Assets folder
-    assets_dir = project_root / "Assets"
-    if not assets_dir.exists():
-        return None, f"Assets 폴더를 찾을 수 없습니다: {assets_dir}"
+    # Use cached GUID index for faster lookup
+    guid_index = get_cached_guid_index(project_root, include_packages=include_packages)
 
-    # Find all matching .cs files
+    # Search by script name in the index
     matches: list[tuple[Path, str]] = []
     guid_pattern = re.compile(r"^guid:\s*([a-f0-9]{32})\s*$", re.MULTILINE)
 
-    for cs_file in assets_dir.rglob(f"{script_name}.cs"):
-        meta_file = cs_file.with_suffix(".cs.meta")
-        if meta_file.exists():
-            try:
-                meta_content = meta_file.read_text(encoding="utf-8")
-                guid_match = guid_pattern.search(meta_content)
-                if guid_match:
-                    matches.append((cs_file, guid_match.group(1)))
-            except Exception:
-                pass
+    # Define search directories in priority order
+    search_dirs = [project_root / "Assets"]
+    if (project_root / "Packages").is_dir():
+        search_dirs.append(project_root / "Packages")
+    if include_packages and (project_root / "Library" / "PackageCache").is_dir():
+        search_dirs.append(project_root / "Library" / "PackageCache")
+
+    for search_dir in search_dirs:
+        if not search_dir.exists():
+            continue
+
+        for cs_file in search_dir.rglob(f"{script_name}.cs"):
+            meta_file = cs_file.with_suffix(".cs.meta")
+            if meta_file.exists():
+                try:
+                    meta_content = meta_file.read_text(encoding="utf-8")
+                    guid_match = guid_pattern.search(meta_content)
+                    if guid_match:
+                        matches.append((cs_file, guid_match.group(1)))
+                except Exception:
+                    pass
 
     if not matches:
-        return None, f"스크립트를 찾을 수 없습니다: '{script_name}'. Assets 폴더에 {script_name}.cs 파일이 있는지 확인하세요."
+        search_locations = "Assets/"
+        if include_packages:
+            search_locations += ", Packages/, Library/PackageCache/"
+        return None, f"스크립트를 찾을 수 없습니다: '{script_name}'. 검색 위치: {search_locations}"
 
     if len(matches) > 1:
+        # Prefer Assets/ over packages
+        assets_matches = [m for m in matches if "Assets" in str(m[0])]
+        if len(assets_matches) == 1:
+            return assets_matches[0][1], None
+
         paths = "\n  ".join(str(m[0].relative_to(project_root)) for m in matches)
-        return None, f"'{script_name}' 이름의 스크립트가 여러 개 있습니다:\n  {paths}\n정확한 경로를 지정하세요."
+        return None, f"'{script_name}' 이름의 스크립트가 여러 개 있습니다:\n  {paths}\nGUID를 직접 지정하세요."
 
     return matches[0][1], None
+
+
+def _get_script_default_properties(
+    script_guid: str,
+    project_root: Path,
+) -> dict | None:
+    """Get default property values from a script by parsing the C# source.
+
+    Args:
+        script_guid: GUID of the script
+        project_root: Unity project root path
+
+    Returns:
+        Dict of property name -> default value, or None if not found
+    """
+    from unityflow.asset_tracker import get_cached_guid_index
+    from unityflow.script_parser import parse_script_file
+
+    # Get script path from GUID
+    guid_index = get_cached_guid_index(project_root, include_packages=True)
+    script_path = guid_index.get_path(script_guid)
+
+    if script_path is None:
+        return None
+
+    # Resolve to absolute path
+    if not script_path.is_absolute():
+        script_path = project_root / script_path
+
+    # Only parse C# scripts
+    if script_path.suffix.lower() != ".cs":
+        return None
+
+    # Parse script
+    script_info = parse_script_file(script_path)
+    if script_info is None:
+        return None
+
+    # Extract default values from fields
+    defaults = {}
+    for field in script_info.fields:
+        if field.default_value is not None:
+            defaults[field.unity_name] = field.default_value
+
+    return defaults if defaults else None
 
 
 @main.command(name="add-component")
@@ -3832,11 +3937,11 @@ def add_component(
 
     output_path = output or file
 
-    # Parse properties
-    properties = None
+    # Parse user-provided properties
+    user_properties = None
     if props:
         try:
-            properties = json.loads(props)
+            user_properties = json.loads(props)
         except json.JSONDecodeError as e:
             click.echo(f"Error: Invalid JSON for --props: {e}", err=True)
             sys.exit(1)
@@ -3854,23 +3959,49 @@ def add_component(
 
     component_id = doc.generate_unique_file_id()
 
+    # Get project root for script parsing
+    from unityflow.asset_tracker import find_unity_project_root
+    project_root = find_unity_project_root(file)
+
     if script_guid:
+        # Get default values from script
+        properties = {}
+        if project_root:
+            script_defaults = _get_script_default_properties(script_guid, project_root)
+            if script_defaults:
+                properties.update(script_defaults)
+
+        # User properties override script defaults
+        if user_properties:
+            properties.update(user_properties)
+
         # Create MonoBehaviour with explicit script GUID
         component = create_mono_behaviour(
             game_object_id=target_id,
             script_guid=script_guid,
             file_id=component_id,
-            properties=properties,
+            properties=properties if properties else None,
         )
         click.echo(f"Added MonoBehaviour component")
     elif component_type in PACKAGE_COMPONENT_GUIDS:
-        # Create package component (MonoBehaviour with known GUID)
+        # Get default values from package script
         package_guid = PACKAGE_COMPONENT_GUIDS[component_type]
+        properties = {}
+        if project_root:
+            script_defaults = _get_script_default_properties(package_guid, project_root)
+            if script_defaults:
+                properties.update(script_defaults)
+
+        # User properties override script defaults
+        if user_properties:
+            properties.update(user_properties)
+
+        # Create package component (MonoBehaviour with known GUID)
         component = create_mono_behaviour(
             game_object_id=target_id,
             script_guid=package_guid,
             file_id=component_id,
-            properties=properties,
+            properties=properties if properties else None,
         )
         click.echo(f"Added {component_type} component (package)")
     else:
@@ -3879,7 +4010,7 @@ def add_component(
             component_type=component_type,
             game_object_id=target_id,
             file_id=component_id,
-            properties=properties,
+            properties=user_properties,
         )
         click.echo(f"Added {component_type} component")
 
@@ -3912,13 +4043,46 @@ def _create_builtin_component(
         "Transform": 4,
         "RectTransform": 224,
         "MonoBehaviour": 114,
+        # Renderer
         "SpriteRenderer": 212,
+        "MeshRenderer": 23,
+        "TrailRenderer": 96,
+        "LineRenderer": 120,
+        "SkinnedMeshRenderer": 137,
+        # Camera & Light
         "Camera": 20,
         "Light": 108,
+        # Audio
         "AudioSource": 82,
+        "AudioListener": 81,
+        # 3D Colliders
+        "BoxCollider": 65,
+        "SphereCollider": 135,
+        "CapsuleCollider": 136,
+        "MeshCollider": 64,
+        # 2D Colliders
         "BoxCollider2D": 61,
         "CircleCollider2D": 58,
+        "PolygonCollider2D": 60,
+        "EdgeCollider2D": 68,
+        "CapsuleCollider2D": 70,
+        "CompositeCollider2D": 66,
+        # Physics
+        "Rigidbody": 54,
         "Rigidbody2D": 50,
+        "CharacterController": 144,
+        # Animation
+        "Animator": 95,
+        "Animation": 111,
+        # UI
+        "Canvas": 223,
+        "CanvasGroup": 225,
+        "CanvasRenderer": 222,
+        # Misc
+        "MeshFilter": 33,
+        "TextMesh": 102,
+        "ParticleSystem": 180,
+        "SpriteMask": 199,
     }
 
     class_id = class_ids.get(component_type, 114)
@@ -4024,6 +4188,276 @@ def _create_builtin_component(
             "m_SleepingMode": 1,
             "m_CollisionDetection": 0,
             "m_Constraints": 0,
+        })
+    elif component_type == "Canvas":
+        content.update({
+            "m_RenderMode": 0,
+            "m_Camera": {"fileID": 0},
+            "m_PlaneDistance": 100,
+            "m_PixelPerfect": 0,
+            "m_ReceivesEvents": 1,
+            "m_OverrideSorting": 0,
+            "m_OverridePixelPerfect": 0,
+            "m_SortingBucketNormalizedSize": 0,
+            "m_VertexColorAlwaysGammaSpace": 0,
+            "m_AdditionalShaderChannelsFlag": 25,
+            "m_UpdateRectTransformForStandalone": 0,
+            "m_SortingLayerID": 0,
+            "m_SortingOrder": 0,
+            "m_TargetDisplay": 0,
+        })
+    elif component_type == "CanvasGroup":
+        content.update({
+            "m_Alpha": 1,
+            "m_Interactable": 1,
+            "m_BlocksRaycasts": 1,
+            "m_IgnoreParentGroups": 0,
+        })
+    elif component_type == "CanvasRenderer":
+        content.update({
+            "m_CullTransparentMesh": 1,
+        })
+    # Renderer components
+    elif component_type == "MeshRenderer":
+        content.update({
+            "m_CastShadows": 1,
+            "m_ReceiveShadows": 1,
+            "m_DynamicOccludee": 1,
+            "m_StaticShadowCaster": 0,
+            "m_MotionVectors": 1,
+            "m_LightProbeUsage": 1,
+            "m_ReflectionProbeUsage": 1,
+            "m_RenderingLayerMask": 1,
+            "m_RendererPriority": 0,
+            "m_Materials": [],
+        })
+    elif component_type == "TrailRenderer":
+        content.update({
+            "m_CastShadows": 0,
+            "m_ReceiveShadows": 0,
+            "m_DynamicOccludee": 1,
+            "m_MotionVectors": 0,
+            "m_Time": 5,
+            "m_MinVertexDistance": 0.1,
+            "m_Autodestruct": 0,
+            "m_Emitting": 1,
+            "m_Parameters": {
+                "widthMultiplier": 1,
+                "widthCurve": {"serializedVersion": 2, "m_Curve": [], "m_PreInfinity": 2, "m_PostInfinity": 2},
+                "colorGradient": {"serializedVersion": 2, "key0": {"r": 1, "g": 1, "b": 1, "a": 1}, "key1": {"r": 1, "g": 1, "b": 1, "a": 1}},
+            },
+        })
+    elif component_type == "LineRenderer":
+        content.update({
+            "m_CastShadows": 0,
+            "m_ReceiveShadows": 0,
+            "m_DynamicOccludee": 1,
+            "m_MotionVectors": 0,
+            "m_Positions": [],
+            "m_Parameters": {
+                "widthMultiplier": 1,
+                "widthCurve": {"serializedVersion": 2, "m_Curve": [], "m_PreInfinity": 2, "m_PostInfinity": 2},
+                "colorGradient": {"serializedVersion": 2, "key0": {"r": 1, "g": 1, "b": 1, "a": 1}, "key1": {"r": 1, "g": 1, "b": 1, "a": 1}},
+            },
+            "m_UseWorldSpace": 1,
+            "m_Loop": 0,
+        })
+    elif component_type == "SkinnedMeshRenderer":
+        content.update({
+            "m_CastShadows": 1,
+            "m_ReceiveShadows": 1,
+            "m_DynamicOccludee": 1,
+            "m_MotionVectors": 1,
+            "m_LightProbeUsage": 1,
+            "m_ReflectionProbeUsage": 1,
+            "m_RenderingLayerMask": 1,
+            "m_RendererPriority": 0,
+            "m_Materials": [],
+            "m_Mesh": {"fileID": 0},
+            "m_Bones": [],
+            "m_BlendShapeWeights": [],
+            "m_RootBone": {"fileID": 0},
+            "m_AABB": {"m_Center": {"x": 0, "y": 0, "z": 0}, "m_Extent": {"x": 0, "y": 0, "z": 0}},
+            "m_UpdateWhenOffscreen": 0,
+            "m_SkinnedMotionVectors": 1,
+        })
+    # Audio
+    elif component_type == "AudioListener":
+        # AudioListener has minimal properties
+        pass  # Uses base content only
+    # 3D Colliders
+    elif component_type == "BoxCollider":
+        content.update({
+            "m_IsTrigger": 0,
+            "m_Material": {"fileID": 0},
+            "m_Center": {"x": 0, "y": 0, "z": 0},
+            "m_Size": {"x": 1, "y": 1, "z": 1},
+        })
+    elif component_type == "SphereCollider":
+        content.update({
+            "m_IsTrigger": 0,
+            "m_Material": {"fileID": 0},
+            "m_Center": {"x": 0, "y": 0, "z": 0},
+            "m_Radius": 0.5,
+        })
+    elif component_type == "CapsuleCollider":
+        content.update({
+            "m_IsTrigger": 0,
+            "m_Material": {"fileID": 0},
+            "m_Center": {"x": 0, "y": 0, "z": 0},
+            "m_Radius": 0.5,
+            "m_Height": 2,
+            "m_Direction": 1,  # Y-axis
+        })
+    elif component_type == "MeshCollider":
+        content.update({
+            "m_IsTrigger": 0,
+            "m_Material": {"fileID": 0},
+            "m_Convex": 0,
+            "m_CookingOptions": 30,
+            "m_Mesh": {"fileID": 0},
+        })
+    # 2D Colliders (additional)
+    elif component_type == "PolygonCollider2D":
+        content.update({
+            "m_Density": 1,
+            "m_Material": {"fileID": 0},
+            "m_IsTrigger": 0,
+            "m_UsedByEffector": 0,
+            "m_UsedByComposite": 0,
+            "m_Offset": {"x": 0, "y": 0},
+            "m_UseDelaunayMesh": 0,
+            "m_Points": {"m_Paths": []},
+        })
+    elif component_type == "EdgeCollider2D":
+        content.update({
+            "m_Density": 1,
+            "m_Material": {"fileID": 0},
+            "m_IsTrigger": 0,
+            "m_UsedByEffector": 0,
+            "m_UsedByComposite": 0,
+            "m_Offset": {"x": 0, "y": 0},
+            "m_EdgeRadius": 0,
+            "m_Points": [],
+        })
+    elif component_type == "CapsuleCollider2D":
+        content.update({
+            "m_Density": 1,
+            "m_Material": {"fileID": 0},
+            "m_IsTrigger": 0,
+            "m_UsedByEffector": 0,
+            "m_UsedByComposite": 0,
+            "m_Offset": {"x": 0, "y": 0},
+            "m_Size": {"x": 1, "y": 2},
+            "m_Direction": 1,  # Vertical
+        })
+    elif component_type == "CompositeCollider2D":
+        content.update({
+            "m_Density": 1,
+            "m_Material": {"fileID": 0},
+            "m_IsTrigger": 0,
+            "m_UsedByEffector": 0,
+            "m_Offset": {"x": 0, "y": 0},
+            "m_GeometryType": 0,  # Polygons
+            "m_GenerationType": 0,  # Synchronous
+            "m_VertexDistance": 0.0005,
+            "m_OffsetDistance": 0.000025,
+        })
+    # Physics (3D)
+    elif component_type == "Rigidbody":
+        content.update({
+            "m_Mass": 1,
+            "m_Drag": 0,
+            "m_AngularDrag": 0.05,
+            "m_CenterOfMass": {"x": 0, "y": 0, "z": 0},
+            "m_InertiaTensor": {"x": 1, "y": 1, "z": 1},
+            "m_InertiaRotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+            "m_UseGravity": 1,
+            "m_IsKinematic": 0,
+            "m_Interpolate": 0,
+            "m_Constraints": 0,
+            "m_CollisionDetection": 0,
+        })
+    elif component_type == "CharacterController":
+        content.update({
+            "m_Height": 2,
+            "m_Radius": 0.5,
+            "m_SlopeLimit": 45,
+            "m_StepOffset": 0.3,
+            "m_SkinWidth": 0.08,
+            "m_MinMoveDistance": 0.001,
+            "m_Center": {"x": 0, "y": 0, "z": 0},
+        })
+    # Animation
+    elif component_type == "Animator":
+        content.update({
+            "m_Controller": {"fileID": 0},
+            "m_Avatar": {"fileID": 0},
+            "m_ApplyRootMotion": 0,
+            "m_LinearVelocityBlending": 0,
+            "m_WarningMessage": "",
+            "m_HasTransformHierarchy": 1,
+            "m_AllowConstantClipSamplingOptimization": 1,
+            "m_KeepAnimatorStateOnDisable": 0,
+            "m_UpdateMode": 0,  # Normal
+            "m_CullingMode": 0,  # AlwaysAnimate
+        })
+    elif component_type == "Animation":
+        content.update({
+            "m_Animation": {"fileID": 0},
+            "m_Animations": [],
+            "m_WrapMode": 0,  # Default
+            "m_PlayAutomatically": 1,
+            "m_AnimatePhysics": 0,
+            "m_CullingType": 0,
+        })
+    # Misc
+    elif component_type == "MeshFilter":
+        content.update({
+            "m_Mesh": {"fileID": 0},
+        })
+    elif component_type == "TextMesh":
+        content.update({
+            "m_Text": "",
+            "m_OffsetZ": 0,
+            "m_CharacterSize": 1,
+            "m_LineSpacing": 1,
+            "m_Anchor": 4,  # MiddleCenter
+            "m_Alignment": 0,  # Left
+            "m_TabSize": 4,
+            "m_FontSize": 0,
+            "m_FontStyle": 0,  # Normal
+            "m_RichText": 1,
+            "m_Font": {"fileID": 0},
+            "m_Color": {"r": 1, "g": 1, "b": 1, "a": 1},
+        })
+    elif component_type == "ParticleSystem":
+        # ParticleSystem has very complex default structure, using minimal
+        content.update({
+            "lengthInSec": 5,
+            "simulationSpeed": 1,
+            "looping": 1,
+            "prewarm": 0,
+            "playOnAwake": 1,
+            "useUnscaledTime": 0,
+            "autoRandomSeed": 1,
+            "useRigidbodyForVelocity": 1,
+            "startDelay": {"serializedVersion": 2, "minMaxState": 0, "scalar": 0},
+            "moveWithTransform": 0,
+            "moveWithCustomTransform": {"fileID": 0},
+            "scalingMode": 1,
+            "randomSeed": 0,
+        })
+    elif component_type == "SpriteMask":
+        content.update({
+            "m_Sprite": {"fileID": 0},
+            "m_AlphaCutoff": 0.5,
+            "m_IsCustomRangeActive": 0,
+            "m_FrontSortingLayerID": 0,
+            "m_FrontSortingOrder": 0,
+            "m_BackSortingLayerID": 0,
+            "m_BackSortingOrder": 0,
+            "m_SpriteSortPoint": 0,
         })
 
     # Override with custom properties
