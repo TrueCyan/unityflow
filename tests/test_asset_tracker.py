@@ -505,9 +505,10 @@ class TestParseMetaFile:
             result = _parse_meta_file(meta_path, project_root)
 
             assert result is not None
-            guid, path = result
+            guid, path, mtime = result
             assert guid == "abcdef0123456789abcdef0123456789"
             assert path == Path("Assets/test.txt")
+            assert isinstance(mtime, float)
 
     def test_parse_invalid_meta_file(self):
         """Test parsing an invalid .meta file."""
