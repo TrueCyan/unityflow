@@ -1,6 +1,7 @@
 """Tests for Unity asset reference tracker."""
 
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from unityflow.asset_tracker import (
     BINARY_ASSET_EXTENSIONS,
     AssetDependency,
     AssetReference,
+    CachedGUIDIndex,
     DependencyReport,
     GUIDIndex,
     analyze_dependencies,
@@ -16,8 +18,10 @@ from unityflow.asset_tracker import (
     extract_guid_references,
     find_references_to_asset,
     find_unity_project_root,
+    get_cached_guid_index,
     get_file_dependencies,
     _classify_asset_type,
+    _parse_meta_file,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -484,3 +488,304 @@ MonoBehaviour:
 
             assert len(results) == 1
             assert results[0][0] == prefab_path
+
+
+class TestParseMetaFile:
+    """Tests for _parse_meta_file function."""
+
+    def test_parse_valid_meta_file(self):
+        """Test parsing a valid .meta file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            meta_path = project_root / "Assets" / "test.txt.meta"
+            meta_path.write_text("fileFormatVersion: 2\nguid: abcdef0123456789abcdef0123456789\n")
+
+            result = _parse_meta_file(meta_path, project_root)
+
+            assert result is not None
+            guid, path = result
+            assert guid == "abcdef0123456789abcdef0123456789"
+            assert path == Path("Assets/test.txt")
+
+    def test_parse_invalid_meta_file(self):
+        """Test parsing an invalid .meta file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            meta_path = project_root / "Assets" / "test.txt.meta"
+            meta_path.write_text("invalid content without guid")
+
+            result = _parse_meta_file(meta_path, project_root)
+
+            assert result is None
+
+    def test_parse_nonexistent_file(self):
+        """Test parsing a nonexistent file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            meta_path = project_root / "nonexistent.meta"
+
+            result = _parse_meta_file(meta_path, project_root)
+
+            assert result is None
+
+
+class TestCachedGUIDIndex:
+    """Tests for CachedGUIDIndex with SQLite caching."""
+
+    def test_create_cache_index(self):
+        """Test creating a cached GUID index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            cache = CachedGUIDIndex(project_root=project_root)
+
+            assert cache.project_root == project_root
+            assert cache.cache_db == project_root / ".unityflow" / "guid_cache.db"
+
+    def test_build_and_cache_index(self):
+        """Test building and caching a GUID index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test assets
+            (project_root / "Assets" / "test1.txt").write_text("content1")
+            (project_root / "Assets" / "test1.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+            (project_root / "Assets" / "test2.txt").write_text("content2")
+            (project_root / "Assets" / "test2.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: fedcba9876543210fedcba9876543210\n"
+            )
+
+            cache = CachedGUIDIndex(project_root=project_root)
+            index = cache.get_index(include_packages=False)
+
+            assert len(index) == 2
+            assert index.get_path("0123456789abcdef0123456789abcdef") is not None
+            assert index.get_path("fedcba9876543210fedcba9876543210") is not None
+
+            # Verify cache database was created
+            assert cache.cache_db.exists()
+
+    def test_load_from_cache(self):
+        """Test loading index from existing cache."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test asset
+            (project_root / "Assets" / "test.txt").write_text("content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            # Build first cache
+            cache1 = CachedGUIDIndex(project_root=project_root)
+            index1 = cache1.get_index(include_packages=False)
+            assert len(index1) == 1
+
+            # Create new cache instance and load from DB
+            cache2 = CachedGUIDIndex(project_root=project_root)
+            index2 = cache2.get_index(include_packages=False)
+
+            assert len(index2) == 1
+            assert index2.get_path("0123456789abcdef0123456789abcdef") is not None
+
+    def test_invalidate_cache(self):
+        """Test invalidating the cache."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test asset
+            (project_root / "Assets" / "test.txt").write_text("content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            cache = CachedGUIDIndex(project_root=project_root)
+            cache.get_index(include_packages=False)
+
+            assert cache.cache_db.exists()
+
+            cache.invalidate()
+
+            assert not cache.cache_db.exists()
+
+    def test_incremental_update_new_file(self):
+        """Test incremental update when a new file is added."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create initial asset
+            (project_root / "Assets" / "test1.txt").write_text("content1")
+            (project_root / "Assets" / "test1.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            # Build initial cache
+            cache = CachedGUIDIndex(project_root=project_root)
+            index1 = cache.get_index(include_packages=False)
+            assert len(index1) == 1
+
+            # Reset the cached index
+            cache._index = None
+
+            # Add new file
+            (project_root / "Assets" / "test2.txt").write_text("content2")
+            (project_root / "Assets" / "test2.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: fedcba9876543210fedcba9876543210\n"
+            )
+
+            # Get index again (should do incremental update)
+            index2 = cache.get_index(include_packages=False)
+            assert len(index2) == 2
+
+    def test_incremental_update_deleted_file(self):
+        """Test incremental update when a file is deleted."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create initial assets
+            (project_root / "Assets" / "test1.txt").write_text("content1")
+            (project_root / "Assets" / "test1.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+            (project_root / "Assets" / "test2.txt").write_text("content2")
+            (project_root / "Assets" / "test2.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: fedcba9876543210fedcba9876543210\n"
+            )
+
+            # Build initial cache
+            cache = CachedGUIDIndex(project_root=project_root)
+            index1 = cache.get_index(include_packages=False)
+            assert len(index1) == 2
+
+            # Reset the cached index
+            cache._index = None
+
+            # Delete one file
+            (project_root / "Assets" / "test2.txt").unlink()
+            (project_root / "Assets" / "test2.txt.meta").unlink()
+
+            # Get index again (should do incremental update)
+            index2 = cache.get_index(include_packages=False)
+            assert len(index2) == 1
+            assert index2.get_path("0123456789abcdef0123456789abcdef") is not None
+            assert index2.get_path("fedcba9876543210fedcba9876543210") is None
+
+    def test_incremental_update_modified_file(self):
+        """Test incremental update when a file is modified."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create initial asset
+            meta_path = project_root / "Assets" / "test.txt.meta"
+            (project_root / "Assets" / "test.txt").write_text("content")
+            meta_path.write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            # Build initial cache
+            cache = CachedGUIDIndex(project_root=project_root)
+            index1 = cache.get_index(include_packages=False)
+            assert index1.get_path("0123456789abcdef0123456789abcdef") is not None
+
+            # Reset the cached index
+            cache._index = None
+
+            # Modify the meta file with a new GUID (wait to ensure mtime changes)
+            time.sleep(0.1)
+            meta_path.write_text(
+                "fileFormatVersion: 2\nguid: aaaabbbbccccddddeeeeffffaaaabbbb\n"
+            )
+
+            # Get index again (should do incremental update)
+            index2 = cache.get_index(include_packages=False)
+            assert index2.get_path("aaaabbbbccccddddeeeeffffaaaabbbb") is not None
+
+    def test_progress_callback(self):
+        """Test progress callback during index building."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test assets
+            for i in range(5):
+                (project_root / "Assets" / f"test{i}.txt").write_text(f"content{i}")
+                (project_root / "Assets" / f"test{i}.txt.meta").write_text(
+                    f"fileFormatVersion: 2\nguid: {i:032x}\n"
+                )
+
+            progress_calls = []
+
+            def progress_callback(current, total):
+                progress_calls.append((current, total))
+
+            cache = CachedGUIDIndex(project_root=project_root)
+            cache.get_index(include_packages=False, progress_callback=progress_callback)
+
+            assert len(progress_calls) > 0
+            # Last call should have current == total
+            assert progress_calls[-1][0] == progress_calls[-1][1]
+
+
+class TestGetCachedGUIDIndex:
+    """Tests for get_cached_guid_index function."""
+
+    def test_get_cached_index(self):
+        """Test getting a cached GUID index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test asset
+            (project_root / "Assets" / "test.txt").write_text("content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            index = get_cached_guid_index(project_root, include_packages=False)
+
+            assert len(index) == 1
+            assert index.get_path("0123456789abcdef0123456789abcdef") is not None
+
+    def test_get_cached_index_with_max_workers(self):
+        """Test getting index with custom max_workers."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test assets
+            for i in range(3):
+                (project_root / "Assets" / f"test{i}.txt").write_text(f"content{i}")
+                (project_root / "Assets" / f"test{i}.txt.meta").write_text(
+                    f"fileFormatVersion: 2\nguid: {i:032x}\n"
+                )
+
+            index = get_cached_guid_index(
+                project_root,
+                include_packages=False,
+                max_workers=2,
+            )
+
+            assert len(index) == 3
