@@ -233,9 +233,14 @@ def build_guid_index(
 ) -> GUIDIndex:
     """Build an index of all GUIDs in a Unity project.
 
+    Scans:
+    - Assets/ folder (always)
+    - Packages/ folder (when include_packages=True, for embedded packages)
+    - Library/PackageCache/ (when include_packages=True, for registry packages)
+
     Args:
         project_root: Path to Unity project root
-        include_packages: Whether to include Packages folder
+        include_packages: Whether to include Packages/ and Library/PackageCache/
         progress_callback: Optional callback for progress (current, total)
 
     Returns:
@@ -246,9 +251,15 @@ def build_guid_index(
     # Collect all .meta files
     search_paths = [project_root / "Assets"]
     if include_packages:
+        # Embedded packages in Packages/ folder
         packages_dir = project_root / "Packages"
         if packages_dir.is_dir():
             search_paths.append(packages_dir)
+
+        # Downloaded packages from Unity registry in Library/PackageCache/
+        package_cache_dir = project_root / "Library" / "PackageCache"
+        if package_cache_dir.is_dir():
+            search_paths.append(package_cache_dir)
 
     meta_files: list[Path] = []
     for search_path in search_paths:
