@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-01-07
+
+### Added
+
+- **로컬 패키지 GUID 캐싱 지원**: `manifest.json`의 `file:` 경로로 참조된 로컬 패키지 인덱싱
+  - `get_local_package_paths()` 유틸리티 함수 추가
+  - `build_guid_index(include_packages=True)` 시 로컬 패키지 스캔
+  - 예: `file:../../NK.Packages/com.domybest.mybox@1.7.0`
+
+---
+
 ## [0.3.1] - 2026-01-07
 
 ### Added
