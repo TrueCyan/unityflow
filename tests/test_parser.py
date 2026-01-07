@@ -224,3 +224,65 @@ MonoBehaviour:
         content_data2 = obj2.get_content()
 
         assert content_data2["m_SomeField"] == "-", "'-' value should survive roundtrip"
+
+
+class TestParserEdgeCases:
+    """Tests for parser edge cases and error handling."""
+
+    def test_list_root_node_handled_gracefully(self):
+        """Test that list root node doesn't cause AttributeError.
+
+        When YAML root is a sequence (list) instead of a map (dict),
+        the parser should handle it gracefully without crashing.
+        Regression test for: AttributeError: 'list' object has no attribute 'keys'
+        """
+        # Content with a list as root node (unusual but possible)
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &12345
+- item1
+- item2
+"""
+        doc = UnityYAMLDocument.parse(content)
+
+        assert len(doc.objects) == 1
+        obj = doc.objects[0]
+
+        # data should be converted to empty dict when root is a list
+        assert obj.data == {}
+
+        # root_key should return None without raising AttributeError
+        assert obj.root_key is None
+
+        # get_content should also work without error
+        assert obj.get_content() is None
+
+    def test_scalar_root_node_handled_gracefully(self):
+        """Test that scalar root node doesn't cause errors."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &12345
+just_a_string
+"""
+        doc = UnityYAMLDocument.parse(content)
+
+        assert len(doc.objects) == 1
+        obj = doc.objects[0]
+
+        # data should be converted to empty dict when root is a scalar
+        assert obj.data == {}
+        assert obj.root_key is None
+
+    def test_empty_document_handled(self):
+        """Test that empty document content is handled."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &12345
+"""
+        doc = UnityYAMLDocument.parse(content)
+
+        assert len(doc.objects) == 1
+        obj = doc.objects[0]
+
+        assert obj.data == {}
+        assert obj.root_key is None

@@ -171,7 +171,7 @@ def fast_parse_unity_yaml(
             try:
                 tree = ryml.parse_in_arena(doc_content.encode('utf-8'))
                 data = _to_python(tree, tree.root_id())
-                if data is None:
+                if not isinstance(data, dict):
                     data = {}
             except Exception as e:
                 raise ValueError(
@@ -243,7 +243,7 @@ def iter_parse_unity_yaml(
             try:
                 tree = ryml.parse_in_arena(doc_content.encode('utf-8'))
                 data = _to_python(tree, tree.root_id())
-                if data is None:
+                if not isinstance(data, dict):
                     data = {}
             except Exception as e:
                 raise ValueError(
@@ -318,7 +318,7 @@ def stream_parse_unity_yaml_file(
                         try:
                             tree = ryml.parse_in_arena(full_content.encode("utf-8"))
                             data = _to_python(tree, tree.root_id())
-                            if data is None:
+                            if not isinstance(data, dict):
                                 data = {}
                         except Exception:
                             data = {}
@@ -353,7 +353,7 @@ def stream_parse_unity_yaml_file(
                 try:
                     tree = ryml.parse_in_arena(full_content.encode("utf-8"))
                     data = _to_python(tree, tree.root_id())
-                    if data is None:
+                    if not isinstance(data, dict):
                         data = {}
                 except Exception:
                     data = {}
