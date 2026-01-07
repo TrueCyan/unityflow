@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`.meta` 파일 자동 생성**: `set` 명령어로 에셋 참조 시 `.meta` 파일이 없으면 자동 생성
+  ```bash
+  # Player.cs.meta가 없어도 자동 생성됨
+  unityflow set Scene.unity \
+      --path "Player/MonoBehaviour/m_Script" \
+      --value "@Assets/Scripts/Player.cs"
+  ```
+
 - **`hierarchy` 명령어**: 프리팹/씬의 GameObject 계층 구조를 트리 형태로 출력
   ```bash
   unityflow hierarchy Player.prefab --components

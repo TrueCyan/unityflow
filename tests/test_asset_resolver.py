@@ -7,6 +7,7 @@ from unityflow.asset_resolver import (
     is_asset_reference,
     parse_asset_reference,
     resolve_value,
+    resolve_asset_reference,
     get_guid_from_meta,
     get_sprite_file_id,
     get_expected_types_for_field,
@@ -497,3 +498,89 @@ class TestResolveValueWithTypeValidation:
         # Should succeed - unknown field allows any type
         result = resolve_value("@Assets/Audio/jump.wav", tmp_path, field_name="customRef")
         assert result["fileID"] == 8300000
+
+
+class TestAutoGenerateMeta:
+    """Tests for auto-generating .meta files when resolving asset references."""
+
+    def test_auto_generate_meta_for_script(self, tmp_path):
+        """Test that .meta file is auto-generated for a script without one."""
+        # Create script file WITHOUT meta
+        script_path = tmp_path / "Assets" / "Scripts" / "Player.cs"
+        script_path.parent.mkdir(parents=True)
+        script_path.write_text("public class Player : MonoBehaviour {}")
+
+        # Verify no meta exists
+        meta_path = Path(str(script_path) + ".meta")
+        assert not meta_path.exists()
+
+        # Resolve should auto-generate meta
+        result = resolve_asset_reference("@Assets/Scripts/Player.cs", tmp_path)
+
+        # Meta should now exist
+        assert meta_path.exists()
+        assert result is not None
+        assert result.file_id == 11500000  # Script fileID
+        assert len(result.guid) == 32  # Valid GUID
+
+    def test_auto_generate_meta_for_texture(self, tmp_path):
+        """Test that .meta file is auto-generated for a texture without one."""
+        # Create texture file WITHOUT meta
+        texture_path = tmp_path / "Assets" / "Textures" / "icon.png"
+        texture_path.parent.mkdir(parents=True)
+        texture_path.write_bytes(b"\x89PNG\r\n\x1a\n")  # PNG header
+
+        # Resolve should auto-generate meta
+        result = resolve_asset_reference("@Assets/Textures/icon.png", tmp_path)
+
+        # Meta should now exist
+        meta_path = Path(str(texture_path) + ".meta")
+        assert meta_path.exists()
+        assert result is not None
+        assert len(result.guid) == 32
+
+    def test_auto_generate_disabled(self, tmp_path):
+        """Test that auto-generate can be disabled."""
+        # Create script file WITHOUT meta
+        script_path = tmp_path / "Assets" / "Scripts" / "Player.cs"
+        script_path.parent.mkdir(parents=True)
+        script_path.write_text("public class Player : MonoBehaviour {}")
+
+        # Resolve with auto_generate_meta=False should return None
+        result = resolve_asset_reference(
+            "@Assets/Scripts/Player.cs",
+            tmp_path,
+            auto_generate_meta=False,
+        )
+
+        # Should fail - no meta generated
+        assert result is None
+        meta_path = Path(str(script_path) + ".meta")
+        assert not meta_path.exists()
+
+    def test_no_auto_generate_for_missing_file(self, tmp_path):
+        """Test that no meta is generated if the asset file doesn't exist."""
+        # Don't create the script file
+        result = resolve_asset_reference("@Assets/Scripts/NonExistent.cs", tmp_path)
+
+        # Should fail - file doesn't exist
+        assert result is None
+
+    def test_resolve_value_auto_generates_meta(self, tmp_path):
+        """Test that resolve_value also auto-generates meta files."""
+        # Create script file WITHOUT meta
+        script_path = tmp_path / "Assets" / "Scripts" / "Enemy.cs"
+        script_path.parent.mkdir(parents=True)
+        script_path.write_text("public class Enemy : MonoBehaviour {}")
+
+        # resolve_value should work and auto-generate meta
+        result = resolve_value("@Assets/Scripts/Enemy.cs", tmp_path)
+
+        # Should succeed
+        assert isinstance(result, dict)
+        assert result["fileID"] == 11500000
+        assert "guid" in result
+
+        # Meta should exist
+        meta_path = Path(str(script_path) + ".meta")
+        assert meta_path.exists()
