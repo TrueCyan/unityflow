@@ -5700,5 +5700,462 @@ def modify_meta(
         sys.exit(1)
 
 
+@main.command(name="hierarchy")
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--depth",
+    "-d",
+    type=int,
+    default=None,
+    help="Maximum depth to display (default: unlimited)",
+)
+@click.option(
+    "--root",
+    "-r",
+    "root_path",
+    type=str,
+    default=None,
+    help="Start from a specific object path (e.g., 'Player/Body')",
+)
+@click.option(
+    "--no-components",
+    is_flag=True,
+    help="Hide component information",
+)
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, path_type=Path),
+    help="Unity project root (auto-detected if not specified)",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["tree", "json"]),
+    default="tree",
+    help="Output format (default: tree)",
+)
+def hierarchy_cmd(
+    file: Path,
+    depth: int | None,
+    root_path: str | None,
+    no_components: bool,
+    project_root: Path | None,
+    output_format: str,
+) -> None:
+    """Show hierarchy structure of a Unity YAML file.
+
+    Displays the GameObject hierarchy in a tree format, showing:
+    - Object names and parent-child relationships
+    - Components attached to each object (with script names resolved)
+    - Inactive objects marked with (inactive)
+    - PrefabInstance nodes with their source prefab
+
+    Examples:
+
+        # Show full hierarchy
+        unityflow hierarchy Player.prefab
+
+        # Limit depth
+        unityflow hierarchy Scene.unity --depth 2
+
+        # Start from specific object
+        unityflow hierarchy Player.prefab --root "Body/Armature"
+
+        # Hide components
+        unityflow hierarchy Player.prefab --no-components
+
+        # Output as JSON
+        unityflow hierarchy Player.prefab --format json
+    """
+    import json as json_module
+
+    from unityflow import UnityYAMLDocument, build_hierarchy
+    from unityflow.asset_tracker import find_unity_project_root, get_lazy_guid_index
+
+    # Load document
+    try:
+        doc = UnityYAMLDocument.load_auto(file)
+    except Exception as e:
+        click.echo(f"Error: Failed to load file: {e}", err=True)
+        sys.exit(1)
+
+    # Find project root and build GUID index
+    resolved_project_root = project_root
+    if resolved_project_root is None:
+        resolved_project_root = find_unity_project_root(file)
+
+    guid_index = None
+    if resolved_project_root:
+        try:
+            guid_index = get_lazy_guid_index(resolved_project_root, include_packages=True)
+        except Exception:
+            pass  # Continue without GUID index
+
+    # Build hierarchy
+    try:
+        hier = build_hierarchy(doc, guid_index=guid_index)
+    except Exception as e:
+        click.echo(f"Error: Failed to build hierarchy: {e}", err=True)
+        sys.exit(1)
+
+    # Find starting node if root_path specified
+    root_nodes = hier.root_objects
+    if root_path:
+        found = hier.find(root_path)
+        if found is None:
+            click.echo(f"Error: Object not found: {root_path}", err=True)
+            sys.exit(1)
+        root_nodes = [found]
+
+    # Helper function to get active state from document
+    def get_active_state(node) -> bool:
+        """Get the active state of a node from the document."""
+        if node._document is None:
+            return True
+        go_obj = node._document.get_by_file_id(node.file_id)
+        if go_obj and go_obj.class_id == 1:  # GameObject
+            content = go_obj.get_content()
+            if content:
+                return content.get("m_IsActive", 1) == 1
+        return True
+
+    # Output
+    if output_format == "json":
+        def node_to_dict(node, current_depth: int = 0):
+            result = {
+                "name": node.name,
+                "path": node.path,
+                "active": get_active_state(node),
+            }
+            if not no_components and node.components:
+                result["components"] = [
+                    {
+                        "type": c.script_name or c.class_name,
+                        "class_id": c.class_id,
+                    }
+                    for c in node.components
+                ]
+            if node.is_prefab_instance:
+                result["is_prefab_instance"] = True
+                if node.source_guid:
+                    result["source_guid"] = node.source_guid
+
+            if depth is None or current_depth < depth:
+                if node.children:
+                    result["children"] = [
+                        node_to_dict(child, current_depth + 1)
+                        for child in node.children
+                    ]
+            return result
+
+        output_data = [node_to_dict(n) for n in root_nodes]
+        click.echo(json_module.dumps(output_data, indent=2))
+    else:
+        # Tree output
+        def print_tree(node, prefix: str = "", is_last: bool = True, current_depth: int = 0):
+            # Determine connector
+            connector = "└── " if is_last else "├── "
+
+            # Build node line
+            name = node.name
+            if not get_active_state(node):
+                name += " (inactive)"
+            if node.is_prefab_instance:
+                name += " [Prefab]"
+
+            # Component info
+            comp_str = ""
+            if not no_components and node.components:
+                comp_names = []
+                for c in node.components:
+                    if c.script_name:
+                        comp_names.append(c.script_name)
+                    elif c.class_name and c.class_name not in ("Transform", "RectTransform"):
+                        comp_names.append(c.class_name)
+                if comp_names:
+                    comp_str = f" [{', '.join(comp_names)}]"
+
+            click.echo(f"{prefix}{connector}{name}{comp_str}")
+
+            # Check depth limit
+            if depth is not None and current_depth >= depth:
+                return
+
+            # Print children
+            children = node.children
+            child_prefix = prefix + ("    " if is_last else "│   ")
+            for i, child in enumerate(children):
+                print_tree(child, child_prefix, i == len(children) - 1, current_depth + 1)
+
+        # Print header
+        click.echo(f"Hierarchy: {file.name}")
+        click.echo()
+
+        # Print each root
+        for i, root in enumerate(root_nodes):
+            is_last_root = i == len(root_nodes) - 1
+            # Root node is special - no prefix
+            name = root.name
+            if not get_active_state(root):
+                name += " (inactive)"
+            if root.is_prefab_instance:
+                name += " [Prefab]"
+
+            comp_str = ""
+            if not no_components and root.components:
+                comp_names = []
+                for c in root.components:
+                    if c.script_name:
+                        comp_names.append(c.script_name)
+                    elif c.class_name and c.class_name not in ("Transform", "RectTransform"):
+                        comp_names.append(c.class_name)
+                if comp_names:
+                    comp_str = f" [{', '.join(comp_names)}]"
+
+            click.echo(f"{name}{comp_str}")
+
+            # Print children
+            children = root.children
+            for j, child in enumerate(children):
+                print_tree(child, "", j == len(children) - 1, 1)
+
+            if not is_last_root:
+                click.echo()
+
+
+@main.command(name="inspect")
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.argument("object_path", type=str, required=False, default=None)
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, path_type=Path),
+    help="Unity project root (auto-detected if not specified)",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+def inspect_cmd(
+    file: Path,
+    object_path: str | None,
+    project_root: Path | None,
+    output_format: str,
+) -> None:
+    """Inspect a GameObject or component in detail.
+
+    Shows detailed information about a specific GameObject including:
+    - Name, path, and active state
+    - Layer and tag
+    - All components with their properties
+
+    If no object_path is provided, shows the root object(s).
+
+    Examples:
+
+        # Inspect root object
+        unityflow inspect Player.prefab
+
+        # Inspect specific object by path
+        unityflow inspect Player.prefab "Body/Armature/Spine"
+
+        # Output as JSON
+        unityflow inspect Player.prefab "Canvas" --format json
+    """
+    import json as json_module
+
+    from unityflow import UnityYAMLDocument, build_hierarchy
+    from unityflow.asset_tracker import find_unity_project_root, get_lazy_guid_index
+
+    # Load document
+    try:
+        doc = UnityYAMLDocument.load_auto(file)
+    except Exception as e:
+        click.echo(f"Error: Failed to load file: {e}", err=True)
+        sys.exit(1)
+
+    # Find project root and build GUID index
+    resolved_project_root = project_root
+    if resolved_project_root is None:
+        resolved_project_root = find_unity_project_root(file)
+
+    guid_index = None
+    if resolved_project_root:
+        try:
+            guid_index = get_lazy_guid_index(resolved_project_root, include_packages=True)
+        except Exception:
+            pass
+
+    # Build hierarchy
+    try:
+        hier = build_hierarchy(doc, guid_index=guid_index)
+    except Exception as e:
+        click.echo(f"Error: Failed to build hierarchy: {e}", err=True)
+        sys.exit(1)
+
+    # Find target node
+    if object_path:
+        node = hier.find(object_path)
+        if node is None:
+            click.echo(f"Error: Object not found: {object_path}", err=True)
+            sys.exit(1)
+    else:
+        # Use first root
+        if not hier.root_objects:
+            click.echo("Error: No root objects found", err=True)
+            sys.exit(1)
+        node = hier.root_objects[0]
+
+    # Get GameObject data
+    go_obj = doc.get_by_file_id(node.file_id)
+    go_content = go_obj.get_content() if go_obj else {}
+
+    # Get active state from GameObject content
+    is_active = go_content.get("m_IsActive", 1) == 1
+
+    if output_format == "json":
+        result = {
+            "name": node.name,
+            "path": node.path,
+            "file_id": node.file_id,
+            "active": is_active,
+            "layer": go_content.get("m_Layer", 0),
+            "tag": go_content.get("m_TagString", "Untagged"),
+            "is_prefab_instance": node.is_prefab_instance,
+        }
+        if node.source_guid:
+            result["source_guid"] = node.source_guid
+
+        # Add transform info
+        if node.transform_id:
+            transform_obj = doc.get_by_file_id(node.transform_id)
+            if transform_obj:
+                transform_content = transform_obj.get_content() or {}
+                result["transform"] = {
+                    "type": "RectTransform" if transform_obj.class_id == 224 else "Transform",
+                    "localPosition": transform_content.get("m_LocalPosition"),
+                    "localRotation": transform_content.get("m_LocalRotation"),
+                    "localScale": transform_content.get("m_LocalScale"),
+                }
+                if transform_obj.class_id == 224:
+                    result["transform"]["anchoredPosition"] = transform_content.get("m_AnchoredPosition")
+                    result["transform"]["sizeDelta"] = transform_content.get("m_SizeDelta")
+                    result["transform"]["anchorMin"] = transform_content.get("m_AnchorMin")
+                    result["transform"]["anchorMax"] = transform_content.get("m_AnchorMax")
+                    result["transform"]["pivot"] = transform_content.get("m_Pivot")
+
+        # Add components
+        result["components"] = []
+        for comp in node.components:
+            comp_data = {
+                "type": comp.script_name or comp.class_name,
+                "class_id": comp.class_id,
+                "file_id": comp.file_id,
+            }
+            if comp.script_guid:
+                comp_data["script_guid"] = comp.script_guid
+            # Include component properties
+            comp_data["properties"] = comp.data
+            result["components"].append(comp_data)
+
+        click.echo(json_module.dumps(result, indent=2, default=str))
+    else:
+        # Text output - Inspector-like format
+        click.echo(f"GameObject: {node.name}")
+        click.echo(f"Path: {node.path}")
+        click.echo(f"FileID: {node.file_id}")
+        click.echo(f"Active: {is_active}")
+        click.echo(f"Layer: {go_content.get('m_Layer', 0)}")
+        click.echo(f"Tag: {go_content.get('m_TagString', 'Untagged')}")
+
+        if node.is_prefab_instance:
+            click.echo(f"Is Prefab Instance: Yes")
+            if node.source_guid:
+                click.echo(f"Source GUID: {node.source_guid}")
+
+        click.echo()
+
+        # Transform info
+        if node.transform_id:
+            transform_obj = doc.get_by_file_id(node.transform_id)
+            if transform_obj:
+                transform_content = transform_obj.get_content() or {}
+                transform_type = "RectTransform" if transform_obj.class_id == 224 else "Transform"
+                click.echo(f"[{transform_type}]")
+
+                pos = transform_content.get("m_LocalPosition", {})
+                if isinstance(pos, dict):
+                    click.echo(f"  localPosition: ({pos.get('x', 0)}, {pos.get('y', 0)}, {pos.get('z', 0)})")
+
+                rot = transform_content.get("m_LocalRotation", {})
+                if isinstance(rot, dict):
+                    click.echo(f"  localRotation: ({rot.get('x', 0)}, {rot.get('y', 0)}, {rot.get('z', 0)}, {rot.get('w', 1)})")
+
+                scale = transform_content.get("m_LocalScale", {})
+                if isinstance(scale, dict):
+                    click.echo(f"  localScale: ({scale.get('x', 1)}, {scale.get('y', 1)}, {scale.get('z', 1)})")
+
+                # RectTransform specific
+                if transform_obj.class_id == 224:
+                    anchor_pos = transform_content.get("m_AnchoredPosition", {})
+                    if isinstance(anchor_pos, dict):
+                        click.echo(f"  anchoredPosition: ({anchor_pos.get('x', 0)}, {anchor_pos.get('y', 0)})")
+
+                    size = transform_content.get("m_SizeDelta", {})
+                    if isinstance(size, dict):
+                        click.echo(f"  sizeDelta: ({size.get('x', 0)}, {size.get('y', 0)})")
+
+                    anchor_min = transform_content.get("m_AnchorMin", {})
+                    if isinstance(anchor_min, dict):
+                        click.echo(f"  anchorMin: ({anchor_min.get('x', 0)}, {anchor_min.get('y', 0)})")
+
+                    anchor_max = transform_content.get("m_AnchorMax", {})
+                    if isinstance(anchor_max, dict):
+                        click.echo(f"  anchorMax: ({anchor_max.get('x', 0)}, {anchor_max.get('y', 0)})")
+
+                    pivot = transform_content.get("m_Pivot", {})
+                    if isinstance(pivot, dict):
+                        click.echo(f"  pivot: ({pivot.get('x', 0.5)}, {pivot.get('y', 0.5)})")
+
+                click.echo()
+
+        # Other components
+        for comp in node.components:
+            comp_type = comp.script_name or comp.class_name
+            click.echo(f"[{comp_type}]")
+
+            if comp.script_guid:
+                click.echo(f"  script_guid: {comp.script_guid}")
+
+            # Show key properties (excluding internal Unity fields)
+            skip_keys = {"m_ObjectHideFlags", "m_CorrespondingSourceObject", "m_PrefabInstance",
+                         "m_PrefabAsset", "m_GameObject", "m_Enabled", "m_Script"}
+            for key, value in comp.data.items():
+                if key not in skip_keys:
+                    # Format value for display
+                    if isinstance(value, dict) and "fileID" in value:
+                        # Reference field
+                        file_id = value.get("fileID", 0)
+                        guid = value.get("guid", "")
+                        if guid:
+                            click.echo(f"  {key}: (GUID: {guid}, fileID: {file_id})")
+                        elif file_id:
+                            click.echo(f"  {key}: (fileID: {file_id})")
+                        else:
+                            click.echo(f"  {key}: None")
+                    elif isinstance(value, (dict, list)):
+                        # Complex value - show abbreviated
+                        if isinstance(value, list):
+                            click.echo(f"  {key}: [{len(value)} items]")
+                        else:
+                            click.echo(f"  {key}: {{...}}")
+                    else:
+                        click.echo(f"  {key}: {value}")
+
+            click.echo()
+
+
 if __name__ == "__main__":
     main()
