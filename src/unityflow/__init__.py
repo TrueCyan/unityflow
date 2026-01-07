@@ -30,6 +30,7 @@ from unityflow.asset_tracker import (
     AssetReference,
     DependencyReport,
     GUIDIndex,
+    LazyGUIDIndex,
     analyze_dependencies,
     build_guid_index,
     extract_guid_references,
@@ -37,6 +38,7 @@ from unityflow.asset_tracker import (
     find_unity_project_root,
     get_cached_guid_index,
     get_file_dependencies,
+    get_lazy_guid_index,
 )
 from unityflow.query import (
     QueryResult,
@@ -94,6 +96,7 @@ __all__ = [
     "AssetReference",
     "DependencyReport",
     "GUIDIndex",
+    "LazyGUIDIndex",
     # Script parsing classes
     "ScriptInfo",
     "SerializedField",
@@ -116,6 +119,7 @@ __all__ = [
     "find_unity_project_root",
     "get_cached_guid_index",
     "get_file_dependencies",
+    "get_lazy_guid_index",
     # Script parsing functions
     "parse_script",
     "parse_script_file",

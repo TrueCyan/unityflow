@@ -327,6 +327,10 @@ class HierarchyNode:
         This method loads the internal structure of a nested prefab,
         making children and components from the source prefab accessible.
 
+        Uses caching at the Hierarchy level to avoid re-loading and re-parsing
+        the same prefab when it's referenced by multiple PrefabInstance nodes.
+        For example, if 'board_Upgrade' is used 10 times, it's only loaded once.
+
         Args:
             project_root: Path to Unity project root. Required if guid_index
                 is not provided.
@@ -384,21 +388,35 @@ class HierarchyNode:
                 return False
 
             # Make path absolute if needed
-            if project_root is not None and not source_path.is_absolute():
-                source_path = project_root / source_path
+            resolved_project_root = project_root
+            if resolved_project_root is None and self._hierarchy is not None:
+                resolved_project_root = self._hierarchy.project_root
+
+            if resolved_project_root is not None and not source_path.is_absolute():
+                source_path = resolved_project_root / source_path
 
             if not source_path.exists():
                 return False
 
-            # Load and parse the source prefab
-            from .parser import UnityYAMLDocument
-            source_doc = UnityYAMLDocument.load_auto(source_path)
+            # Get cached hierarchy or load and cache it
+            # This is the key optimization: same prefab used N times = 1 load + (N-1) cache hits
+            if self._hierarchy is not None:
+                source_hierarchy = self._hierarchy._get_or_load_nested_hierarchy(
+                    self.source_guid,
+                    source_path,
+                    guid_index,
+                )
+            else:
+                # No parent hierarchy for caching, load directly
+                from .parser import UnityYAMLDocument
+                source_doc = UnityYAMLDocument.load_auto(source_path)
+                source_hierarchy = Hierarchy.build(source_doc, guid_index=guid_index)
 
-            # Build hierarchy for the source prefab
-            # Use same guid_index for consistent script name resolution
-            source_hierarchy = Hierarchy.build(source_doc, guid_index=guid_index)
+            if source_hierarchy is None:
+                return False
 
             # Merge root objects from source as children of this node
+            # Note: Nodes are copied (not shared) so each PrefabInstance has its own tree
             for source_root in source_hierarchy.root_objects:
                 self._merge_nested_node(source_root, guid_index, _loading_prefabs)
 
@@ -532,6 +550,11 @@ class Hierarchy:
     _stripped_transforms: dict[int, int] = field(default_factory=dict, repr=False)
     _stripped_game_objects: dict[int, int] = field(default_factory=dict, repr=False)
     _prefab_instances: dict[int, list[int]] = field(default_factory=dict, repr=False)
+    # Cache for loaded nested prefab hierarchies (guid -> Hierarchy)
+    # This prevents re-loading and re-parsing the same prefab multiple times
+    _nested_prefab_cache: dict[str, Hierarchy] = field(
+        default_factory=dict, repr=False
+    )
 
     @classmethod
     def build(
@@ -603,6 +626,45 @@ class Hierarchy:
         """Set _hierarchy reference on all nodes for nested prefab loading."""
         for node in self.iter_all():
             node._hierarchy = self
+
+    def _get_or_load_nested_hierarchy(
+        self,
+        source_guid: str,
+        source_path: Path,
+        guid_index: GUIDIndex | None,
+    ) -> Hierarchy | None:
+        """Get cached hierarchy or load and cache a nested prefab.
+
+        This method provides caching for nested prefab hierarchies to avoid
+        re-loading and re-parsing the same prefab multiple times when it's
+        referenced by multiple PrefabInstance nodes.
+
+        Args:
+            source_guid: GUID of the source prefab
+            source_path: Path to the source prefab file
+            guid_index: GUIDIndex for script name resolution
+
+        Returns:
+            Cached or newly loaded Hierarchy, or None if loading failed
+        """
+        # Check cache first
+        if source_guid in self._nested_prefab_cache:
+            return self._nested_prefab_cache[source_guid]
+
+        # Load and parse the source prefab
+        try:
+            from .parser import UnityYAMLDocument
+            source_doc = UnityYAMLDocument.load_auto(source_path)
+
+            # Build hierarchy for the source prefab
+            # Use same guid_index for consistent script name resolution
+            source_hierarchy = Hierarchy.build(source_doc, guid_index=guid_index)
+
+            # Cache the hierarchy
+            self._nested_prefab_cache[source_guid] = source_hierarchy
+            return source_hierarchy
+        except Exception:
+            return None
 
     def _build_indexes(self, doc: UnityYAMLDocument) -> None:
         """Build lookup indexes for efficient resolution."""

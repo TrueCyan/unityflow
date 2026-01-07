@@ -13,6 +13,7 @@ from unityflow.asset_tracker import (
     CachedGUIDIndex,
     DependencyReport,
     GUIDIndex,
+    LazyGUIDIndex,
     analyze_dependencies,
     build_guid_index,
     extract_guid_references,
@@ -20,6 +21,7 @@ from unityflow.asset_tracker import (
     find_unity_project_root,
     get_cached_guid_index,
     get_file_dependencies,
+    get_lazy_guid_index,
     _classify_asset_type,
     _parse_meta_file,
 )
@@ -790,3 +792,218 @@ class TestGetCachedGUIDIndex:
             )
 
             assert len(index) == 3
+
+
+class TestLazyGUIDIndex:
+    """Tests for LazyGUIDIndex class."""
+
+    def test_create_lazy_index(self):
+        """Test creating a lazy GUID index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test asset and cache
+            (project_root / "Assets" / "test.txt").write_text("content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            # Build cache first
+            get_cached_guid_index(project_root, include_packages=False)
+
+            # Create lazy index
+            lazy_index = LazyGUIDIndex(project_root=project_root)
+            assert lazy_index.project_root == project_root
+
+    def test_lazy_index_get_path(self):
+        """Test getting path from lazy index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test asset
+            (project_root / "Assets" / "test.txt").write_text("content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            # Get lazy index (builds cache if needed)
+            lazy_index = get_lazy_guid_index(project_root, include_packages=False)
+
+            # Query path
+            path = lazy_index.get_path("0123456789abcdef0123456789abcdef")
+            assert path is not None
+            assert path.name == "test.txt"
+
+    def test_lazy_index_resolve_name(self):
+        """Test resolving name from lazy index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test script
+            (project_root / "Assets" / "PlayerController.cs").write_text("class Player {}")
+            (project_root / "Assets" / "PlayerController.cs.meta").write_text(
+                "fileFormatVersion: 2\nguid: abcdef0123456789abcdef0123456789\n"
+            )
+
+            lazy_index = get_lazy_guid_index(project_root, include_packages=False)
+
+            # Resolve name
+            name = lazy_index.resolve_name("abcdef0123456789abcdef0123456789")
+            assert name == "PlayerController"
+
+    def test_lazy_index_get_guid(self):
+        """Test getting GUID from path using lazy index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test asset
+            (project_root / "Assets" / "test.txt").write_text("content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: fedcba9876543210fedcba9876543210\n"
+            )
+
+            lazy_index = get_lazy_guid_index(project_root, include_packages=False)
+
+            # Query GUID
+            guid = lazy_index.get_guid(Path("Assets/test.txt"))
+            assert guid == "fedcba9876543210fedcba9876543210"
+
+    def test_lazy_index_caching(self):
+        """Test that lazy index caches results."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create test asset
+            (project_root / "Assets" / "test.txt").write_text("content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            lazy_index = get_lazy_guid_index(project_root, include_packages=False)
+
+            # First access (from DB)
+            path1 = lazy_index.get_path("0123456789abcdef0123456789abcdef")
+
+            # Check it's in cache
+            assert "0123456789abcdef0123456789abcdef" in lazy_index._cache
+
+            # Second access (from cache)
+            path2 = lazy_index.get_path("0123456789abcdef0123456789abcdef")
+
+            assert path1 == path2
+
+    def test_lazy_index_cache_eviction(self):
+        """Test that lazy index evicts oldest entries when cache is full."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create multiple test assets
+            for i in range(5):
+                (project_root / "Assets" / f"test{i}.txt").write_text(f"content{i}")
+                (project_root / "Assets" / f"test{i}.txt.meta").write_text(
+                    f"fileFormatVersion: 2\nguid: {i:032x}\n"
+                )
+
+            # Get lazy index with small cache
+            lazy_index = get_lazy_guid_index(
+                project_root, include_packages=False, cache_size=2
+            )
+
+            # Access all 5 GUIDs
+            for i in range(5):
+                lazy_index.get_path(f"{i:032x}")
+
+            # Only last 2 should be in cache
+            assert len(lazy_index._cache) == 2
+
+    def test_lazy_index_len(self):
+        """Test lazy index __len__ method."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            # Create multiple test assets
+            for i in range(3):
+                (project_root / "Assets" / f"test{i}.txt").write_text(f"content{i}")
+                (project_root / "Assets" / f"test{i}.txt.meta").write_text(
+                    f"fileFormatVersion: 2\nguid: {i:032x}\n"
+                )
+
+            lazy_index = get_lazy_guid_index(project_root, include_packages=False)
+
+            # len should return total DB entries, not just cached
+            assert len(lazy_index) == 3
+
+    def test_lazy_index_nonexistent_guid(self):
+        """Test lazy index returns None for nonexistent GUID."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            lazy_index = get_lazy_guid_index(project_root, include_packages=False)
+
+            # Query nonexistent GUID
+            path = lazy_index.get_path("nonexistent12345678901234567890")
+            assert path is None
+
+    def test_lazy_index_clear_cache(self):
+        """Test clearing the in-memory cache."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            (project_root / "Assets" / "test.txt").write_text("content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            lazy_index = get_lazy_guid_index(project_root, include_packages=False)
+
+            # Populate cache
+            lazy_index.get_path("0123456789abcdef0123456789abcdef")
+            assert len(lazy_index._cache) == 1
+
+            # Clear cache
+            lazy_index.clear_cache()
+            assert len(lazy_index._cache) == 0
+
+            # Should still be able to query (from DB)
+            path = lazy_index.get_path("0123456789abcdef0123456789abcdef")
+            assert path is not None
+
+    def test_lazy_index_close(self):
+        """Test closing the database connection."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+
+            (project_root / "Assets" / "test.txt").write_text("content")
+            (project_root / "Assets" / "test.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
+            )
+
+            lazy_index = get_lazy_guid_index(project_root, include_packages=False)
+
+            # Open connection
+            lazy_index.get_path("0123456789abcdef0123456789abcdef")
+            assert lazy_index._conn is not None
+
+            # Close connection
+            lazy_index.close()
+            assert lazy_index._conn is None
