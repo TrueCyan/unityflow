@@ -445,3 +445,161 @@ class TestComponentInfo:
         )
 
         assert info.is_on_stripped_object is True
+
+
+class TestLLMFriendlyAPI:
+    """Test LLM-friendly API features."""
+
+    def test_component_info_script_fields(self):
+        """Test ComponentInfo with script_guid and script_name."""
+        info = ComponentInfo(
+            file_id=12345,
+            class_id=114,
+            class_name="MonoBehaviour",
+            data={"m_Script": {"fileID": 11500000, "guid": "test_guid"}},
+            script_guid="test_guid",
+            script_name="PlayerController",
+        )
+
+        assert info.script_guid == "test_guid"
+        assert info.script_name == "PlayerController"
+        # type_name should return script_name for MonoBehaviour
+        assert info.type_name == "PlayerController"
+
+    def test_component_info_type_name_fallback(self):
+        """Test type_name falls back to class_name when no script_name."""
+        info = ComponentInfo(
+            file_id=12345,
+            class_id=114,
+            class_name="MonoBehaviour",
+            data={},
+            script_guid="test_guid",
+            script_name=None,  # No resolved name
+        )
+
+        assert info.type_name == "MonoBehaviour"
+
+    def test_hierarchy_node_nested_prefab_fields(self):
+        """Test HierarchyNode nested prefab fields."""
+        node = HierarchyNode(
+            file_id=12345,
+            name="TestNode",
+            transform_id=67890,
+            is_prefab_instance=True,
+            source_guid="source_guid_123",
+        )
+
+        assert node.is_from_nested_prefab is False
+        assert node.nested_prefab_loaded is False
+
+    def test_hierarchy_node_from_nested_prefab(self):
+        """Test HierarchyNode marked as from nested prefab."""
+        node = HierarchyNode(
+            file_id=12345,
+            name="NestedChild",
+            transform_id=67890,
+            is_from_nested_prefab=True,
+        )
+
+        assert node.is_from_nested_prefab is True
+
+    def test_build_hierarchy_with_guid_index_none(self):
+        """Test build_hierarchy works without guid_index."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        assert hierarchy is not None
+        assert hierarchy.guid_index is None
+
+    def test_hierarchy_has_project_root_field(self):
+        """Test Hierarchy has project_root field."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Should have project_root field (may be None)
+        assert hasattr(hierarchy, "project_root")
+
+    def test_hierarchy_nodes_have_hierarchy_reference(self):
+        """Test that nodes have _hierarchy reference set."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # All nodes should have _hierarchy reference
+        for node in hierarchy.iter_all():
+            assert node._hierarchy is hierarchy
+
+    def test_load_source_prefab_non_prefab_instance(self):
+        """Test load_source_prefab returns False for non-PrefabInstance."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        root = hierarchy.find("RootCanvas")
+        assert root is not None
+        assert not root.is_prefab_instance
+
+        # Should return False for non-PrefabInstance
+        result = root.load_source_prefab()
+        assert result is False
+
+    def test_load_source_prefab_no_guid_index(self):
+        """Test load_source_prefab returns False without guid_index."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        prefab_instances = [
+            node for node in hierarchy.iter_all() if node.is_prefab_instance
+        ]
+        if prefab_instances:
+            node = prefab_instances[0]
+            # Without guid_index and project_root, should return False
+            result = node.load_source_prefab()
+            assert result is False
+
+    def test_load_all_nested_prefabs_no_guid_index(self):
+        """Test load_all_nested_prefabs returns 0 without guid_index."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Without guid_index, should return 0
+        count = hierarchy.load_all_nested_prefabs()
+        assert count == 0
+
+
+class TestGUIDIndexResolution:
+    """Test GUID index name resolution features."""
+
+    def test_guid_index_resolve_name(self):
+        """Test GUIDIndex.resolve_name method."""
+        from unityflow.asset_tracker import GUIDIndex
+
+        index = GUIDIndex()
+        index.guid_to_path["test_guid"] = Path("Assets/Scripts/PlayerController.cs")
+
+        name = index.resolve_name("test_guid")
+        assert name == "PlayerController"
+
+    def test_guid_index_resolve_name_not_found(self):
+        """Test GUIDIndex.resolve_name returns None for unknown GUID."""
+        from unityflow.asset_tracker import GUIDIndex
+
+        index = GUIDIndex()
+        name = index.resolve_name("nonexistent_guid")
+        assert name is None
+
+    def test_guid_index_resolve_path(self):
+        """Test GUIDIndex.resolve_path method."""
+        from unityflow.asset_tracker import GUIDIndex
+
+        index = GUIDIndex()
+        index.guid_to_path["test_guid"] = Path("Assets/Prefabs/MyPrefab.prefab")
+
+        path = index.resolve_path("test_guid")
+        assert path == Path("Assets/Prefabs/MyPrefab.prefab")
+
+    def test_guid_index_resolve_path_not_found(self):
+        """Test GUIDIndex.resolve_path returns None for unknown GUID."""
+        from unityflow.asset_tracker import GUIDIndex
+
+        index = GUIDIndex()
+        path = index.resolve_path("nonexistent_guid")
+        assert path is None

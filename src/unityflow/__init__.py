@@ -35,6 +35,7 @@ from unityflow.asset_tracker import (
     extract_guid_references,
     find_references_to_asset,
     find_unity_project_root,
+    get_cached_guid_index,
     get_file_dependencies,
 )
 from unityflow.query import (
@@ -113,6 +114,7 @@ __all__ = [
     "extract_guid_references",
     "find_references_to_asset",
     "find_unity_project_root",
+    "get_cached_guid_index",
     "get_file_dependencies",
     # Script parsing functions
     "parse_script",
