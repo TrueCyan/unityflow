@@ -1,0 +1,120 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 400000}
+  - component: {fileID: 114000}
+  m_Layer: 5
+  m_Name: RootCanvas
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &400000
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 603920067861314518}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 1, y: 1}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 0}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &114000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dc42784cf147c0c48a680349fa168899, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+--- !u!1001 &7876467245726119373
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 400000}
+    m_Modifications:
+    - target: {fileID: 7291146517268352539, guid: a0bd5a356d4dbf94f80d1eb788a92ca0}
+      propertyPath: m_AnchoredPosition.x
+      value: 100
+      objectReference: {fileID: 0}
+    - target: {fileID: 7291146517268352539, guid: a0bd5a356d4dbf94f80d1eb788a92ca0}
+      propertyPath: m_AnchoredPosition.y
+      value: 50
+      objectReference: {fileID: 0}
+    - target: {fileID: 9030983452208262516, guid: a0bd5a356d4dbf94f80d1eb788a92ca0}
+      propertyPath: m_Name
+      value: MyButton
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 9030983452208262516, guid: a0bd5a356d4dbf94f80d1eb788a92ca0}
+      insertIndex: -1
+      addedObject: {fileID: 2745004045164926116}
+  m_SourcePrefab: {fileID: 100100000, guid: a0bd5a356d4dbf94f80d1eb788a92ca0, type: 3}
+--- !u!224 &603920067861314518 stripped
+RectTransform:
+  m_CorrespondingSourceObject: {fileID: 7291146517268352539, guid: a0bd5a356d4dbf94f80d1eb788a92ca0}
+  m_PrefabInstance: {fileID: 7876467245726119373}
+--- !u!1 &1160427460518271161 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 9030983452208262516, guid: a0bd5a356d4dbf94f80d1eb788a92ca0}
+  m_PrefabInstance: {fileID: 7876467245726119373}
+--- !u!222 &2745004045164926116
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1160427460518271161}
+  m_CullTransparentMesh: 1
+--- !u!1001 &8234567890123456789
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 603920067861314518}
+    m_Modifications:
+    - target: {fileID: 1234567890123456789, guid: b1cd6a467e5dcf95f90e2fc899b93cb1}
+      propertyPath: m_Name
+      value: NestedIcon
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: b1cd6a467e5dcf95f90e2fc899b93cb1, type: 3}
+--- !u!224 &9012345678901234567 stripped
+RectTransform:
+  m_CorrespondingSourceObject: {fileID: 1234567890123456789, guid: b1cd6a467e5dcf95f90e2fc899b93cb1}
+  m_PrefabInstance: {fileID: 8234567890123456789}
+--- !u!1 &9876543210987654321 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 2345678901234567890, guid: b1cd6a467e5dcf95f90e2fc899b93cb1}
+  m_PrefabInstance: {fileID: 8234567890123456789}
