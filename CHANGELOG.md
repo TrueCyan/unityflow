@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-01-07
+
+### Added
+
+- **Library/PackageCache GUID 인덱싱**: `build_guid_index(include_packages=True)` 시 Unity 레지스트리 패키지도 스캔
+  - `Assets/` (기본)
+  - `Packages/` (임베디드 패키지)
+  - `Library/PackageCache/` (다운로드된 패키지) - **신규**
+
+### Changed
+
+- **CLASS_IDS를 JSON 파일로 분리**: 하드코딩된 Class ID를 외부 JSON 파일에서 로드
+  - `data/class_ids.json`: Unity 공식 ClassIDReference.html에서 파싱한 **334개** Class ID
+  - 기존 하드코딩 약 100개에서 3배 이상 확장
+  - Unity 버전 업데이트 시 HTML에서 JSON만 재생성하면 됨
+  - `importlib.resources`로 패키지 데이터 로드 (fallback 지원)
+
+### Fixed
+
+- **CLASS_IDS 오류 수정**: Unity 6.3 LTS 공식 문서 기준으로 잘못된 매핑 수정
+  - ID 156: `TerrainCollider` → `TerrainData`
+  - ID 180-208, 246-253 범위 수정
+  - 신규 ID 추가: 50 (Rigidbody2D), 55 (PhysicsManager), 150 (PreloadData), 319 (AvatarMask), 320 (PlayableDirector), 328 (VideoPlayer), 329 (VideoClip), 331 (SpriteMask), 363 (OcclusionCullingData)
+
+---
+
 ## [0.3.0] - 2026-01-07
 
 ### Breaking Changes
