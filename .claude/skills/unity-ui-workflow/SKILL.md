@@ -1,6 +1,6 @@
 ---
 name: unity-ui-workflow
-description: Unity UI 작업을 수행합니다. unityflow를 사용하여 Canvas, Panel, Button, Image 등 UI 컴포넌트 생성/수정, RectTransform 레이아웃 조정, EventSystem 설정 등의 작업을 수행합니다.
+description: Unity UI 작업을 수행합니다. unityflow를 사용하여 Canvas, Panel, Button, Image 등 UI 컴포넌트 조회/수정, RectTransform 레이아웃 조정 등의 작업을 수행합니다.
 ---
 
 # Unity UI Workflow Skill
@@ -17,45 +17,57 @@ Unity YAML 파일을 직접 텍스트 편집하지 마세요!
 
 ---
 
-## UI GameObject 생성
-
-UI용 GameObject는 `--ui` 플래그를 사용하여 RectTransform으로 생성합니다.
+## UI 계층 구조 조회
 
 ```bash
-# UI용 GameObject 생성 (RectTransform 포함)
-unityflow add-object Scene.unity --name "Panel" --ui --parent "Canvas"
-unityflow add-object Scene.unity --name "Button" --ui --parent "Canvas/Panel"
-unityflow add-object Scene.unity --name "Icon" --ui --parent "Canvas/Panel/Button"
+# 씬의 UI 계층 구조 보기
+unityflow hierarchy Scene.unity --components
+
+# UI 프리팹 구조 보기
+unityflow hierarchy MainMenu.prefab --components
+
+# JSON 형식으로 출력
+unityflow hierarchy Scene.unity --format json
 ```
 
 ---
 
-## UI 컴포넌트 추가
+## UI 컴포넌트 조회
 
-### Canvas 설정
-
-**모든 UI 요소는 반드시 Canvas의 자식이어야 합니다.** 씬에 Canvas가 없으면 새로 추가해야 합니다.
-
-Canvas를 추가할 때는 **필수 컴포넌트를 반드시 함께 추가**해야 합니다:
-- **CanvasScaler**: UI 스케일링 처리
-- **GraphicRaycaster**: 클릭/터치 감지 (없으면 UI 클릭이 작동하지 않음!)
+### GameObject 상세 조회
 
 ```bash
-# Canvas GameObject 추가
-unityflow add-object Scene.unity --name "Canvas" --ui
+# Canvas 상세 정보
+unityflow inspect Scene.unity "Canvas"
 
-# 필수 컴포넌트 추가 (반드시 모두 추가할 것!)
-unityflow add-component Scene.unity --to "Canvas" --type Canvas
-unityflow add-component Scene.unity --to "Canvas" --type CanvasScaler
-unityflow add-component Scene.unity --to "Canvas" --type GraphicRaycaster
+# Panel 상세 정보
+unityflow inspect Scene.unity "Canvas/Panel"
+
+# Button 상세 정보 (경로로 찾기)
+unityflow inspect Scene.unity "Canvas/Panel/Button"
 ```
 
-### Image
+### 컴포넌트 속성 조회
 
 ```bash
-# Image 컴포넌트 추가
-unityflow add-component Scene.unity --to "Canvas/Panel" --type Image
+# Image 컴포넌트 조회
+unityflow inspect Scene.unity "Canvas/Panel/Image"
 
+# RectTransform 조회
+unityflow get Scene.unity "Canvas/Panel/RectTransform"
+
+# 특정 속성 조회
+unityflow get Scene.unity "Canvas/Panel/Image/m_Color"
+unityflow get Scene.unity "Canvas/Panel/RectTransform/m_AnchorMin"
+```
+
+---
+
+## UI 속성 수정
+
+### Image 속성 수정
+
+```bash
 # 색상 설정
 unityflow set Scene.unity \
     --path "Canvas/Panel/Image/m_Color" \
@@ -65,19 +77,20 @@ unityflow set Scene.unity \
 unityflow set Scene.unity \
     --path "Canvas/Panel/Image/m_Sprite" \
     --value "@Assets/Sprites/panel_bg.png"
+
+# 스프라이트 타입 설정 (0=Simple, 1=Sliced, 2=Tiled, 3=Filled)
+unityflow set Scene.unity \
+    --path "Canvas/Panel/Image/m_Type" \
+    --value '1'
 ```
 
-### Button
+### Button 색상 설정
 
 ```bash
-# Button 컴포넌트 추가 (Image가 필요)
-unityflow add-component Scene.unity --to "Canvas/Panel/Button" --type Image
-unityflow add-component Scene.unity --to "Canvas/Panel/Button" --type Button
-
-# Button 색상 설정
+# Button 색상 블록 수정
 unityflow set Scene.unity \
-    --path "Canvas/Panel/Button/Button/m_Colors" \
-    --value '{
+    --path "Canvas/Panel/Button/Button" \
+    --batch '{
         "m_NormalColor": {"r": 1, "g": 1, "b": 1, "a": 1},
         "m_HighlightedColor": {"r": 0.96, "g": 0.96, "b": 0.96, "a": 1},
         "m_PressedColor": {"r": 0.78, "g": 0.78, "b": 0.78, "a": 1},
@@ -86,12 +99,9 @@ unityflow set Scene.unity \
     }'
 ```
 
-### TextMeshPro
+### TextMeshPro 수정
 
 ```bash
-# TextMeshProUGUI 추가
-unityflow add-component Scene.unity --to "Canvas/Panel/Label" --type TextMeshProUGUI
-
 # 텍스트 설정
 unityflow set Scene.unity \
     --path "Canvas/Panel/Label/TextMeshProUGUI/m_text" \
@@ -103,73 +113,6 @@ unityflow set Scene.unity \
     --value '24'
 ```
 
-### ScrollRect
-
-```bash
-# ScrollRect 구조 설정
-# - ScrollView (ScrollRect + Image + Mask)
-#   - Viewport (Image + Mask)
-#     - Content (VerticalLayoutGroup)
-
-unityflow add-component Scene.unity --to "Canvas/ScrollView" --type Image
-unityflow add-component Scene.unity --to "Canvas/ScrollView" --type ScrollRect
-unityflow add-component Scene.unity --to "Canvas/ScrollView" --type Mask
-
-unityflow add-component Scene.unity --to "Canvas/ScrollView/Viewport" --type Image
-unityflow add-component Scene.unity --to "Canvas/ScrollView/Viewport" --type RectMask2D
-
-unityflow add-component Scene.unity --to "Canvas/ScrollView/Viewport/Content" --type VerticalLayoutGroup
-unityflow add-component Scene.unity --to "Canvas/ScrollView/Viewport/Content" --type ContentSizeFitter
-```
-
-### Input Field
-
-```bash
-# TMP_InputField 추가
-unityflow add-component Scene.unity --to "Canvas/Panel/InputField" --type Image
-unityflow add-component Scene.unity --to "Canvas/Panel/InputField" --type TMP_InputField
-
-# Placeholder와 Text 설정
-unityflow set Scene.unity \
-    --path "Canvas/Panel/InputField/TMP_InputField/m_Placeholder" \
-    --value '{"fileID": <placeholder_text_id>}'
-```
-
----
-
-## 레이아웃 컴포넌트
-
-### VerticalLayoutGroup / HorizontalLayoutGroup
-
-```bash
-# 수직 레이아웃 추가
-unityflow add-component Scene.unity --to "Canvas/Panel" --type VerticalLayoutGroup
-
-# 레이아웃 설정
-unityflow set Scene.unity \
-    --path "Canvas/Panel/VerticalLayoutGroup" \
-    --batch '{
-        "m_Spacing": 10,
-        "m_ChildAlignment": 0,
-        "m_ChildControlWidth": 1,
-        "m_ChildControlHeight": 0,
-        "m_ChildForceExpandWidth": 1,
-        "m_ChildForceExpandHeight": 0
-    }'
-```
-
-### ContentSizeFitter
-
-```bash
-# ContentSizeFitter 추가
-unityflow add-component Scene.unity --to "Canvas/Panel" --type ContentSizeFitter
-
-# 설정 (0=Unconstrained, 1=MinSize, 2=PreferredSize)
-unityflow set Scene.unity \
-    --path "Canvas/Panel/ContentSizeFitter" \
-    --batch '{"m_HorizontalFit": 0, "m_VerticalFit": 2}'
-```
-
 ---
 
 ## RectTransform 설정
@@ -177,7 +120,7 @@ unityflow set Scene.unity \
 RectTransform은 UI 요소의 위치와 크기를 결정합니다.
 
 ```bash
-# RectTransform 전체 설정
+# RectTransform 전체 설정 (batch 모드)
 unityflow set Scene.unity \
     --path "Canvas/Panel/RectTransform" \
     --batch '{
@@ -234,17 +177,31 @@ unityflow set Scene.unity \
 
 ---
 
-## EventSystem
+## 레이아웃 컴포넌트 수정
 
-UI 인터랙션을 위해 씬에 EventSystem이 반드시 필요합니다.
+### VerticalLayoutGroup / HorizontalLayoutGroup
 
 ```bash
-# EventSystem GameObject 추가
-unityflow add-object Scene.unity --name "EventSystem"
+# 레이아웃 설정
+unityflow set Scene.unity \
+    --path "Canvas/Panel/VerticalLayoutGroup" \
+    --batch '{
+        "m_Spacing": 10,
+        "m_ChildAlignment": 0,
+        "m_ChildControlWidth": 1,
+        "m_ChildControlHeight": 0,
+        "m_ChildForceExpandWidth": 1,
+        "m_ChildForceExpandHeight": 0
+    }'
+```
 
-# EventSystem 컴포넌트 추가
-unityflow add-component Scene.unity --to "EventSystem" --type EventSystem
-unityflow add-component Scene.unity --to "EventSystem" --type InputSystemUIInputModule
+### ContentSizeFitter
+
+```bash
+# 설정 (0=Unconstrained, 1=MinSize, 2=PreferredSize)
+unityflow set Scene.unity \
+    --path "Canvas/Panel/ContentSizeFitter" \
+    --batch '{"m_HorizontalFit": 0, "m_VerticalFit": 2}'
 ```
 
 ---
@@ -280,23 +237,16 @@ unityflow set Scene.unity \
     --value '0'
 ```
 
-### 2. EventSystem 필수
+### 2. 여러 컴포넌트가 있을 때 인덱스 사용
 
-UI가 클릭에 반응하려면 씬에 반드시 EventSystem이 있어야 합니다.
+동일 타입의 컴포넌트가 여러 개 있으면 인덱스로 지정합니다.
 
 ```bash
-# EventSystem이 있는지 확인
-unityflow query Scene.unity --find-component "EventSystem"
+# 두 번째 Image 컴포넌트 수정
+unityflow set Scene.unity \
+    --path "Canvas/Panel/Image[1]/m_Color" \
+    --value '{"r": 1, "g": 0, "b": 0, "a": 1}'
 ```
-
-### 3. RectTransform 삭제 불가
-
-RectTransform은 UI GameObject의 필수 컴포넌트이므로 삭제할 수 없습니다.
-
-### 4. GraphicRaycaster 필수
-
-Canvas에 GraphicRaycaster가 없으면 **UI 클릭이 전혀 작동하지 않습니다**.
-Canvas를 새로 만들 때 반드시 Canvas, CanvasScaler, GraphicRaycaster를 함께 추가하세요.
 
 ---
 
@@ -307,11 +257,6 @@ Canvas를 새로 만들 때 반드시 Canvas, CanvasScaler, GraphicRaycaster를 
 unityflow set Scene.unity \
     --path "Canvas/Panel/Button/Image/m_Sprite" \
     --value "@Assets/Sprites/button_normal.png"
-
-# 스프라이트 타입 설정 (0=Simple, 1=Sliced, 2=Tiled, 3=Filled)
-unityflow set Scene.unity \
-    --path "Canvas/Panel/Image/m_Type" \
-    --value '1'
 
 # 9-slice 테두리 설정 (Sliced 모드에서)
 unityflow set Scene.unity \

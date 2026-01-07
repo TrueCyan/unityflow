@@ -447,12 +447,14 @@ def get_prefab_root_file_id(prefab_path: Path) -> int | None:
 def resolve_asset_reference(
     value: str,
     project_root: Path | None = None,
+    auto_generate_meta: bool = True,
 ) -> AssetResolveResult | None:
     """Resolve an asset reference to a Unity reference.
 
     Args:
         value: Asset reference string (e.g., "@Assets/Scripts/Player.cs")
         project_root: Unity project root for resolving relative paths
+        auto_generate_meta: If True, automatically generate .meta file if missing
 
     Returns:
         AssetResolveResult with fileID and guid, or None if resolution failed
@@ -462,6 +464,10 @@ def resolve_asset_reference(
         >>> print(result.to_dict())
         {'fileID': 11500000, 'guid': 'abc123...', 'type': 3}
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     if not is_asset_reference(value):
         return None
 
@@ -475,9 +481,20 @@ def resolve_asset_reference(
 
     meta_path = Path(str(full_path) + ".meta")
 
-    # Check if meta file exists
+    # Check if meta file exists, auto-generate if needed
     if not meta_path.is_file():
-        return None
+        if auto_generate_meta and full_path.is_file():
+            # Auto-generate .meta file
+            from unityflow.meta_generator import generate_meta_file
+
+            try:
+                generate_meta_file(full_path)
+                logger.info(f"Auto-generated .meta file for: {asset_path}")
+            except Exception as e:
+                logger.warning(f"Failed to auto-generate .meta for {asset_path}: {e}")
+                return None
+        else:
+            return None
 
     # Get GUID from meta file
     guid = get_guid_from_meta(meta_path)
