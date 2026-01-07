@@ -1212,3 +1212,266 @@ def get_cached_guid_index(
         progress_callback=progress_callback,
         max_workers=max_workers,
     )
+
+
+# ============================================================================
+# Lazy GUID Index (Memory-Optimized)
+# ============================================================================
+
+
+@dataclass
+class LazyGUIDIndex:
+    """Memory-efficient GUID index that queries SQLite directly.
+
+    Unlike GUIDIndex which loads all entries into memory, LazyGUIDIndex
+    queries the SQLite database on-demand. This is ideal for large projects
+    (170k+ assets) where loading the entire index would be slow and
+    memory-intensive.
+
+    Features:
+    - O(1) initialization (no upfront loading)
+    - O(log N) lookups via SQLite index
+    - Optional LRU cache for frequently accessed GUIDs
+    - Compatible with GUIDIndex API
+
+    Performance characteristics:
+    - Initial loading: O(1) vs O(N) for GUIDIndex
+    - Memory usage: O(cache_size) vs O(N) for GUIDIndex
+    - Lookup: O(log N) database query vs O(1) dict lookup
+    - For typical usage patterns where only a subset of GUIDs are accessed,
+      LazyGUIDIndex provides better overall performance.
+
+    Example:
+        >>> # Use lazy index for memory efficiency
+        >>> lazy_index = get_lazy_guid_index("/path/to/unity/project")
+        >>> path = lazy_index.get_path("f4afdcb1cbadf954ba8b1cf465429e17")
+        >>> print(path)  # Assets/Scripts/PlayerController.cs
+    """
+
+    project_root: Path
+    _db_path: Path = field(init=False)
+    _conn: sqlite3.Connection | None = field(default=None, repr=False)
+    _cache: dict[str, Path] = field(default_factory=dict, repr=False)
+    _reverse_cache: dict[Path, str] = field(default_factory=dict, repr=False)
+    _cache_size: int = field(default=1000, repr=False)
+    _db_lock: Lock = field(default_factory=Lock, repr=False)
+
+    def __post_init__(self) -> None:
+        self._db_path = self.project_root / CACHE_DIR_NAME / CACHE_DB_NAME
+
+    def __len__(self) -> int:
+        """Return the total number of entries in the database."""
+        if not self._db_path.exists():
+            return 0
+        try:
+            with self._db_lock:
+                conn = self._get_connection()
+                cursor = conn.execute("SELECT COUNT(*) FROM guid_cache")
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except sqlite3.Error:
+            return 0
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get or create a database connection."""
+        if self._conn is None:
+            self._conn = sqlite3.connect(str(self._db_path), timeout=30.0)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.execute("PRAGMA cache_size=-16000")  # 16MB cache
+        return self._conn
+
+    def _add_to_cache(self, guid: str, path: Path) -> None:
+        """Add entry to LRU cache, evicting oldest if necessary."""
+        if len(self._cache) >= self._cache_size:
+            # Simple LRU: remove oldest entry (first inserted)
+            oldest_guid = next(iter(self._cache))
+            oldest_path = self._cache.pop(oldest_guid)
+            self._reverse_cache.pop(oldest_path, None)
+
+        self._cache[guid] = path
+        self._reverse_cache[path] = guid
+
+    def get_path(self, guid: str) -> Path | None:
+        """Get the asset path for a GUID.
+
+        Checks LRU cache first, then queries SQLite database.
+
+        Args:
+            guid: The GUID to look up
+
+        Returns:
+            Asset path, or None if not found
+        """
+        # Check cache first
+        if guid in self._cache:
+            # Move to end for LRU behavior (re-insert)
+            path = self._cache.pop(guid)
+            self._cache[guid] = path
+            return path
+
+        # Query database
+        if not self._db_path.exists():
+            return None
+
+        try:
+            with self._db_lock:
+                conn = self._get_connection()
+                cursor = conn.execute(
+                    "SELECT path FROM guid_cache WHERE guid = ?", (guid,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    path = Path(row[0])
+                    self._add_to_cache(guid, path)
+                    return path
+        except sqlite3.Error:
+            pass
+
+        return None
+
+    def get_guid(self, path: Path) -> str | None:
+        """Get the GUID for an asset path.
+
+        Args:
+            path: The asset path to look up
+
+        Returns:
+            GUID string, or None if not found
+        """
+        # Try both absolute and relative paths
+        paths_to_check = [path]
+
+        # Try resolving relative to project root
+        if self.project_root:
+            try:
+                rel_path = path.relative_to(self.project_root)
+                paths_to_check.append(rel_path)
+            except ValueError:
+                pass
+
+        # Check cache first
+        for p in paths_to_check:
+            if p in self._reverse_cache:
+                return self._reverse_cache[p]
+
+        # Query database
+        if not self._db_path.exists():
+            return None
+
+        try:
+            with self._db_lock:
+                conn = self._get_connection()
+                for p in paths_to_check:
+                    cursor = conn.execute(
+                        "SELECT guid FROM guid_cache WHERE path = ?", (str(p),)
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        guid = row[0]
+                        self._add_to_cache(guid, p)
+                        return guid
+        except sqlite3.Error:
+            pass
+
+        return None
+
+    def resolve_name(self, guid: str) -> str | None:
+        """Resolve a GUID to an asset name (filename without extension).
+
+        This is particularly useful for resolving MonoBehaviour script names
+        from their m_Script GUID references.
+
+        Args:
+            guid: The GUID to resolve
+
+        Returns:
+            The asset name (stem), or None if GUID is not found
+        """
+        path = self.get_path(guid)
+        if path is not None:
+            return path.stem
+        return None
+
+    def resolve_path(self, guid: str) -> Path | None:
+        """Resolve a GUID to an asset path.
+
+        Alias for get_path() with a more descriptive name for LLM usage.
+
+        Args:
+            guid: The GUID to resolve
+
+        Returns:
+            The asset path, or None if GUID is not found
+        """
+        return self.get_path(guid)
+
+    def close(self) -> None:
+        """Close the database connection."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def clear_cache(self) -> None:
+        """Clear the in-memory LRU cache."""
+        self._cache.clear()
+        self._reverse_cache.clear()
+
+    def __del__(self) -> None:
+        """Clean up database connection on deletion."""
+        self.close()
+
+
+def get_lazy_guid_index(
+    project_root: Path,
+    include_packages: bool = True,
+    progress_callback: ProgressCallback = None,
+    max_workers: int | None = None,
+    cache_size: int = 1000,
+) -> LazyGUIDIndex:
+    """Get a memory-efficient lazy GUID index.
+
+    This function ensures the SQLite cache exists (building it if necessary)
+    and returns a LazyGUIDIndex that queries the database on-demand.
+
+    This is the recommended approach for large projects (170k+ assets)
+    where loading the entire index into memory would be slow.
+
+    Performance comparison with get_cached_guid_index():
+    - Initial loading: O(1) vs O(N) - LazyGUIDIndex is instant
+    - Memory usage: O(cache_size) vs O(N) - LazyGUIDIndex uses minimal memory
+    - Lookup: O(log N) vs O(1) - GUIDIndex is faster for individual lookups
+    - Overall: LazyGUIDIndex is better when accessing a subset of GUIDs
+
+    Args:
+        project_root: Path to Unity project root
+        include_packages: Whether to include Library/PackageCache/
+        progress_callback: Optional callback for progress during cache build
+        max_workers: Set to > 1 to force parallel processing during cache build
+        cache_size: Maximum number of entries to keep in memory cache (default: 1000)
+
+    Returns:
+        LazyGUIDIndex for memory-efficient GUID lookups
+
+    Example:
+        >>> lazy_index = get_lazy_guid_index("/path/to/unity/project")
+        >>> path = lazy_index.get_path("f4afdcb1cbadf954ba8b1cf465429e17")
+        >>> name = lazy_index.resolve_name("f4afdcb1cbadf954ba8b1cf465429e17")
+    """
+    project_root = Path(project_root)
+    cache_db = project_root / CACHE_DIR_NAME / CACHE_DB_NAME
+
+    # Ensure cache exists
+    if not cache_db.exists():
+        # Build the cache first
+        cache = CachedGUIDIndex(project_root=project_root)
+        cache.get_index(
+            include_packages=include_packages,
+            progress_callback=progress_callback,
+            max_workers=max_workers,
+        )
+
+    # Create lazy index
+    lazy_index = LazyGUIDIndex(project_root=project_root)
+    lazy_index._cache_size = cache_size
+    return lazy_index

@@ -603,3 +603,232 @@ class TestGUIDIndexResolution:
         index = GUIDIndex()
         path = index.resolve_path("nonexistent_guid")
         assert path is None
+
+
+class TestNestedPrefabCaching:
+    """Test nested prefab hierarchy caching."""
+
+    def test_hierarchy_has_nested_prefab_cache(self):
+        """Test that Hierarchy has _nested_prefab_cache field."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Should have the cache field
+        assert hasattr(hierarchy, "_nested_prefab_cache")
+        assert isinstance(hierarchy._nested_prefab_cache, dict)
+        # Cache should be empty initially
+        assert len(hierarchy._nested_prefab_cache) == 0
+
+    def test_get_or_load_nested_hierarchy_caches_result(self):
+        """Test that _get_or_load_nested_hierarchy caches the result."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            # Create a simple prefab
+            prefab_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: TestRoot
+  m_Component:
+  - component: {fileID: 400000}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children: []
+"""
+            prefab_path = project_root / "Assets" / "TestPrefab.prefab"
+            prefab_path.write_text(prefab_content)
+
+            # Create parent hierarchy
+            doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+            hierarchy = build_hierarchy(doc)
+
+            # Load nested hierarchy
+            source_guid = "test_guid_for_caching"
+            result1 = hierarchy._get_or_load_nested_hierarchy(
+                source_guid, prefab_path, None
+            )
+
+            assert result1 is not None
+            assert source_guid in hierarchy._nested_prefab_cache
+
+            # Load again - should return cached result
+            result2 = hierarchy._get_or_load_nested_hierarchy(
+                source_guid, prefab_path, None
+            )
+
+            # Should be the exact same object (cached)
+            assert result1 is result2
+
+    def test_nested_prefab_cache_different_guids(self):
+        """Test that different GUIDs create different cache entries."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            # Create two prefabs
+            for name in ["Prefab1", "Prefab2"]:
+                prefab_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: {name}
+  m_Component:
+  - component: {{fileID: 400000}}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {{fileID: 100000}}
+  m_Father: {{fileID: 0}}
+  m_Children: []
+"""
+                (project_root / "Assets" / f"{name}.prefab").write_text(prefab_content)
+
+            # Create parent hierarchy
+            doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+            hierarchy = build_hierarchy(doc)
+
+            # Load both prefabs
+            result1 = hierarchy._get_or_load_nested_hierarchy(
+                "guid1", project_root / "Assets" / "Prefab1.prefab", None
+            )
+            result2 = hierarchy._get_or_load_nested_hierarchy(
+                "guid2", project_root / "Assets" / "Prefab2.prefab", None
+            )
+
+            # Should have 2 cache entries
+            assert len(hierarchy._nested_prefab_cache) == 2
+            assert "guid1" in hierarchy._nested_prefab_cache
+            assert "guid2" in hierarchy._nested_prefab_cache
+
+            # Results should be different hierarchies
+            assert result1 is not result2
+
+    def test_nested_prefab_cache_returns_none_on_error(self):
+        """Test that _get_or_load_nested_hierarchy returns None on error."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Try to load nonexistent file
+        result = hierarchy._get_or_load_nested_hierarchy(
+            "nonexistent_guid",
+            Path("/nonexistent/path/to/prefab.prefab"),
+            None,
+        )
+
+        assert result is None
+        # Should not be cached on error
+        assert "nonexistent_guid" not in hierarchy._nested_prefab_cache
+
+    def test_load_source_prefab_uses_cache(self):
+        """Test that load_source_prefab uses hierarchy cache."""
+        import tempfile
+        from unityflow.asset_tracker import GUIDIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            # Create a source prefab
+            source_guid = "abc123def45678901234567890123456"
+            prefab_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: SourceRoot
+  m_Component:
+  - component: {fileID: 400000}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children: []
+"""
+            prefab_path = project_root / "Assets" / "SourcePrefab.prefab"
+            prefab_path.write_text(prefab_content)
+
+            # Create GUID index
+            guid_index = GUIDIndex(project_root=project_root)
+            guid_index.guid_to_path[source_guid] = Path("Assets/SourcePrefab.prefab")
+
+            # Create parent prefab with PrefabInstance
+            parent_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: ParentRoot
+  m_Component:
+  - component: {{fileID: 400000}}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {{fileID: 100000}}
+  m_Father: {{fileID: 0}}
+  m_Children:
+  - {{fileID: 500000}}
+  - {{fileID: 600000}}
+--- !u!1001 &200000
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {source_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {source_guid}}}
+      propertyPath: m_Name
+      value: Instance1
+      objectReference: {{fileID: 0}}
+--- !u!4 &500000 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {source_guid}}}
+  m_PrefabInstance: {{fileID: 200000}}
+--- !u!1001 &300000
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {source_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {source_guid}}}
+      propertyPath: m_Name
+      value: Instance2
+      objectReference: {{fileID: 0}}
+--- !u!4 &600000 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {source_guid}}}
+  m_PrefabInstance: {{fileID: 300000}}
+"""
+            parent_path = project_root / "Assets" / "ParentPrefab.prefab"
+            parent_path.write_text(parent_content)
+
+            # Load parent hierarchy
+            parent_doc = UnityYAMLDocument.load(parent_path)
+            hierarchy = build_hierarchy(parent_doc, guid_index=guid_index, project_root=project_root)
+
+            # Find the two PrefabInstance nodes
+            prefab_instances = [
+                node for node in hierarchy.iter_all() if node.is_prefab_instance
+            ]
+            assert len(prefab_instances) == 2
+
+            # Load first instance
+            result1 = prefab_instances[0].load_source_prefab()
+            assert result1 is True
+            assert prefab_instances[0].nested_prefab_loaded is True
+
+            # Cache should have one entry
+            assert len(hierarchy._nested_prefab_cache) == 1
+            assert source_guid in hierarchy._nested_prefab_cache
+
+            # Load second instance - should use cache
+            result2 = prefab_instances[1].load_source_prefab()
+            assert result2 is True
+            assert prefab_instances[1].nested_prefab_loaded is True
+
+            # Cache should still have one entry (same GUID)
+            assert len(hierarchy._nested_prefab_cache) == 1
