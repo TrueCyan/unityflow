@@ -286,3 +286,78 @@ just_a_string
 
         assert obj.data == {}
         assert obj.root_key is None
+
+    def test_negative_file_id_parsing(self):
+        """Test that negative fileIDs are parsed correctly.
+
+        Unity uses 64-bit signed integers for fileIDs, which can be negative.
+        This is common in prefabs and generated assets.
+        """
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-3742660215815977075
+MonoBehaviour:
+  m_GameObject: {fileID: 6986153471733748233}
+  m_Script: {fileID: 11500000, guid: f4afdcb1cbadf954ba8b1cf465429e17, type: 3}
+"""
+        doc = UnityYAMLDocument.parse(content)
+
+        assert len(doc.objects) == 1
+        obj = doc.objects[0]
+
+        assert obj.file_id == -3742660215815977075
+        assert obj.class_id == 114
+        assert obj.class_name == "MonoBehaviour"
+
+        content_data = obj.get_content()
+        assert content_data is not None
+        assert content_data["m_GameObject"]["fileID"] == 6986153471733748233
+
+    def test_mixed_positive_negative_file_ids(self):
+        """Test parsing documents with both positive and negative fileIDs."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1234567890123456789
+GameObject:
+  m_Name: TestObject
+--- !u!4 &-9876543210987654321
+Transform:
+  m_GameObject: {fileID: 1234567890123456789}
+--- !u!114 &-1
+MonoBehaviour:
+  m_Enabled: 1
+"""
+        doc = UnityYAMLDocument.parse(content)
+
+        assert len(doc.objects) == 3
+
+        # Positive fileID
+        obj1 = doc.get_by_file_id(1234567890123456789)
+        assert obj1 is not None
+        assert obj1.class_id == 1
+
+        # Large negative fileID
+        obj2 = doc.get_by_file_id(-9876543210987654321)
+        assert obj2 is not None
+        assert obj2.class_id == 4
+
+        # Small negative fileID (-1)
+        obj3 = doc.get_by_file_id(-1)
+        assert obj3 is not None
+        assert obj3.class_id == 114
+
+    def test_negative_file_id_with_stripped(self):
+        """Test that negative fileIDs work with 'stripped' suffix."""
+        content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &-5555555555555555555 stripped
+GameObject:
+  m_Name: StrippedObject
+"""
+        doc = UnityYAMLDocument.parse(content)
+
+        assert len(doc.objects) == 1
+        obj = doc.objects[0]
+
+        assert obj.file_id == -5555555555555555555
+        assert obj.stripped is True

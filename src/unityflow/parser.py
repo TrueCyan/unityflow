@@ -32,8 +32,9 @@ UNITY_HEADER = """%YAML 1.1
 """
 
 # Pattern to match Unity document headers: --- !u!{ClassID} &{fileID}
+# Note: fileID can be negative (Unity uses 64-bit signed integers)
 DOCUMENT_HEADER_PATTERN = re.compile(
-    r"^--- !u!(\d+) &(\d+)(?: stripped)?$", re.MULTILINE
+    r"^--- !u!(\d+) &(-?\d+)(?: stripped)?$", re.MULTILINE
 )
 
 # Common Unity ClassIDs
