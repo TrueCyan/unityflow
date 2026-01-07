@@ -404,6 +404,110 @@ class TestSetProperty:
         name = root.get_property("m_Name")
         assert name == "RootCanvas"
 
+    def test_get_property_returns_modified_value_for_prefab_instance(self):
+        """Test that get_property returns modified value for PrefabInstance."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Find PrefabInstance node
+        prefab_instances = [
+            node for node in hierarchy.iter_all() if node.is_prefab_instance
+        ]
+        assert len(prefab_instances) >= 1
+
+        instance = prefab_instances[0]
+        # The name should be from modifications (set in the prefab)
+        name = instance.get_property("m_Name")
+        assert name is not None
+        # Name should be "MyButton" from modifications in nested_prefab.prefab
+        assert name == "MyButton"
+
+        # Also test position values from modifications
+        pos_x = instance.get_property("m_AnchoredPosition.x")
+        assert pos_x == 100
+        pos_y = instance.get_property("m_AnchoredPosition.y")
+        assert pos_y == 50
+
+    def test_set_property_get_property_consistency_for_prefab_instance(self):
+        """Test that get_property returns value set by set_property for PrefabInstance."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Find PrefabInstance node
+        prefab_instances = [
+            node for node in hierarchy.iter_all() if node.is_prefab_instance
+        ]
+        assert len(prefab_instances) >= 1
+
+        instance = prefab_instances[0]
+
+        # Set a new property value
+        result = instance.set_property("m_LocalPosition.x", 100)
+        assert result is True
+
+        # get_property should return the same value
+        value = instance.get_property("m_LocalPosition.x")
+        assert value == 100
+
+        # Set existing property to a new value
+        result = instance.set_property("m_Name", "NewBoardName")
+        assert result is True
+
+        # get_property should return the updated value
+        name = instance.get_property("m_Name")
+        assert name == "NewBoardName"
+
+    def test_get_property_returns_transform_properties(self):
+        """Test that get_property can access Transform/RectTransform properties."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        root = hierarchy.find("RootCanvas")
+        assert root is not None
+        assert root.is_ui is True
+
+        # RectTransform properties should be accessible
+        anchored_pos = root.get_property("m_AnchoredPosition")
+        assert anchored_pos == {"x": 0, "y": 0}
+
+        size_delta = root.get_property("m_SizeDelta")
+        assert size_delta == {"x": 0, "y": 0}
+
+        local_pos = root.get_property("m_LocalPosition")
+        assert local_pos == {"x": 0, "y": 0, "z": 0}
+
+    def test_prefab_instance_is_ui_detection(self):
+        """Test that PrefabInstance nodes correctly detect is_ui from stripped RectTransform."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Find PrefabInstance nodes
+        prefab_instances = [
+            node for node in hierarchy.iter_all() if node.is_prefab_instance
+        ]
+        assert len(prefab_instances) >= 1
+
+        # All PrefabInstances in nested_prefab.prefab use RectTransform
+        for instance in prefab_instances:
+            assert instance.is_ui is True, f"{instance.name} should have is_ui=True"
+
+    def test_get_property_rect_transform_from_modifications(self):
+        """Test that PrefabInstance RectTransform values come from modifications."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Find first PrefabInstance (MyButton)
+        prefab_instances = [
+            node for node in hierarchy.iter_all() if node.is_prefab_instance
+        ]
+        instance = prefab_instances[0]
+
+        # These values are set in modifications
+        pos_x = instance.get_property("m_AnchoredPosition.x")
+        pos_y = instance.get_property("m_AnchoredPosition.y")
+        assert pos_x == 100
+        assert pos_y == 50
+
 
 class TestHierarchyClass:
     """Test Hierarchy class methods."""
@@ -445,6 +549,88 @@ class TestComponentInfo:
         )
 
         assert info.is_on_stripped_object is True
+
+    def test_component_info_modifications_field(self):
+        """Test ComponentInfo with modifications field."""
+        modifications = [
+            {
+                "target": {"fileID": 12345, "guid": "test_guid"},
+                "propertyPath": "m_Enabled",
+                "value": 0,
+                "objectReference": {"fileID": 0},
+            }
+        ]
+        info = ComponentInfo(
+            file_id=12345,
+            class_id=114,
+            class_name="MonoBehaviour",
+            data={"m_Enabled": 1},
+            modifications=modifications,
+        )
+
+        assert info.modifications is not None
+        assert len(info.modifications) == 1
+        assert info.modifications[0]["propertyPath"] == "m_Enabled"
+
+    def test_component_info_get_effective_property_with_modification(self):
+        """Test get_effective_property returns modified value."""
+        modifications = [
+            {
+                "target": {"fileID": 12345, "guid": "test_guid"},
+                "propertyPath": "m_Enabled",
+                "value": 0,
+                "objectReference": {"fileID": 0},
+            }
+        ]
+        info = ComponentInfo(
+            file_id=12345,
+            class_id=114,
+            class_name="MonoBehaviour",
+            data={"m_Enabled": 1, "m_Script": {"fileID": 11500000}},
+            modifications=modifications,
+        )
+
+        # Modified property should return modified value
+        assert info.get_effective_property("m_Enabled") == 0
+
+        # Non-modified property should return original value
+        script = info.get_effective_property("m_Script")
+        assert script == {"fileID": 11500000}
+
+    def test_component_info_get_effective_property_without_modification(self):
+        """Test get_effective_property returns original value when no modifications."""
+        info = ComponentInfo(
+            file_id=12345,
+            class_id=114,
+            class_name="MonoBehaviour",
+            data={"m_Enabled": 1, "m_Color": {"r": 1, "g": 0.5}},
+            modifications=None,
+        )
+
+        assert info.get_effective_property("m_Enabled") == 1
+        assert info.get_effective_property("m_Color.r") == 1
+
+    def test_component_info_get_effective_property_with_object_reference(self):
+        """Test get_effective_property returns objectReference when fileID is set."""
+        modifications = [
+            {
+                "target": {"fileID": 12345, "guid": "test_guid"},
+                "propertyPath": "m_Target",
+                "value": "",
+                "objectReference": {"fileID": 67890},
+            }
+        ]
+        info = ComponentInfo(
+            file_id=12345,
+            class_id=114,
+            class_name="MonoBehaviour",
+            data={"m_Target": {"fileID": 0}},
+            modifications=modifications,
+        )
+
+        # Should return objectReference when it has a fileID
+        target = info.get_effective_property("m_Target")
+        assert target == {"fileID": 67890}
 
 
 class TestLLMFriendlyAPI:

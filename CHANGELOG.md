@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-01-07
+
+### Fixed
+
+- **`get_property()`/`set_property()` API 일관성 개선**: PrefabInstance 노드에서 수정된 값을 올바르게 반환
+  - `set_property()`로 설정한 값이 `get_property()`에서 즉시 반영됨
+  - m_Modifications의 effective value를 우선 반환
+
+- **`get_property()` Transform/RectTransform 접근 지원**: GameObject 속성 외에도 Transform 컴포넌트 속성 조회 가능
+  - `node.get_property("m_LocalPosition")` 등 Transform 속성 직접 조회 가능
+  - UI 프리팹의 RectTransform 속성 (m_AnchoredPosition, m_SizeDelta 등) 조회 가능
+
+- **PrefabInstance `is_ui` 감지 수정**: stripped RectTransform을 가진 PrefabInstance 노드에서 `is_ui=True` 올바르게 감지
+  - class_id 224 (RectTransform) 확인하여 UI 노드 식별
+
+### Added
+
+- **`ComponentInfo.modifications` 필드**: 컴포넌트에 적용된 PrefabInstance 수정 사항 저장
+- **`ComponentInfo.get_effective_property()` 메서드**: modifications를 반영한 실제 속성값 조회
+  ```python
+  comp = node.components[0]
+  # modifications가 있으면 수정된 값, 없으면 원본 값 반환
+  value = comp.get_effective_property("m_LocalPosition.x")
+  ```
+
+---
+
 ## [0.3.2] - 2026-01-07
 
 ### Added
