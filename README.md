@@ -36,7 +36,7 @@ pip install -e ".[dev]"
 
 ## 요구 사항
 
-- Python 3.9 이상
+- Python 3.12 이상
 - 의존성:
   - `unityparser>=4.0.0`
   - `rapidyaml>=0.10.0`
