@@ -72,6 +72,15 @@ from unityflow.meta_generator import (
     set_asset_bundle,
     get_meta_info,
 )
+from unityflow.hierarchy import (
+    ComponentInfo,
+    HierarchyNode,
+    Hierarchy,
+    build_hierarchy,
+    resolve_game_object_for_component,
+    get_prefab_instance_for_stripped,
+    get_stripped_objects_for_prefab,
+)
 
 __all__ = [
     # Classes
@@ -140,4 +149,13 @@ __all__ = [
     "get_meta_info",
     # Meta generator constants
     "EXTENSION_TO_TYPE",
+    # Hierarchy classes
+    "ComponentInfo",
+    "HierarchyNode",
+    "Hierarchy",
+    # Hierarchy functions
+    "build_hierarchy",
+    "resolve_game_object_for_component",
+    "get_prefab_instance_for_stripped",
+    "get_stripped_objects_for_prefab",
 ]
