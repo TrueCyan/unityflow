@@ -22,6 +22,7 @@ from unityflow.asset_tracker import (
     get_cached_guid_index,
     get_file_dependencies,
     get_lazy_guid_index,
+    get_local_package_paths,
     _classify_asset_type,
     _parse_meta_file,
 )
@@ -1007,3 +1008,273 @@ class TestLazyGUIDIndex:
             # Close connection
             lazy_index.close()
             assert lazy_index._conn is None
+
+
+class TestLocalPackageGUIDCaching:
+    """Tests for local package GUID caching via file: paths in manifest.json."""
+
+    def test_get_local_package_paths_utility(self):
+        """Test the get_local_package_paths utility function."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "UnityProject"
+            project_root.mkdir()
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+            (project_root / "Packages").mkdir()
+
+            # Create external package directory (simulating file:../../packages/mypackage)
+            external_packages = Path(tmpdir) / "packages"
+            external_packages.mkdir()
+            package_dir = external_packages / "com.test.mypackage"
+            package_dir.mkdir()
+
+            # Create manifest.json with file: reference
+            manifest = {
+                "dependencies": {
+                    "com.test.mypackage": f"file:../../packages/com.test.mypackage"
+                }
+            }
+            (project_root / "Packages" / "manifest.json").write_text(
+                __import__("json").dumps(manifest)
+            )
+
+            # Test the utility function directly
+            local_paths = get_local_package_paths(project_root)
+
+            assert len(local_paths) == 1
+            assert local_paths[0].resolve() == package_dir.resolve()
+
+    def test_get_local_package_paths(self):
+        """Test extracting local package paths from manifest.json via CachedGUIDIndex."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "UnityProject"
+            project_root.mkdir()
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+            (project_root / "Packages").mkdir()
+
+            # Create external package directory (simulating file:../../packages/mypackage)
+            external_packages = Path(tmpdir) / "packages"
+            external_packages.mkdir()
+            package_dir = external_packages / "com.test.mypackage"
+            package_dir.mkdir()
+
+            # Create manifest.json with file: reference
+            manifest = {
+                "dependencies": {
+                    "com.test.mypackage": f"file:../../packages/com.test.mypackage"
+                }
+            }
+            (project_root / "Packages" / "manifest.json").write_text(
+                __import__("json").dumps(manifest)
+            )
+
+            cache = CachedGUIDIndex(project_root=project_root)
+            local_paths = cache._get_local_package_paths()
+
+            assert len(local_paths) == 1
+            assert local_paths[0].resolve() == package_dir.resolve()
+
+    def test_local_package_guid_indexing(self):
+        """Test that GUIDs from local packages are indexed correctly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "UnityProject"
+            project_root.mkdir()
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+            (project_root / "Packages").mkdir()
+
+            # Create asset in Assets folder
+            (project_root / "Assets" / "main.txt").write_text("main content")
+            (project_root / "Assets" / "main.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 11111111111111111111111111111111\n"
+            )
+
+            # Create external package directory
+            external_packages = Path(tmpdir) / "packages"
+            external_packages.mkdir()
+            package_dir = external_packages / "com.test.mypackage"
+            (package_dir / "Runtime").mkdir(parents=True)
+
+            # Create asset in local package
+            (package_dir / "Runtime" / "LocalScript.cs").write_text("class LocalScript {}")
+            (package_dir / "Runtime" / "LocalScript.cs.meta").write_text(
+                "fileFormatVersion: 2\nguid: 22222222222222222222222222222222\n"
+            )
+
+            # Create manifest.json with file: reference
+            manifest = {
+                "dependencies": {
+                    "com.test.mypackage": f"file:../../packages/com.test.mypackage"
+                }
+            }
+            (project_root / "Packages" / "manifest.json").write_text(
+                __import__("json").dumps(manifest)
+            )
+
+            # Build index with packages
+            cache = CachedGUIDIndex(project_root=project_root)
+            index = cache.get_index(include_packages=True)
+
+            # Both Assets and local package GUIDs should be indexed
+            assert index.get_path("11111111111111111111111111111111") is not None
+            assert index.get_path("22222222222222222222222222222222") is not None
+
+    def test_local_package_version_tracking(self):
+        """Test that local package paths are tracked for cache invalidation."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "UnityProject"
+            project_root.mkdir()
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+            (project_root / "Packages").mkdir()
+
+            # Create external package directory
+            external_packages = Path(tmpdir) / "packages"
+            external_packages.mkdir()
+            package_dir = external_packages / "com.test.pkg"
+            package_dir.mkdir()
+
+            # Create manifest.json with file: reference
+            manifest = {
+                "dependencies": {
+                    "com.test.pkg": "file:../../packages/com.test.pkg"
+                }
+            }
+            (project_root / "Packages" / "manifest.json").write_text(
+                __import__("json").dumps(manifest)
+            )
+
+            cache = CachedGUIDIndex(project_root=project_root)
+            versions = cache._get_package_versions()
+
+            # Local package should be tracked with its full file: path
+            assert "local:com.test.pkg" in versions
+            assert versions["local:com.test.pkg"] == "file:../../packages/com.test.pkg"
+
+    def test_local_package_path_with_version_suffix(self):
+        """Test local package path with @version suffix like file:../../pkg@1.7.0."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "UnityProject"
+            project_root.mkdir()
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+            (project_root / "Packages").mkdir()
+
+            # Create external package with version in directory name
+            external_packages = Path(tmpdir) / "NK.Packages"
+            external_packages.mkdir()
+            package_dir = external_packages / "com.domybest.mybox@1.7.0"
+            (package_dir / "Runtime").mkdir(parents=True)
+
+            # Create asset in local package
+            (package_dir / "Runtime" / "MyScript.cs").write_text("class MyScript {}")
+            (package_dir / "Runtime" / "MyScript.cs.meta").write_text(
+                "fileFormatVersion: 2\nguid: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1\n"
+            )
+
+            # Create manifest.json with file: reference (matching user's example)
+            manifest = {
+                "dependencies": {
+                    "com.domybest.mybox": "file:../../NK.Packages/com.domybest.mybox@1.7.0"
+                }
+            }
+            (project_root / "Packages" / "manifest.json").write_text(
+                __import__("json").dumps(manifest)
+            )
+
+            # Build index with packages
+            cache = CachedGUIDIndex(project_root=project_root)
+            index = cache.get_index(include_packages=True)
+
+            # Local package GUID should be indexed
+            path = index.get_path("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1")
+            assert path is not None
+
+    def test_build_guid_index_with_local_packages(self):
+        """Test that build_guid_index includes local packages when include_packages=True."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "UnityProject"
+            project_root.mkdir()
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+            (project_root / "Packages").mkdir()
+
+            # Create asset in Assets folder
+            (project_root / "Assets" / "main.txt").write_text("main content")
+            (project_root / "Assets" / "main.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 11111111111111111111111111111111\n"
+            )
+
+            # Create external package directory
+            external_packages = Path(tmpdir) / "external"
+            external_packages.mkdir()
+            package_dir = external_packages / "com.test.external"
+            (package_dir / "Runtime").mkdir(parents=True)
+
+            # Create asset in local package
+            (package_dir / "Runtime" / "ExtScript.cs").write_text("class ExtScript {}")
+            (package_dir / "Runtime" / "ExtScript.cs.meta").write_text(
+                "fileFormatVersion: 2\nguid: 33333333333333333333333333333333\n"
+            )
+
+            # Create manifest.json with file: reference
+            manifest = {
+                "dependencies": {
+                    "com.test.external": "file:../../external/com.test.external"
+                }
+            }
+            (project_root / "Packages" / "manifest.json").write_text(
+                __import__("json").dumps(manifest)
+            )
+
+            # Test build_guid_index with include_packages=True
+            index = build_guid_index(project_root, include_packages=True)
+
+            # Both Assets and local package GUIDs should be indexed
+            assert index.get_path("11111111111111111111111111111111") is not None
+            assert index.get_path("33333333333333333333333333333333") is not None
+
+    def test_build_guid_index_without_local_packages(self):
+        """Test that build_guid_index excludes local packages when include_packages=False."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "UnityProject"
+            project_root.mkdir()
+            (project_root / "Assets").mkdir()
+            (project_root / "ProjectSettings").mkdir()
+            (project_root / "Packages").mkdir()
+
+            # Create asset in Assets folder
+            (project_root / "Assets" / "main.txt").write_text("main content")
+            (project_root / "Assets" / "main.txt.meta").write_text(
+                "fileFormatVersion: 2\nguid: 44444444444444444444444444444444\n"
+            )
+
+            # Create external package directory
+            external_packages = Path(tmpdir) / "external"
+            external_packages.mkdir()
+            package_dir = external_packages / "com.test.external"
+            package_dir.mkdir()
+
+            # Create asset in local package
+            (package_dir / "External.cs").write_text("class External {}")
+            (package_dir / "External.cs.meta").write_text(
+                "fileFormatVersion: 2\nguid: 55555555555555555555555555555555\n"
+            )
+
+            # Create manifest.json with file: reference
+            manifest = {
+                "dependencies": {
+                    "com.test.external": "file:../../external/com.test.external"
+                }
+            }
+            (project_root / "Packages" / "manifest.json").write_text(
+                __import__("json").dumps(manifest)
+            )
+
+            # Test build_guid_index with include_packages=False (default)
+            index = build_guid_index(project_root, include_packages=False)
+
+            # Only Assets GUID should be indexed, not local package
+            assert index.get_path("44444444444444444444444444444444") is not None
+            assert index.get_path("55555555555555555555555555555555") is None

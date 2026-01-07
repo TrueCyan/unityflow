@@ -226,6 +226,49 @@ def find_unity_project_root(start_path: Path) -> Path | None:
     return None
 
 
+def get_local_package_paths(project_root: Path) -> list[Path]:
+    """Get paths to local packages referenced via file: in manifest.json.
+
+    Parses Packages/manifest.json and extracts paths for dependencies
+    that use the "file:" prefix (local filesystem packages).
+
+    Examples of supported formats:
+    - "file:../../NK.Packages/com.domybest.mybox@1.7.0"
+    - "file:../SharedPackages/mypackage"
+
+    Args:
+        project_root: Path to Unity project root
+
+    Returns:
+        List of resolved absolute paths to local package directories.
+    """
+    manifest_path = project_root / "Packages" / "manifest.json"
+    if not manifest_path.exists():
+        return []
+
+    local_paths: list[Path] = []
+    try:
+        manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        dependencies = manifest_data.get("dependencies", {})
+
+        for _dep_name, dep_value in dependencies.items():
+            if isinstance(dep_value, str) and dep_value.startswith("file:"):
+                # Extract relative path: "file:../../NK.Packages/pkg" -> "../../NK.Packages/pkg"
+                relative_path = dep_value[5:]  # Remove "file:" prefix
+
+                # Resolve relative to Packages directory (where manifest.json lives)
+                package_path = (project_root / "Packages" / relative_path).resolve()
+
+                # Only add if it exists and is a directory
+                if package_path.is_dir():
+                    local_paths.append(package_path)
+
+    except (OSError, json.JSONDecodeError, KeyError):
+        pass
+
+    return local_paths
+
+
 def build_guid_index(
     project_root: Path,
     include_packages: bool = False,
@@ -237,6 +280,7 @@ def build_guid_index(
     - Assets/ folder (always)
     - Packages/ folder (when include_packages=True, for embedded packages)
     - Library/PackageCache/ (when include_packages=True, for registry packages)
+    - Local packages from manifest.json file: references (when include_packages=True)
 
     Args:
         project_root: Path to Unity project root
@@ -260,6 +304,10 @@ def build_guid_index(
         package_cache_dir = project_root / "Library" / "PackageCache"
         if package_cache_dir.is_dir():
             search_paths.append(package_cache_dir)
+
+        # Local packages referenced via file: in manifest.json
+        local_package_paths = get_local_package_paths(project_root)
+        search_paths.extend(local_package_paths)
 
     meta_files: list[Path] = []
     for search_path in search_paths:
@@ -1069,37 +1117,12 @@ class CachedGUIDIndex:
     def _get_local_package_paths(self) -> list[Path]:
         """Get paths to local packages referenced via file: in manifest.json.
 
-        Parses Packages/manifest.json and extracts paths for dependencies
-        that use the "file:" prefix (local filesystem packages).
+        Uses the shared get_local_package_paths() utility function.
 
         Returns:
             List of resolved absolute paths to local package directories.
         """
-        manifest_path = self.project_root / "Packages" / "manifest.json"
-        if not manifest_path.exists():
-            return []
-
-        local_paths: list[Path] = []
-        try:
-            manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-            dependencies = manifest_data.get("dependencies", {})
-
-            for _dep_name, dep_value in dependencies.items():
-                if isinstance(dep_value, str) and dep_value.startswith("file:"):
-                    # Extract relative path: "file:../../NK.Packages/pkg" -> "../../NK.Packages/pkg"
-                    relative_path = dep_value[5:]  # Remove "file:" prefix
-
-                    # Resolve relative to Packages directory (where manifest.json lives)
-                    package_path = (self.project_root / "Packages" / relative_path).resolve()
-
-                    # Only add if it exists and is a directory
-                    if package_path.is_dir():
-                        local_paths.append(package_path)
-
-        except (OSError, json.JSONDecodeError, KeyError):
-            pass
-
-        return local_paths
+        return get_local_package_paths(self.project_root)
 
     def _parse_meta_files_sequential(
         self,
