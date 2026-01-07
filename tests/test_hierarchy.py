@@ -457,6 +457,57 @@ class TestSetProperty:
         name = instance.get_property("m_Name")
         assert name == "NewBoardName"
 
+    def test_get_property_returns_transform_properties(self):
+        """Test that get_property can access Transform/RectTransform properties."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        root = hierarchy.find("RootCanvas")
+        assert root is not None
+        assert root.is_ui is True
+
+        # RectTransform properties should be accessible
+        anchored_pos = root.get_property("m_AnchoredPosition")
+        assert anchored_pos == {"x": 0, "y": 0}
+
+        size_delta = root.get_property("m_SizeDelta")
+        assert size_delta == {"x": 0, "y": 0}
+
+        local_pos = root.get_property("m_LocalPosition")
+        assert local_pos == {"x": 0, "y": 0, "z": 0}
+
+    def test_prefab_instance_is_ui_detection(self):
+        """Test that PrefabInstance nodes correctly detect is_ui from stripped RectTransform."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Find PrefabInstance nodes
+        prefab_instances = [
+            node for node in hierarchy.iter_all() if node.is_prefab_instance
+        ]
+        assert len(prefab_instances) >= 1
+
+        # All PrefabInstances in nested_prefab.prefab use RectTransform
+        for instance in prefab_instances:
+            assert instance.is_ui is True, f"{instance.name} should have is_ui=True"
+
+    def test_get_property_rect_transform_from_modifications(self):
+        """Test that PrefabInstance RectTransform values come from modifications."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Find first PrefabInstance (MyButton)
+        prefab_instances = [
+            node for node in hierarchy.iter_all() if node.is_prefab_instance
+        ]
+        instance = prefab_instances[0]
+
+        # These values are set in modifications
+        pos_x = instance.get_property("m_AnchoredPosition.x")
+        pos_y = instance.get_property("m_AnchoredPosition.y")
+        assert pos_x == 100
+        assert pos_y == 50
+
 
 class TestHierarchyClass:
     """Test Hierarchy class methods."""

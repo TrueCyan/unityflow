@@ -279,23 +279,40 @@ class HierarchyNode:
         if self._document is None:
             return None
 
+        # Try GameObject first
         obj = self._document.get_by_file_id(self.file_id)
-        if obj is None:
-            return None
+        if obj is not None:
+            content = obj.get_content()
+            if content is not None:
+                # Navigate nested properties
+                parts = property_path.split(".")
+                value = content
+                found = True
+                for part in parts:
+                    if isinstance(value, dict) and part in value:
+                        value = value[part]
+                    else:
+                        found = False
+                        break
+                if found:
+                    return value
 
-        content = obj.get_content()
-        if content is None:
-            return None
+        # Try Transform/RectTransform if not found in GameObject
+        if self.transform_id:
+            transform_obj = self._document.get_by_file_id(self.transform_id)
+            if transform_obj is not None:
+                content = transform_obj.get_content()
+                if content is not None:
+                    parts = property_path.split(".")
+                    value = content
+                    for part in parts:
+                        if isinstance(value, dict) and part in value:
+                            value = value[part]
+                        else:
+                            return None
+                    return value
 
-        # Navigate nested properties
-        parts = property_path.split(".")
-        value = content
-        for part in parts:
-            if isinstance(value, dict) and part in value:
-                value = value[part]
-            else:
-                return None
-        return value
+        return None
 
     def set_property(self, property_path: str, value: Any) -> bool:
         """Set a property value on this node's GameObject.
@@ -1007,18 +1024,22 @@ class Hierarchy:
 
                 # Find the root transform of this PrefabInstance
                 transform_id = 0
+                is_ui = False
                 stripped_ids = self._prefab_instances.get(obj.file_id, [])
                 for stripped_id in stripped_ids:
                     stripped_obj = doc.get_by_file_id(stripped_id)
                     if stripped_obj and stripped_obj.class_id in (4, 224):
                         # Check if this is the root (parent is outside the prefab)
                         transform_id = stripped_id
+                        # RectTransform (224) means UI
+                        is_ui = stripped_obj.class_id == 224
                         break
 
                 node = HierarchyNode(
                     file_id=obj.file_id,
                     name=name,
                     transform_id=transform_id,
+                    is_ui=is_ui,
                     is_prefab_instance=True,
                     source_guid=source_guid,
                     source_file_id=source_file_id,
