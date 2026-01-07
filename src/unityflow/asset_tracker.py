@@ -87,7 +87,18 @@ class AssetDependency:
 
 @dataclass
 class GUIDIndex:
-    """Index mapping GUIDs to asset paths."""
+    """Index mapping GUIDs to asset paths.
+
+    Provides methods to resolve GUIDs to asset paths and names,
+    enabling LLM-friendly access to Unity asset metadata.
+
+    Example:
+        >>> guid_index = build_guid_index("/path/to/unity/project")
+        >>> path = guid_index.get_path("f4afdcb1cbadf954ba8b1cf465429e17")
+        >>> print(path)  # Assets/Scripts/PlayerController.cs
+        >>> name = guid_index.resolve_name("f4afdcb1cbadf954ba8b1cf465429e17")
+        >>> print(name)  # PlayerController
+    """
 
     guid_to_path: dict[str, Path] = field(default_factory=dict)
     path_to_guid: dict[Path, str] = field(default_factory=dict)
@@ -116,6 +127,44 @@ class GUIDIndex:
                 pass
 
         return None
+
+    def resolve_name(self, guid: str) -> str | None:
+        """Resolve a GUID to an asset name (filename without extension).
+
+        This is particularly useful for resolving MonoBehaviour script names
+        from their m_Script GUID references.
+
+        Args:
+            guid: The GUID to resolve
+
+        Returns:
+            The asset name (stem), or None if GUID is not found
+
+        Example:
+            >>> name = guid_index.resolve_name("f4afdcb1cbadf954ba8b1cf465429e17")
+            >>> print(name)  # "PlayerController"
+        """
+        path = self.guid_to_path.get(guid)
+        if path is not None:
+            return path.stem
+        return None
+
+    def resolve_path(self, guid: str) -> Path | None:
+        """Resolve a GUID to an asset path.
+
+        Alias for get_path() with a more descriptive name for LLM usage.
+
+        Args:
+            guid: The GUID to resolve
+
+        Returns:
+            The asset path, or None if GUID is not found
+
+        Example:
+            >>> path = guid_index.resolve_path("f4afdcb1cbadf954ba8b1cf465429e17")
+            >>> print(path)  # Path("Assets/Scripts/PlayerController.cs")
+        """
+        return self.guid_to_path.get(guid)
 
 
 def find_unity_project_root(start_path: Path) -> Path | None:

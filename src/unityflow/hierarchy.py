@@ -21,6 +21,7 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
 from .parser import (
@@ -33,22 +34,49 @@ from .parser import (
 )
 
 if TYPE_CHECKING:
+    from .asset_tracker import GUIDIndex
     from .parser import UnityYAMLDocument
 
 
 @dataclass
 class ComponentInfo:
-    """Information about a component attached to a GameObject."""
+    """Information about a component attached to a GameObject.
+
+    For MonoBehaviour components, script_guid and script_name provide
+    the resolved script information when a GUIDIndex is available.
+
+    Attributes:
+        file_id: The fileID of this component in the document
+        class_id: Unity's ClassID (e.g., 114 for MonoBehaviour)
+        class_name: Human-readable class name from ClassID
+        data: Full component data dictionary
+        is_on_stripped_object: Whether this component is on a stripped GameObject
+        script_guid: GUID of the script (only for MonoBehaviour, class_id=114)
+        script_name: Resolved script name (only when GUIDIndex provided)
+
+    Example:
+        >>> comp = node.get_component("MonoBehaviour")
+        >>> print(comp.script_name)  # "PlayerController"
+        >>> print(comp.script_guid)  # "f4afdcb1cbadf954ba8b1cf465429e17"
+    """
 
     file_id: int
     class_id: int
     class_name: str
     data: dict[str, Any]
     is_on_stripped_object: bool = False
+    script_guid: str | None = None
+    script_name: str | None = None
 
     @property
     def type_name(self) -> str:
-        """Get the component type name."""
+        """Get the component type name.
+
+        For MonoBehaviour components with resolved script names,
+        returns the script name. Otherwise returns the class_name.
+        """
+        if self.script_name:
+            return self.script_name
         return self.class_name
 
 
@@ -59,6 +87,9 @@ class HierarchyNode:
     A HierarchyNode can represent either:
     - A regular GameObject with its Transform and components
     - A PrefabInstance (nested prefab) with its modifications
+
+    For PrefabInstance nodes, the source prefab content can be loaded using
+    load_source_prefab() to access the internal structure of the nested prefab.
 
     Attributes:
         file_id: The fileID of this node's primary object (GameObject or PrefabInstance)
@@ -71,6 +102,16 @@ class HierarchyNode:
         source_guid: GUID of the source prefab (only for PrefabInstance nodes)
         is_stripped: Whether the underlying object is stripped
         prefab_instance_id: For stripped objects, the PrefabInstance they belong to
+        is_from_nested_prefab: Whether this node was loaded from a nested prefab
+        nested_prefab_loaded: Whether nested prefab content has been loaded
+
+    Example:
+        >>> # Load nested prefab content for a PrefabInstance
+        >>> node = hierarchy.find("board_CoreUpgrade")
+        >>> if node.is_prefab_instance:
+        ...     node.load_source_prefab(project_root="/path/to/project")
+        ...     print(node.children)  # Now shows internal structure
+        ...     print(node.nested_prefab_loaded)  # True
     """
 
     file_id: int
@@ -86,7 +127,10 @@ class HierarchyNode:
     is_stripped: bool = False
     prefab_instance_id: int = 0
     modifications: list[dict[str, Any]] = field(default_factory=list)
+    is_from_nested_prefab: bool = False
+    nested_prefab_loaded: bool = False
     _document: UnityYAMLDocument | None = field(default=None, repr=False)
+    _hierarchy: Hierarchy | None = field(default=None, repr=False)
 
     def find(self, path: str) -> HierarchyNode | None:
         """Find a descendant node by path.
@@ -272,6 +316,177 @@ class HierarchyNode:
             return True
         return False
 
+    def load_source_prefab(
+        self,
+        project_root: Path | str | None = None,
+        guid_index: GUIDIndex | None = None,
+        _loading_prefabs: set[str] | None = None,
+    ) -> bool:
+        """Load the source prefab content for a PrefabInstance node.
+
+        This method loads the internal structure of a nested prefab,
+        making children and components from the source prefab accessible.
+
+        Args:
+            project_root: Path to Unity project root. Required if guid_index
+                is not provided.
+            guid_index: Optional GUIDIndex for resolving GUIDs and script names.
+                If not provided, will try to get from _hierarchy or build a
+                minimal index from project_root.
+            _loading_prefabs: Internal set to prevent circular references.
+
+        Returns:
+            True if the prefab was loaded successfully, False otherwise.
+
+        Example:
+            >>> node = hierarchy.find("board_CoreUpgrade")
+            >>> if node.is_prefab_instance:
+            ...     node.load_source_prefab("/path/to/unity/project")
+            ...     for child in node.children:
+            ...         print(child.name)  # Shows internal structure
+        """
+        if not self.is_prefab_instance or not self.source_guid:
+            return False
+
+        if self.nested_prefab_loaded:
+            return True  # Already loaded
+
+        # Initialize loading set for circular reference prevention
+        if _loading_prefabs is None:
+            _loading_prefabs = set()
+
+        # Check for circular reference
+        if self.source_guid in _loading_prefabs:
+            return False  # Skip to prevent infinite recursion
+
+        _loading_prefabs.add(self.source_guid)
+
+        try:
+            # Resolve project_root if needed
+            if project_root is not None:
+                project_root = Path(project_root)
+
+            # Get or build guid_index
+            if guid_index is None and self._hierarchy is not None:
+                guid_index = self._hierarchy.guid_index
+
+            if guid_index is None and project_root is not None:
+                # Import here to avoid circular dependency
+                from .asset_tracker import build_guid_index
+                guid_index = build_guid_index(project_root)
+
+            if guid_index is None:
+                return False
+
+            # Resolve source prefab path
+            source_path = guid_index.get_path(self.source_guid)
+            if source_path is None:
+                return False
+
+            # Make path absolute if needed
+            if project_root is not None and not source_path.is_absolute():
+                source_path = project_root / source_path
+
+            if not source_path.exists():
+                return False
+
+            # Load and parse the source prefab
+            from .parser import UnityYAMLDocument
+            source_doc = UnityYAMLDocument.load_auto(source_path)
+
+            # Build hierarchy for the source prefab
+            # Use same guid_index for consistent script name resolution
+            source_hierarchy = Hierarchy.build(source_doc, guid_index=guid_index)
+
+            # Merge root objects from source as children of this node
+            for source_root in source_hierarchy.root_objects:
+                self._merge_nested_node(source_root, guid_index, _loading_prefabs)
+
+            self.nested_prefab_loaded = True
+            return True
+
+        finally:
+            _loading_prefabs.discard(self.source_guid)
+
+    def _merge_nested_node(
+        self,
+        source_node: HierarchyNode,
+        guid_index: GUIDIndex | None,
+        loading_prefabs: set[str],
+    ) -> None:
+        """Merge a node from nested prefab into this node's children.
+
+        Args:
+            source_node: The node from the source prefab to merge
+            guid_index: GUIDIndex for script resolution
+            loading_prefabs: Set of GUIDs being loaded (for circular reference prevention)
+        """
+        # Create a copy of the node marked as from nested prefab
+        merged_node = HierarchyNode(
+            file_id=source_node.file_id,
+            name=source_node.name,
+            transform_id=source_node.transform_id,
+            is_ui=source_node.is_ui,
+            parent=self,
+            children=[],
+            components=list(source_node.components),
+            is_prefab_instance=source_node.is_prefab_instance,
+            source_guid=source_node.source_guid,
+            source_file_id=source_node.source_file_id,
+            is_stripped=source_node.is_stripped,
+            prefab_instance_id=source_node.prefab_instance_id,
+            modifications=list(source_node.modifications),
+            is_from_nested_prefab=True,
+            nested_prefab_loaded=source_node.nested_prefab_loaded,
+            _document=source_node._document,
+            _hierarchy=self._hierarchy,
+        )
+
+        self.children.append(merged_node)
+
+        # Recursively merge children
+        for child in source_node.children:
+            merged_node._merge_nested_child(child, guid_index, loading_prefabs)
+
+    def _merge_nested_child(
+        self,
+        source_child: HierarchyNode,
+        guid_index: GUIDIndex | None,
+        loading_prefabs: set[str],
+    ) -> None:
+        """Recursively merge child nodes from nested prefab.
+
+        Args:
+            source_child: The child node from source prefab
+            guid_index: GUIDIndex for script resolution
+            loading_prefabs: Set of GUIDs being loaded (for circular reference prevention)
+        """
+        merged_child = HierarchyNode(
+            file_id=source_child.file_id,
+            name=source_child.name,
+            transform_id=source_child.transform_id,
+            is_ui=source_child.is_ui,
+            parent=self,
+            children=[],
+            components=list(source_child.components),
+            is_prefab_instance=source_child.is_prefab_instance,
+            source_guid=source_child.source_guid,
+            source_file_id=source_child.source_file_id,
+            is_stripped=source_child.is_stripped,
+            prefab_instance_id=source_child.prefab_instance_id,
+            modifications=list(source_child.modifications),
+            is_from_nested_prefab=True,
+            nested_prefab_loaded=source_child.nested_prefab_loaded,
+            _document=source_child._document,
+            _hierarchy=self._hierarchy,
+        )
+
+        self.children.append(merged_child)
+
+        # Recursively merge grandchildren
+        for grandchild in source_child.children:
+            merged_child._merge_nested_child(grandchild, guid_index, loading_prefabs)
+
 
 @dataclass
 class Hierarchy:
@@ -279,9 +494,37 @@ class Hierarchy:
 
     Provides methods for traversing, querying, and modifying the hierarchy
     with automatic handling of stripped objects and PrefabInstance relationships.
+
+    Supports loading nested prefab content to make the internal structure of
+    PrefabInstances accessible for LLM-friendly navigation.
+
+    Attributes:
+        root_objects: List of root-level HierarchyNodes
+        guid_index: Optional GUIDIndex for resolving script names
+        project_root: Optional project root for loading nested prefabs
+
+    Example:
+        >>> from unityflow import build_guid_index, build_hierarchy
+        >>> guid_index = build_guid_index("/path/to/unity/project")
+        >>> hierarchy = build_hierarchy(
+        ...     doc,
+        ...     guid_index=guid_index,
+        ...     project_root="/path/to/unity/project",
+        ...     load_nested_prefabs=True,  # Auto-load nested prefab content
+        ... )
+        >>> for node in hierarchy.iter_all():
+        ...     for comp in node.components:
+        ...         # MonoBehaviour now shows script name
+        ...         print(comp.type_name)  # "PlayerController" instead of "MonoBehaviour"
+        ...     if node.is_prefab_instance:
+        ...         # Nested prefab children are now accessible
+        ...         for child in node.children:
+        ...             print(f"  Nested child: {child.name}")
     """
 
     root_objects: list[HierarchyNode] = field(default_factory=list)
+    guid_index: GUIDIndex | None = field(default=None, repr=False)
+    project_root: Path | None = field(default=None, repr=False)
     _document: UnityYAMLDocument | None = field(default=None, repr=False)
     _nodes_by_file_id: dict[int, HierarchyNode] = field(
         default_factory=dict, repr=False
@@ -291,7 +534,13 @@ class Hierarchy:
     _prefab_instances: dict[int, list[int]] = field(default_factory=dict, repr=False)
 
     @classmethod
-    def build(cls, doc: UnityYAMLDocument) -> Hierarchy:
+    def build(
+        cls,
+        doc: UnityYAMLDocument,
+        guid_index: GUIDIndex | None = None,
+        project_root: Path | str | None = None,
+        load_nested_prefabs: bool = False,
+    ) -> Hierarchy:
         """Build a hierarchy from a UnityYAMLDocument.
 
         This method:
@@ -299,18 +548,61 @@ class Hierarchy:
         2. Constructs the transform hierarchy (parent-child relationships)
         3. Links components to their GameObjects
         4. Resolves stripped object references to PrefabInstances
+        5. Optionally resolves MonoBehaviour script names using guid_index
+        6. Optionally loads nested prefab content
 
         Args:
             doc: The Unity YAML document to build hierarchy from
+            guid_index: Optional GUIDIndex for resolving script names.
+                When provided, MonoBehaviour components will have their
+                script_guid and script_name fields populated.
+            project_root: Optional path to Unity project root. Required for
+                loading nested prefabs if guid_index doesn't have project_root set.
+            load_nested_prefabs: If True, automatically loads the content of
+                all nested prefabs (PrefabInstances) so their internal structure
+                is accessible through the children property.
 
         Returns:
             A Hierarchy instance with the complete object tree
+
+        Example:
+            >>> guid_index = build_guid_index("/path/to/project")
+            >>> hierarchy = Hierarchy.build(
+            ...     doc,
+            ...     guid_index=guid_index,
+            ...     load_nested_prefabs=True,
+            ... )
+            >>> # Access nested prefab content directly
+            >>> prefab_node = hierarchy.find("MyPrefabInstance")
+            >>> print(prefab_node.children)  # Shows internal structure
         """
-        hierarchy = cls(_document=doc)
+        # Resolve project_root
+        resolved_project_root: Path | None = None
+        if project_root is not None:
+            resolved_project_root = Path(project_root)
+        elif guid_index is not None and guid_index.project_root is not None:
+            resolved_project_root = guid_index.project_root
+
+        hierarchy = cls(
+            _document=doc,
+            guid_index=guid_index,
+            project_root=resolved_project_root,
+        )
         hierarchy._build_indexes(doc)
         hierarchy._build_nodes(doc)
         hierarchy._link_hierarchy()
+        hierarchy._set_hierarchy_references()
+
+        # Optionally load nested prefabs
+        if load_nested_prefabs:
+            hierarchy.load_all_nested_prefabs()
+
         return hierarchy
+
+    def _set_hierarchy_references(self) -> None:
+        """Set _hierarchy reference on all nodes for nested prefab loading."""
+        for node in self.iter_all():
+            node._hierarchy = self
 
     def _build_indexes(self, doc: UnityYAMLDocument) -> None:
         """Build lookup indexes for efficient resolution."""
@@ -339,6 +631,47 @@ class Hierarchy:
                     if prefab_id not in self._prefab_instances:
                         self._prefab_instances[prefab_id] = []
                     self._prefab_instances[prefab_id].append(obj.file_id)
+
+    def _create_component_info(
+        self,
+        comp_obj: UnityYAMLObject,
+        comp_content: dict[str, Any],
+        is_on_stripped_object: bool = False,
+    ) -> ComponentInfo:
+        """Create a ComponentInfo, resolving script names for MonoBehaviour.
+
+        For MonoBehaviour components (class_id=114), extracts the script GUID
+        from m_Script and resolves the script name if guid_index is available.
+
+        Args:
+            comp_obj: The component's UnityYAMLObject
+            comp_content: The component's data dictionary
+            is_on_stripped_object: Whether component is on a stripped object
+
+        Returns:
+            ComponentInfo with script_guid and script_name populated for MonoBehaviour
+        """
+        script_guid: str | None = None
+        script_name: str | None = None
+
+        # For MonoBehaviour (class_id=114), extract script info
+        if comp_obj.class_id == 114:
+            script_ref = comp_content.get("m_Script", {})
+            if isinstance(script_ref, dict):
+                script_guid = script_ref.get("guid")
+                # Resolve script name if guid_index is available
+                if script_guid and self.guid_index:
+                    script_name = self.guid_index.resolve_name(script_guid)
+
+        return ComponentInfo(
+            file_id=comp_obj.file_id,
+            class_id=comp_obj.class_id,
+            class_name=comp_obj.class_name,
+            data=comp_content,
+            is_on_stripped_object=is_on_stripped_object,
+            script_guid=script_guid,
+            script_name=script_name,
+        )
 
     def _build_nodes(self, doc: UnityYAMLDocument) -> None:
         """Build HierarchyNode objects for each GameObject and PrefabInstance."""
@@ -397,12 +730,10 @@ class Hierarchy:
                         if comp_id and comp_id != transform_id:
                             comp_obj = doc.get_by_file_id(comp_id)
                             if comp_obj:
+                                comp_content = comp_obj.get_content() or {}
                                 node.components.append(
-                                    ComponentInfo(
-                                        file_id=comp_id,
-                                        class_id=comp_obj.class_id,
-                                        class_name=comp_obj.class_name,
-                                        data=comp_obj.get_content() or {},
+                                    self._create_component_info(
+                                        comp_obj, comp_content
                                     )
                                 )
 
@@ -478,11 +809,9 @@ class Hierarchy:
                                     )
                                     if go_id == stripped_id:
                                         node.components.append(
-                                            ComponentInfo(
-                                                file_id=comp_obj.file_id,
-                                                class_id=comp_obj.class_id,
-                                                class_name=comp_obj.class_name,
-                                                data=comp_content,
+                                            self._create_component_info(
+                                                comp_obj,
+                                                comp_content,
                                                 is_on_stripped_object=True,
                                             )
                                         )
@@ -595,6 +924,95 @@ class Hierarchy:
         for root in self.root_objects:
             yield root
             yield from root.iter_descendants()
+
+    def load_all_nested_prefabs(
+        self,
+        recursive: bool = True,
+    ) -> int:
+        """Load all nested prefab content in the hierarchy.
+
+        This method finds all PrefabInstance nodes and loads their source
+        prefab content, making the internal structure accessible through
+        the children property.
+
+        Args:
+            recursive: If True (default), also loads nested prefabs within
+                the loaded prefabs (up to circular reference detection).
+
+        Returns:
+            The number of prefabs successfully loaded.
+
+        Example:
+            >>> hierarchy = build_hierarchy(doc, guid_index=guid_index)
+            >>> count = hierarchy.load_all_nested_prefabs()
+            >>> print(f"Loaded {count} nested prefabs")
+            >>>
+            >>> # Now all PrefabInstance nodes have children populated
+            >>> for node in hierarchy.iter_all():
+            ...     if node.is_prefab_instance and node.nested_prefab_loaded:
+            ...         print(f"{node.name}: {len(node.children)} children")
+        """
+        if self.guid_index is None and self.project_root is None:
+            return 0
+
+        loaded_count = 0
+        loading_prefabs: set[str] = set()
+
+        # Find all PrefabInstance nodes
+        prefab_nodes = [
+            node for node in self.iter_all()
+            if node.is_prefab_instance and not node.nested_prefab_loaded
+        ]
+
+        for node in prefab_nodes:
+            if node.load_source_prefab(
+                project_root=self.project_root,
+                guid_index=self.guid_index,
+                _loading_prefabs=loading_prefabs,
+            ):
+                loaded_count += 1
+
+                # Recursively load nested prefabs in the newly loaded content
+                if recursive:
+                    loaded_count += self._load_nested_in_children(
+                        node, loading_prefabs
+                    )
+
+        return loaded_count
+
+    def _load_nested_in_children(
+        self,
+        node: HierarchyNode,
+        loading_prefabs: set[str],
+    ) -> int:
+        """Recursively load nested prefabs in children.
+
+        Args:
+            node: The node whose children to check
+            loading_prefabs: Set of GUIDs being loaded (for circular reference prevention)
+
+        Returns:
+            Number of additional prefabs loaded
+        """
+        loaded_count = 0
+
+        for child in node.children:
+            if child.is_prefab_instance and not child.nested_prefab_loaded:
+                if child.load_source_prefab(
+                    project_root=self.project_root,
+                    guid_index=self.guid_index,
+                    _loading_prefabs=loading_prefabs,
+                ):
+                    loaded_count += 1
+                    loaded_count += self._load_nested_in_children(
+                        child, loading_prefabs
+                    )
+            elif child.children:
+                loaded_count += self._load_nested_in_children(
+                    child, loading_prefabs
+                )
+
+        return loaded_count
 
     def get_prefab_instance_for(self, stripped_file_id: int) -> int:
         """Get the PrefabInstance ID for a stripped object.
@@ -858,18 +1276,64 @@ class Hierarchy:
         return node
 
 
-def build_hierarchy(doc: UnityYAMLDocument) -> Hierarchy:
+def build_hierarchy(
+    doc: UnityYAMLDocument,
+    guid_index: GUIDIndex | None = None,
+    project_root: Path | str | None = None,
+    load_nested_prefabs: bool = False,
+) -> Hierarchy:
     """Build a hierarchy from a UnityYAMLDocument.
 
     Convenience function that calls Hierarchy.build().
 
+    This is the main entry point for building LLM-friendly hierarchies with:
+    - Automatic script name resolution for MonoBehaviour components
+    - Optional nested prefab content loading
+
     Args:
         doc: The Unity YAML document
+        guid_index: Optional GUIDIndex for resolving script names.
+            When provided, MonoBehaviour components will have their
+            script_guid and script_name fields populated.
+        project_root: Optional path to Unity project root. Required for
+            loading nested prefabs if guid_index doesn't have project_root set.
+        load_nested_prefabs: If True, automatically loads the content of
+            all nested prefabs (PrefabInstances) so their internal structure
+            is accessible through the children property.
 
     Returns:
         A Hierarchy instance
+
+    Example:
+        >>> from unityflow import build_guid_index, build_hierarchy, UnityYAMLDocument
+        >>> guid_index = build_guid_index("/path/to/unity/project")
+        >>> doc = UnityYAMLDocument.load("MyPrefab.prefab")
+        >>>
+        >>> # Basic usage with script name resolution
+        >>> hierarchy = build_hierarchy(doc, guid_index=guid_index)
+        >>> for node in hierarchy.iter_all():
+        ...     for comp in node.components:
+        ...         if comp.script_name:
+        ...             print(f"{node.name}: {comp.script_name}")
+        >>>
+        >>> # Full LLM-friendly usage with nested prefab loading
+        >>> hierarchy = build_hierarchy(
+        ...     doc,
+        ...     guid_index=guid_index,
+        ...     load_nested_prefabs=True,
+        ... )
+        >>> # Now PrefabInstances show their internal structure
+        >>> prefab = hierarchy.find("board_CoreUpgrade")
+        >>> if prefab and prefab.is_prefab_instance:
+        ...     for child in prefab.children:
+        ...         print(f"  {child.name}")
     """
-    return Hierarchy.build(doc)
+    return Hierarchy.build(
+        doc,
+        guid_index=guid_index,
+        project_root=project_root,
+        load_nested_prefabs=load_nested_prefabs,
+    )
 
 
 def resolve_game_object_for_component(
