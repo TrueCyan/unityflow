@@ -51,6 +51,9 @@ Issues = "https://github.com/TrueCyan/unityflow/issues"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"unityflow.data" = ["*.json"]
+
 [tool.black]
 line-length = 100
 target-version = ["py312"]

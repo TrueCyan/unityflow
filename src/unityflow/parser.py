@@ -8,6 +8,7 @@ Handles Unity's custom YAML 1.1 dialect with:
 
 from __future__ import annotations
 
+import json
 import random
 import re
 import time
@@ -37,155 +38,42 @@ DOCUMENT_HEADER_PATTERN = re.compile(
     r"^--- !u!(\d+) &(-?\d+)(?: stripped)?$", re.MULTILINE
 )
 
-# Common Unity ClassIDs
+
+def _load_class_ids() -> dict[int, str]:
+    """Load Unity ClassIDs from JSON file.
+
+    The JSON file is generated from Unity's official ClassIDReference documentation.
+    Falls back to a minimal built-in set if the JSON file is not found.
+
+    Returns:
+        Dictionary mapping class ID (int) to class name (str)
+    """
+    try:
+        # Use importlib.resources for package data (Python 3.9+)
+        from importlib.resources import files
+
+        data_file = files("unityflow.data").joinpath("class_ids.json")
+        with data_file.open(encoding="utf-8") as f:
+            data = json.load(f)
+            # Convert string keys to int (JSON only supports string keys)
+            return {int(k): v for k, v in data.items()}
+    except (ImportError, FileNotFoundError, json.JSONDecodeError, OSError, ValueError, TypeError):
+        pass
+
+    # Fallback: minimal built-in set for essential types
+    return {
+        1: "GameObject",
+        4: "Transform",
+        114: "MonoBehaviour",
+        115: "MonoScript",
+        224: "RectTransform",
+        1001: "PrefabInstance",
+    }
+
+
+# Unity ClassIDs - loaded from data/class_ids.json
 # Reference: https://docs.unity3d.com/Manual/ClassIDReference.html (Unity 6.3 LTS)
-CLASS_IDS = {
-    1: "GameObject",
-    2: "Component",
-    3: "LevelGameManager",
-    4: "Transform",
-    5: "TimeManager",
-    6: "GlobalGameManager",
-    8: "Behaviour",
-    11: "AudioManager",
-    12: "InputManager",
-    13: "EditorSettings",
-    18: "EditorUserSettings",
-    19: "Texture2D",
-    20: "Camera",
-    21: "Material",
-    23: "MeshRenderer",
-    25: "Renderer",
-    28: "Texture2D",
-    29: "OcclusionCullingSettings",
-    33: "MeshFilter",
-    43: "Mesh",
-    48: "Shader",
-    50: "Rigidbody2D",
-    54: "Rigidbody",
-    55: "PhysicsManager",
-    56: "Collider",
-    58: "CircleCollider2D",
-    59: "HingeJoint",
-    60: "PolygonCollider2D",
-    61: "BoxCollider2D",
-    62: "PhysicsMaterial2D",
-    64: "MeshCollider",
-    65: "BoxCollider",
-    66: "CompositeCollider2D",
-    68: "EdgeCollider2D",
-    70: "CapsuleCollider2D",
-    72: "ComputeShader",
-    74: "AnimationClip",
-    78: "ConstantForce",
-    81: "AudioListener",
-    82: "AudioSource",
-    83: "AudioClip",
-    84: "RenderTexture",
-    87: "MeshParticleEmitter",
-    89: "Cubemap",
-    91: "Avatar",
-    93: "RuntimeAnimatorController",
-    94: "ScriptMapper",
-    95: "Animator",
-    96: "TrailRenderer",
-    102: "TextMesh",
-    104: "RenderSettings",
-    108: "Light",
-    109: "CGProgram",
-    110: "BaseAnimationTrack",
-    111: "Animation",
-    114: "MonoBehaviour",
-    115: "MonoScript",
-    120: "LineRenderer",
-    124: "Behaviour",
-    128: "Font",
-    134: "PhysicMaterial",
-    135: "SphereCollider",
-    136: "CapsuleCollider",
-    137: "SkinnedMeshRenderer",
-    141: "BuildSettings",
-    142: "AssetBundle",
-    143: "CharacterJoint",
-    144: "CharacterController",
-    145: "FixedJoint",
-    150: "PreloadData",
-    152: "MovieTexture",
-    153: "ConfigurableJoint",
-    154: "PlayerSettings",
-    156: "TerrainData",
-    157: "LightmapSettings",
-    158: "WebCamTexture",
-    159: "EditorSettings",
-    162: "FlareLayer",
-    164: "HaloLayer",
-    166: "NavMeshAreas",
-    180: "AudioBehaviour",
-    181: "AudioFilter",
-    182: "WindZone",
-    183: "Cloth",
-    192: "OcclusionArea",
-    193: "Tree",
-    195: "NavMeshAgent",
-    196: "NavMeshSettings",
-    198: "ParticleSystem",
-    199: "ParticleSystemRenderer",
-    200: "ShaderVariantCollection",
-    205: "LODGroup",
-    206: "BlendTree",
-    207: "Motion",
-    208: "NavMeshObstacle",
-    210: "SortingGroup",
-    212: "SpriteRenderer",
-    213: "Sprite",
-    214: "CachedSpriteAtlas",
-    215: "ReflectionProbe",
-    218: "Terrain",
-    220: "LightProbeGroup",
-    221: "AnimatorOverrideController",
-    222: "CanvasRenderer",
-    223: "Canvas",
-    224: "RectTransform",
-    225: "CanvasGroup",
-    226: "BillboardAsset",
-    227: "BillboardRenderer",
-    228: "SpeedTreeWindAsset",
-    229: "AnchoredJoint2D",
-    230: "Joint2D",
-    231: "SpringJoint2D",
-    232: "DistanceJoint2D",
-    233: "HingeJoint2D",
-    234: "SliderJoint2D",
-    235: "WheelJoint2D",
-    236: "ClusterInputManager",
-    237: "BaseVideoTexture",
-    238: "NavMeshData",
-    240: "AudioMixerSnapshot",
-    241: "AudioMixerGroup",
-    243: "AudioMixerEffectController",
-    244: "AudioMixerSnapshotController",
-    245: "AssetBundleManifest",
-    246: "RuntimeInitializeOnLoadManager",
-    247: "ConstantForce2D",
-    248: "Effector2D",
-    249: "AreaEffector2D",
-    250: "PointEffector2D",
-    251: "PlatformEffector2D",
-    252: "SurfaceEffector2D",
-    253: "BuoyancyEffector2D",
-    258: "LightProbes",
-    271: "SampleClip",
-    290: "AssetImporter",
-    319: "AvatarMask",
-    320: "PlayableDirector",
-    328: "VideoPlayer",
-    329: "VideoClip",
-    331: "SpriteMask",
-    363: "OcclusionCullingData",
-    1001: "PrefabInstance",
-    # Scene-specific (Unity 2020.1+)
-    1660057539: "SceneRoots",
-}
+CLASS_IDS: dict[int, str] = _load_class_ids()
 
 
 def get_parser_backend() -> str:
