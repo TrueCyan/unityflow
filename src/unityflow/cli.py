@@ -1325,6 +1325,84 @@ def import_json(
         sys.exit(1)
 
 
+@main.command(name="get")
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.argument("path_spec", type=str)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "text"]),
+    default="json",
+    help="Output format (default: json)",
+)
+def get_value_cmd(
+    file: Path,
+    path_spec: str,
+    output_format: str,
+) -> None:
+    """Get a value at a specific path in a Unity YAML file.
+
+    Path Format:
+        GameObject/ComponentType/property - Component property
+        GameObject/property               - GameObject property
+
+    Examples:
+
+        # Get Transform position
+        unityflow get Player.prefab "Player/Transform/localPosition"
+
+        # Get SpriteRenderer color
+        unityflow get Player.prefab "Player/SpriteRenderer/m_Color"
+
+        # Get GameObject name
+        unityflow get Player.prefab "Player/name"
+
+        # Get all properties of a component
+        unityflow get Player.prefab "Player/Transform"
+
+        # When multiple components of same type exist, use index
+        unityflow get Scene.unity "Canvas/Panel/Image[1]/m_Color"
+
+        # Output as text (for simple values)
+        unityflow get Player.prefab "Player/Transform/localPosition" --format text
+    """
+    from unityflow.parser import UnityYAMLDocument
+    from unityflow.query import get_value
+    import json
+
+    try:
+        doc = UnityYAMLDocument.load(file)
+    except Exception as e:
+        click.echo(f"Error: Failed to load {file}: {e}", err=True)
+        sys.exit(1)
+
+    # Resolve path (convert "Player/Transform/localPosition" to "components/12345/localPosition")
+    resolved_path, error = _resolve_component_path(doc, path_spec)
+    if error:
+        click.echo(f"Error: {error}", err=True)
+        sys.exit(1)
+
+    # Get the value
+    value = get_value(doc, resolved_path)
+    if value is None:
+        click.echo(f"Error: No value found at path '{path_spec}'", err=True)
+        sys.exit(1)
+
+    # Output
+    if output_format == "json":
+        click.echo(json.dumps(value, indent=2, default=str))
+    else:
+        # Text format - simple representation
+        if isinstance(value, dict):
+            for k, v in value.items():
+                click.echo(f"{k}: {v}")
+        elif isinstance(value, list):
+            for item in value:
+                click.echo(str(item))
+        else:
+            click.echo(str(value))
+
+
 @main.command(name="set")
 @click.argument("file", type=click.Path(exists=True, path_type=Path))
 @click.option(
