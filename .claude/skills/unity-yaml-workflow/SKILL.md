@@ -1,6 +1,6 @@
 ---
 name: unity-yaml-workflow
-description: Unity YAML 파일(.prefab, .unity, .asset)을 편집합니다. unityflow를 사용하여 프리팹 분석, GameObject 생성/수정/삭제/복제, 컴포넌트 추가/삭제, 에셋 연결, ScriptableObject 편집 등의 작업을 수행합니다.
+description: Unity YAML 파일(.prefab, .unity, .asset)을 편집합니다. unityflow를 사용하여 프리팹 분석, 값 조회/수정, 에셋 연결 등의 작업을 수행합니다.
 ---
 
 # Unity YAML Workflow Skill
@@ -23,11 +23,11 @@ Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 프로
 
 **모든 Unity 파일 조작은 `unityflow` CLI를 통해서만 수행합니다:**
 
-- ✅ `unityflow query` - 데이터 조회 및 검색
-- ✅ `unityflow set` - 값 수정 (단일 값, 배치 수정, 새 필드 생성)
+- ✅ `unityflow hierarchy` - 계층 구조 조회
+- ✅ `unityflow inspect` - 특정 오브젝트/컴포넌트 상세 조회
+- ✅ `unityflow get` - 특정 경로의 값 조회
+- ✅ `unityflow set` - 값 수정 (단일 값, 배치 수정)
 - ✅ `unityflow set --value "@에셋경로"` - 에셋 연결
-- ✅ `unityflow add-object` / `delete-object` / `clone-object` - GameObject 조작
-- ✅ `unityflow add-component` / `delete-component` - 컴포넌트 조작
 
 ### 이유
 
@@ -42,32 +42,58 @@ Unity YAML은 특수한 형식을 사용합니다:
 
 ## CLI 명령어 레퍼런스
 
-### 조회 명령어
+### 계층 구조 조회 (hierarchy)
 
 ```bash
-# 파일 통계 확인
-unityflow stats Player.prefab
-unityflow stats MainScene.unity
-unityflow stats GameConfig.asset
+# 기본 계층 구조 보기
+unityflow hierarchy Player.prefab
+unityflow hierarchy MainScene.unity
 
-# 구조 요약 보기
-unityflow query Player.prefab
-unityflow query MainScene.unity
+# 컴포넌트 포함하여 보기
+unityflow hierarchy Player.prefab --components
 
-# 특정 데이터 쿼리
-unityflow query Player.prefab --path "gameObjects/*/name"
-unityflow query MainScene.unity --path "components/*/type" --format json
+# JSON 형식으로 출력
+unityflow hierarchy Player.prefab --format json
 
-# 이름으로 GameObject 찾기 (와일드카드 지원)
-unityflow query Scene.unity --find-name "Player*"
-unityflow query Scene.unity --find-name "*Enemy*"
+# 특정 깊이까지만 표시
+unityflow hierarchy Scene.unity --depth 2
+```
 
-# 컴포넌트 타입으로 GameObject 찾기
-unityflow query Scene.unity --find-component "SpriteRenderer"
-unityflow query Scene.unity --find-component "Light2D"
+### 오브젝트/컴포넌트 상세 조회 (inspect)
 
-# 스크립트로 MonoBehaviour 찾기
-unityflow query Scene.unity --find-script "PlayerController"
+```bash
+# GameObject 상세 정보 보기 (경로로 지정)
+unityflow inspect Player.prefab "Player"
+unityflow inspect Scene.unity "Canvas/Panel/Button"
+
+# 컴포넌트 상세 정보 보기
+unityflow inspect Player.prefab "Player/Transform"
+unityflow inspect Scene.unity "Player/SpriteRenderer"
+
+# JSON 형식으로 출력
+unityflow inspect Player.prefab "Player/Transform" --format json
+```
+
+### 값 조회 (get)
+
+```bash
+# Transform 위치 조회
+unityflow get Player.prefab "Player/Transform/m_LocalPosition"
+
+# SpriteRenderer 색상 조회
+unityflow get Player.prefab "Player/SpriteRenderer/m_Color"
+
+# GameObject 이름 조회
+unityflow get Player.prefab "Player/name"
+
+# 컴포넌트 전체 속성 조회
+unityflow get Player.prefab "Player/Transform"
+
+# 여러 컴포넌트가 있을 때 인덱스로 지정
+unityflow get Scene.unity "Canvas/Panel/Image[1]/m_Color"
+
+# 텍스트 형식으로 출력
+unityflow get Player.prefab "Player/Transform/m_LocalPosition" --format text
 ```
 
 ### 값 수정 (set)
@@ -81,7 +107,7 @@ unityflow query Scene.unity --find-script "PlayerController"
 ```bash
 # Transform 위치 설정
 unityflow set Player.prefab \
-    --path "Player/Transform/localPosition" \
+    --path "Player/Transform/m_LocalPosition" \
     --value '{"x": 0, "y": 5, "z": 0}'
 
 # SpriteRenderer 색상 설정
@@ -94,64 +120,16 @@ unityflow set Player.prefab \
     --path "Player/name" \
     --value '"NewName"'
 
+# 여러 컴포넌트가 있을 때 인덱스로 지정
+unityflow set Scene.unity \
+    --path "Canvas/Panel/Image[1]/m_Color" \
+    --value '{"r": 0, "g": 1, "b": 0, "a": 1}'
+
 # 여러 필드 한번에 수정 (batch 모드)
 unityflow set Scene.unity \
     --path "Player/MonoBehaviour" \
-    --batch '{"speed": 5.0, "health": 100}' \
-    --create
+    --batch '{"speed": 5.0, "health": 100}'
 ```
-
-### GameObject 조작
-
-```bash
-# 새 GameObject 추가
-unityflow add-object Scene.unity --name "Player"
-unityflow add-object Scene.unity --name "Child" --parent "Player"
-unityflow add-object Scene.unity --name "Enemy" --position "10,0,5"
-
-# GameObject 복제
-unityflow clone-object Scene.unity --id "Player"
-unityflow clone-object Scene.unity --id "Player" --name "Player2"
-unityflow clone-object Scene.unity --id "Player" --deep  # 자식 포함 복제
-
-# GameObject 삭제
-unityflow delete-object Scene.unity --id "Enemy"
-unityflow delete-object Scene.unity --id "Parent" --cascade  # 자식 포함 삭제
-```
-
-### 컴포넌트 조작
-
-```bash
-# 컴포넌트 추가 (경로로 대상 지정)
-unityflow add-component Scene.unity --to "Player" --type SpriteRenderer
-unityflow add-component Scene.unity --to "Player" --type BoxCollider2D
-
-# 속성과 함께 추가
-unityflow add-component Scene.unity --to "Player" --type SpriteRenderer \
-    --props '{"m_Color": {"r": 1, "g": 0, "b": 0, "a": 1}}'
-
-# 커스텀 스크립트 추가 (스크립트 이름으로 지정)
-unityflow add-component Scene.unity --to "Player" --script PlayerController \
-    --props '{"speed": 5.0, "health": 100}'
-
-# 컴포넌트 삭제 (경로로 대상 지정)
-unityflow delete-component Scene.unity --from "Player" --type SpriteRenderer
-
-# 커스텀 스크립트 삭제 (스크립트 이름으로 지정)
-unityflow delete-component Scene.unity --from "Player" --script PlayerController
-
-# 확인 없이 삭제
-unityflow delete-component Scene.unity --from "Player" --type SpriteRenderer --force
-```
-
-### 지원 컴포넌트 (일반)
-
-| 카테고리 | 컴포넌트 |
-|----------|----------|
-| **2D** | SpriteRenderer, BoxCollider2D, CircleCollider2D, Rigidbody2D, Light2D |
-| **3D** | Camera, Light, AudioSource |
-
-**참고:** Transform은 삭제할 수 없습니다 (GameObject의 필수 컴포넌트).
 
 ### 에셋 연결 (@ 접두사)
 
@@ -171,8 +149,7 @@ unityflow set Player.prefab \
 # 프리팹 참조 연결 (MonoBehaviour 필드)
 unityflow set Scene.unity \
     --path "Player/MonoBehaviour/enemyPrefab" \
-    --value "@Assets/Prefabs/Enemy.prefab" \
-    --create
+    --value "@Assets/Prefabs/Enemy.prefab"
 
 # 여러 에셋 참조를 한번에 (batch 모드)
 unityflow set Scene.unity \
@@ -181,11 +158,7 @@ unityflow set Scene.unity \
         "playerPrefab": "@Assets/Prefabs/Player.prefab",
         "enemyPrefab": "@Assets/Prefabs/Enemy.prefab",
         "spawnRate": 2.0
-    }' \
-    --create
-
-# 스프라이트 정보 확인
-unityflow sprite-info "Assets/Sprites/player.png"
+    }'
 ```
 
 **지원 에셋 타입:**
@@ -214,82 +187,17 @@ unityflow normalize Player.prefab
 unityflow normalize MainScene.unity
 ```
 
-### .meta 파일 생성 (generate-meta)
-
-새 파일이나 폴더를 Unity 프로젝트에 추가할 때 `.meta` 파일이 필요합니다. Unity를 열지 않고도 `.meta` 파일을 생성할 수 있습니다.
+### 파일 비교 및 병합
 
 ```bash
-# 단일 파일에 대해 meta 생성
-unityflow generate-meta Assets/Scripts/Player.cs
-
-# 여러 파일 한번에 처리
-unityflow generate-meta Assets/Textures/*.png
-
-# 폴더 전체를 재귀적으로 처리
-unityflow generate-meta Assets/NewFolder -r
-
-# 스프라이트로 생성 (PPU 지정 가능)
-unityflow generate-meta icon.png --sprite --ppu 32
-
-# 미리보기 (실제 파일 생성 안함)
-unityflow generate-meta Assets/ -r --dry-run
-
-# 기존 meta 파일 덮어쓰기
-unityflow generate-meta Player.cs --overwrite
-```
-
-**지원 에셋 타입:**
-- **스크립트** (.cs) → `MonoImporter`
-- **텍스처** (.png, .jpg, .psd, .tga 등) → `TextureImporter`
-- **오디오** (.wav, .mp3, .ogg 등) → `AudioImporter`
-- **3D 모델** (.fbx, .obj 등) → `ModelImporter`
-- **셰이더** (.shader, .hlsl) → `ShaderImporter`
-- **Unity YAML** (.prefab, .unity, .asset, .mat) → `DefaultImporter`
-- **폴더** → `DefaultImporter` (folderAsset: yes)
-
-### .meta 파일 수정 (modify-meta)
-
-```bash
-# 현재 설정 확인
-unityflow modify-meta icon.png.meta --info
-
-# 텍스처를 스프라이트로 변경
-unityflow modify-meta icon.png --sprite-mode single
-
-# 스프라이트 설정 (PPU, 필터)
-unityflow modify-meta icon.png --sprite-mode single --ppu 32 --filter point
-
-# 텍스처 최대 크기 설정
-unityflow modify-meta icon.png --max-size 512
-
-# 스크립트 실행 순서 설정
-unityflow modify-meta Player.cs --execution-order -100
-
-# 에셋 번들 설정
-unityflow modify-meta Player.prefab --bundle-name "characters" --bundle-variant "hd"
-
-# 에셋 번들 해제
-unityflow modify-meta Player.prefab --bundle-name ""
-```
-
-**수정 가능한 옵션:**
-- **텍스처**: `--sprite-mode`, `--ppu`, `--filter`, `--max-size`
-- **스크립트**: `--execution-order`
-- **모든 에셋**: `--bundle-name`, `--bundle-variant`
-
-### 기타 유용한 명령어
-
-```bash
-# 의존성 분석
-unityflow deps Player.prefab
-unityflow deps Player.prefab --type Texture
-unityflow deps Player.prefab --unresolved-only
-
-# 역참조 검색
-unityflow find-refs Textures/player.png
-
 # 두 파일 비교
-unityflow diff Player.prefab Player_backup.prefab
+unityflow diff old.prefab new.prefab
+
+# 요약 형식으로 비교
+unityflow diff old.prefab new.prefab --format summary
+
+# 3-way 병합
+unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 ```
 
 ---
@@ -307,6 +215,5 @@ unityflow diff Player.prefab Player_backup.prefab
 ### 파싱 오류 발생 시
 
 ```bash
-unityflow stats problematic.prefab --format json
 unityflow validate problematic.prefab --format json
 ```
