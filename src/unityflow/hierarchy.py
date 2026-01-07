@@ -45,6 +45,11 @@ class ComponentInfo:
     For MonoBehaviour components, script_guid and script_name provide
     the resolved script information when a GUIDIndex is available.
 
+    For components on PrefabInstance nodes, modifications contains the
+    property overrides from the PrefabInstance's m_Modifications that
+    target this component. Use get_effective_property() to get the
+    effective value with modifications applied.
+
     Attributes:
         file_id: The fileID of this component in the document
         class_id: Unity's ClassID (e.g., 114 for MonoBehaviour)
@@ -53,11 +58,14 @@ class ComponentInfo:
         is_on_stripped_object: Whether this component is on a stripped GameObject
         script_guid: GUID of the script (only for MonoBehaviour, class_id=114)
         script_name: Resolved script name (only when GUIDIndex provided)
+        modifications: Property overrides targeting this component (PrefabInstance only)
 
     Example:
         >>> comp = node.get_component("MonoBehaviour")
         >>> print(comp.script_name)  # "PlayerController"
         >>> print(comp.script_guid)  # "f4afdcb1cbadf954ba8b1cf465429e17"
+        >>> # For PrefabInstance components with modifications:
+        >>> value = comp.get_effective_property("m_Enabled")
     """
 
     file_id: int
@@ -67,6 +75,7 @@ class ComponentInfo:
     is_on_stripped_object: bool = False
     script_guid: str | None = None
     script_name: str | None = None
+    modifications: list[dict[str, Any]] | None = None
 
     @property
     def type_name(self) -> str:
@@ -78,6 +87,39 @@ class ComponentInfo:
         if self.script_name:
             return self.script_name
         return self.class_name
+
+    def get_effective_property(self, property_path: str) -> Any | None:
+        """Get a property value with modifications applied.
+
+        For components with modifications (typically from PrefabInstance),
+        this returns the modified value if it exists, otherwise falls back
+        to the original data.
+
+        Args:
+            property_path: Property path like "m_Enabled" or "m_Color.r"
+
+        Returns:
+            The effective property value, or None if not found
+        """
+        # Check modifications first
+        if self.modifications:
+            for mod in self.modifications:
+                if mod.get("propertyPath") == property_path:
+                    # If objectReference has a fileID, return that
+                    obj_ref = mod.get("objectReference", {})
+                    if isinstance(obj_ref, dict) and obj_ref.get("fileID", 0) != 0:
+                        return obj_ref
+                    return mod.get("value")
+
+        # Fall back to original data
+        parts = property_path.split(".")
+        value = self.data
+        for part in parts:
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                return None
+        return value
 
 
 @dataclass
@@ -207,12 +249,33 @@ class HierarchyNode:
     def get_property(self, property_path: str) -> Any | None:
         """Get a property value from this node's GameObject or Transform.
 
+        For PrefabInstance nodes, this returns the effective value by checking
+        modifications first. This ensures get_property() returns the same value
+        that was set via set_property(), providing API consistency.
+
         Args:
             property_path: Property path like "m_Name" or "m_LocalPosition.x"
 
         Returns:
             The property value, or None if not found
         """
+        # For PrefabInstance, check modifications first for effective value
+        if self.is_prefab_instance and self.modifications:
+            for mod in self.modifications:
+                target = mod.get("target", {})
+                # Match by source_guid (same prefab) and propertyPath
+                # target.fileID is the fileID within the source prefab, not the prefab asset
+                if (
+                    target.get("guid") == self.source_guid
+                    and mod.get("propertyPath") == property_path
+                ):
+                    # If objectReference has a fileID, return that
+                    obj_ref = mod.get("objectReference", {})
+                    if isinstance(obj_ref, dict) and obj_ref.get("fileID", 0) != 0:
+                        return obj_ref
+                    # Otherwise return the value
+                    return mod.get("value")
+
         if self._document is None:
             return None
 
@@ -238,6 +301,8 @@ class HierarchyNode:
         """Set a property value on this node's GameObject.
 
         For PrefabInstance nodes, this adds an entry to m_Modifications.
+        Both the document and the node's modifications list are updated
+        to ensure get_property() returns the same value (API consistency).
 
         Args:
             property_path: Property path like "m_Name" or "m_LocalPosition.x"
@@ -249,9 +314,12 @@ class HierarchyNode:
         if self._document is None:
             return False
 
-        if self.is_prefab_instance and self.prefab_instance_id:
-            # Add to m_Modifications
-            prefab_instance = self._document.get_by_file_id(self.prefab_instance_id)
+        # For PrefabInstance nodes, use file_id as the PrefabInstance ID
+        # (prefab_instance_id is only set for stripped objects pointing to a PrefabInstance)
+        prefab_id = self.prefab_instance_id if self.prefab_instance_id else self.file_id
+        if self.is_prefab_instance:
+            # Add to m_Modifications in document
+            prefab_instance = self._document.get_by_file_id(prefab_id)
             if prefab_instance is None:
                 return False
 
@@ -262,12 +330,13 @@ class HierarchyNode:
             modification = content.get("m_Modification", {})
             modifications = modification.get("m_Modifications", [])
 
-            # Find or create modification entry
+            # Find or create modification entry in document
+            # Match by source_guid and propertyPath (fileID within source may vary)
             target_found = False
             for mod in modifications:
                 target = mod.get("target", {})
                 if (
-                    target.get("fileID") == self.source_file_id
+                    target.get("guid") == self.source_guid
                     and mod.get("propertyPath") == property_path
                 ):
                     mod["value"] = value
@@ -275,7 +344,33 @@ class HierarchyNode:
                     break
 
             if not target_found:
-                modifications.append(
+                new_mod = {
+                    "target": {
+                        "fileID": self.source_file_id,
+                        "guid": self.source_guid,
+                    },
+                    "propertyPath": property_path,
+                    "value": value,
+                    "objectReference": {"fileID": 0},
+                }
+                modifications.append(new_mod)
+                modification["m_Modifications"] = modifications
+                content["m_Modification"] = modification
+
+            # Also update node's modifications list for get_property() consistency
+            node_target_found = False
+            for mod in self.modifications:
+                target = mod.get("target", {})
+                if (
+                    target.get("guid") == self.source_guid
+                    and mod.get("propertyPath") == property_path
+                ):
+                    mod["value"] = value
+                    node_target_found = True
+                    break
+
+            if not node_target_found:
+                self.modifications.append(
                     {
                         "target": {
                             "fileID": self.source_file_id,
@@ -286,8 +381,6 @@ class HierarchyNode:
                         "objectReference": {"fileID": 0},
                     }
                 )
-                modification["m_Modifications"] = modifications
-                content["m_Modification"] = modification
 
             return True
 
@@ -434,11 +527,41 @@ class HierarchyNode:
     ) -> None:
         """Merge a node from nested prefab into this node's children.
 
+        This method also applies PrefabInstance modifications to components
+        so that ComponentInfo.get_effective_property() returns correct values.
+
         Args:
             source_node: The node from the source prefab to merge
             guid_index: GUIDIndex for script resolution
             loading_prefabs: Set of GUIDs being loaded (for circular reference prevention)
         """
+        # Group modifications by target fileID for component linking
+        mods_by_target: dict[int, list[dict[str, Any]]] = {}
+        for mod in self.modifications:
+            target = mod.get("target", {})
+            target_id = target.get("fileID", 0)
+            if target_id:
+                if target_id not in mods_by_target:
+                    mods_by_target[target_id] = []
+                mods_by_target[target_id].append(mod)
+
+        # Copy components with modifications linked
+        merged_components = []
+        for comp in source_node.components:
+            comp_mods = mods_by_target.get(comp.file_id)
+            merged_components.append(
+                ComponentInfo(
+                    file_id=comp.file_id,
+                    class_id=comp.class_id,
+                    class_name=comp.class_name,
+                    data=comp.data,
+                    is_on_stripped_object=comp.is_on_stripped_object,
+                    script_guid=comp.script_guid,
+                    script_name=comp.script_name,
+                    modifications=comp_mods,
+                )
+            )
+
         # Create a copy of the node marked as from nested prefab
         merged_node = HierarchyNode(
             file_id=source_node.file_id,
@@ -447,7 +570,7 @@ class HierarchyNode:
             is_ui=source_node.is_ui,
             parent=self,
             children=[],
-            components=list(source_node.components),
+            components=merged_components,
             is_prefab_instance=source_node.is_prefab_instance,
             source_guid=source_node.source_guid,
             source_file_id=source_node.source_file_id,
@@ -462,15 +585,16 @@ class HierarchyNode:
 
         self.children.append(merged_node)
 
-        # Recursively merge children
+        # Recursively merge children with inherited modifications
         for child in source_node.children:
-            merged_node._merge_nested_child(child, guid_index, loading_prefabs)
+            merged_node._merge_nested_child(child, guid_index, loading_prefabs, mods_by_target)
 
     def _merge_nested_child(
         self,
         source_child: HierarchyNode,
         guid_index: GUIDIndex | None,
         loading_prefabs: set[str],
+        mods_by_target: dict[int, list[dict[str, Any]]] | None = None,
     ) -> None:
         """Recursively merge child nodes from nested prefab.
 
@@ -478,7 +602,25 @@ class HierarchyNode:
             source_child: The child node from source prefab
             guid_index: GUIDIndex for script resolution
             loading_prefabs: Set of GUIDs being loaded (for circular reference prevention)
+            mods_by_target: Modifications grouped by target fileID (from parent PrefabInstance)
         """
+        # Copy components with modifications linked
+        merged_components = []
+        for comp in source_child.components:
+            comp_mods = mods_by_target.get(comp.file_id) if mods_by_target else None
+            merged_components.append(
+                ComponentInfo(
+                    file_id=comp.file_id,
+                    class_id=comp.class_id,
+                    class_name=comp.class_name,
+                    data=comp.data,
+                    is_on_stripped_object=comp.is_on_stripped_object,
+                    script_guid=comp.script_guid,
+                    script_name=comp.script_name,
+                    modifications=comp_mods,
+                )
+            )
+
         merged_child = HierarchyNode(
             file_id=source_child.file_id,
             name=source_child.name,
@@ -486,7 +628,7 @@ class HierarchyNode:
             is_ui=source_child.is_ui,
             parent=self,
             children=[],
-            components=list(source_child.components),
+            components=merged_components,
             is_prefab_instance=source_child.is_prefab_instance,
             source_guid=source_child.source_guid,
             source_file_id=source_child.source_file_id,
@@ -503,7 +645,7 @@ class HierarchyNode:
 
         # Recursively merge grandchildren
         for grandchild in source_child.children:
-            merged_child._merge_nested_child(grandchild, guid_index, loading_prefabs)
+            merged_child._merge_nested_child(grandchild, guid_index, loading_prefabs, mods_by_target)
 
 
 @dataclass
