@@ -2,9 +2,7 @@
 
 import os
 import subprocess
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -381,13 +379,12 @@ class TestCLIIncrementalNormalizeWithGit:
         prefab1.write_text("%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!1 &100\nGameObject:\n  m_Name: Staged\n")
 
         prefab2 = git_repo / "unstaged.prefab"
-        prefab2.write_text("%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!1 &100\nGameObject:\n  m_Name: Unstaged\n")
+        yaml_header = "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n"
+        prefab2.write_text(f"{yaml_header}--- !u!1 &100\nGameObject:\n  m_Name: Unstaged\n")
 
         subprocess.run(["git", "add", "staged.prefab"], cwd=git_repo, capture_output=True)
 
-        result = runner.invoke(
-            main, ["normalize", "--changed-only", "--staged-only", "--dry-run"]
-        )
+        result = runner.invoke(main, ["normalize", "--changed-only", "--staged-only", "--dry-run"])
         assert result.exit_code == 0
         assert "staged.prefab" in result.output
         assert "unstaged.prefab" not in result.output

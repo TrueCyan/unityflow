@@ -12,6 +12,12 @@ Unity 워크플로우 자동화 도구입니다. Unity 에디터 없이 프리�
 
 ## 설치
 
+### PyPI에서 설치 (권장)
+
+```bash
+pip install unityflow
+```
+
 ### GitHub에서 설치
 
 ```bash

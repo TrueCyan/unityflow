@@ -2,19 +2,17 @@
 
 from pathlib import Path
 
-import pytest
-
+from unityflow.parser import UnityYAMLDocument
 from unityflow.validator import (
     PrefabValidator,
-    validate_prefab,
     Severity,
     ValidationIssue,
-    is_valid_guid,
+    fix_document,
     fix_invalid_guids,
     fix_scene_roots,
-    fix_document,
+    is_valid_guid,
+    validate_prefab,
 )
-from unityflow.parser import UnityYAMLDocument
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -61,6 +59,7 @@ class TestPrefabValidator:
 
         # Create a temp file with invalid content
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".prefab", delete=False) as f:
             f.write("%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!1 &123\n  invalid: yaml:\n")
             temp_path = f.name

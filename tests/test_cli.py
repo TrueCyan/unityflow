@@ -1,6 +1,5 @@
 """Tests for CLI interface."""
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -357,6 +356,7 @@ class TestSetCommand:
         inline in the GameObject instead of the actual component document.
         """
         import shutil
+
         from unityflow.parser import UnityYAMLDocument
 
         # Copy fixture to temp location
@@ -370,8 +370,10 @@ class TestSetCommand:
             [
                 "set",
                 str(test_file),
-                "--path", "BossSceneUI/Canvas_LeaderboardUI/RectTransform",
-                "--batch", '{"m_AnchorMin": {"x": 0.1, "y": 0.2}, "m_SizeDelta": {"x": 50, "y": 100}}',
+                "--path",
+                "BossSceneUI/Canvas_LeaderboardUI/RectTransform",
+                "--batch",
+                '{"m_AnchorMin": {"x": 0.1, "y": 0.2}, "m_SizeDelta": {"x": 50, "y": 100}}',
             ],
         )
 
@@ -411,8 +413,9 @@ class TestSetCommand:
         assert rt_content["m_SizeDelta"]["y"] == 100
 
         # Verify values are NOT stored inline in the GameObject
-        assert "RectTransform" not in go_content or not isinstance(go_content.get("RectTransform"), dict), \
-            "Values should not be stored inline in the GameObject"
+        assert "RectTransform" not in go_content or not isinstance(
+            go_content.get("RectTransform"), dict
+        ), "Values should not be stored inline in the GameObject"
 
     def test_set_component_property(self, runner, tmp_path):
         """Test setting a single property on a component."""
@@ -426,8 +429,10 @@ class TestSetCommand:
             [
                 "set",
                 str(test_file),
-                "--path", "BasicPrefab/Transform/m_LocalPosition",
-                "--value", '{"x": 10, "y": 20, "z": 30}',
+                "--path",
+                "BasicPrefab/Transform/m_LocalPosition",
+                "--value",
+                '{"x": 10, "y": 20, "z": 30}',
             ],
         )
 
@@ -437,6 +442,7 @@ class TestSetCommand:
     def test_set_path_ending_with_transform(self, runner, tmp_path):
         """Test batch mode with path ending in Transform component."""
         import shutil
+
         from unityflow.parser import UnityYAMLDocument
 
         test_file = tmp_path / "basic_prefab.prefab"
@@ -447,8 +453,10 @@ class TestSetCommand:
             [
                 "set",
                 str(test_file),
-                "--path", "BasicPrefab/Transform",
-                "--batch", '{"m_LocalPosition": {"x": 5, "y": 10, "z": 15}}',
+                "--path",
+                "BasicPrefab/Transform",
+                "--batch",
+                '{"m_LocalPosition": {"x": 5, "y": 10, "z": 15}}',
             ],
         )
 

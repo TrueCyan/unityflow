@@ -55,11 +55,11 @@ where = ["src"]
 "unityflow.data" = ["*.json"]
 
 [tool.black]
-line-length = 100
+line-length = 120
 target-version = ["py312"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]

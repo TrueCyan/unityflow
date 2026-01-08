@@ -1,27 +1,25 @@
 """Tests for LLM helper functions - fileID generation, object creation, RectTransform utilities."""
 
-import pytest
 from pathlib import Path
 
-from unityflow.parser import (
-    UnityYAMLDocument,
-    UnityYAMLObject,
-    generate_file_id,
-    create_game_object,
-    create_transform,
-    create_rect_transform,
-    create_mono_behaviour,
-)
+import pytest
+
 from unityflow.formats import (
     RectTransformEditorValues,
-    RectTransformFileValues,
-    editor_to_file_values,
-    file_to_editor_values,
     create_rect_transform_file_values,
+    editor_to_file_values,
     export_to_json,
+    file_to_editor_values,
     import_from_json,
 )
-
+from unityflow.parser import (
+    UnityYAMLDocument,
+    create_game_object,
+    create_mono_behaviour,
+    create_rect_transform,
+    create_transform,
+    generate_file_id,
+)
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -405,8 +403,7 @@ class TestRectTransformExportImport:
 
         # Find a RectTransform component
         rect_transforms = [
-            (fid, comp) for fid, comp in json_data.components.items()
-            if comp.get("type") == "RectTransform"
+            (fid, comp) for fid, comp in json_data.components.items() if comp.get("type") == "RectTransform"
         ]
 
         assert len(rect_transforms) > 0
@@ -584,7 +581,7 @@ class TestLayoutDrivenProperties:
             script_guid="3245ec927659c4140ac4f8d17403cc18",  # ContentSizeFitter
             properties={
                 "m_HorizontalFit": 2,  # PreferredSize
-                "m_VerticalFit": 2,    # PreferredSize
+                "m_VerticalFit": 2,  # PreferredSize
             },
         )
 
@@ -627,7 +624,7 @@ class TestLayoutDrivenProperties:
             script_guid="3245ec927659c4140ac4f8d17403cc18",
             properties={
                 "m_HorizontalFit": 1,  # MinSize
-                "m_VerticalFit": 0,    # Unconstrained
+                "m_VerticalFit": 0,  # Unconstrained
             },
         )
 
@@ -812,5 +809,5 @@ class TestLayoutDrivenProperties:
 
         rt2 = doc2.get_by_file_id(rt_id)
         content = rt2.get_content()
-        assert content["m_SizeDelta"]["x"] == 0    # Width driven -> normalized to 0
+        assert content["m_SizeDelta"]["x"] == 0  # Width driven -> normalized to 0
         assert content["m_SizeDelta"]["y"] == 250  # Height NOT driven -> preserved

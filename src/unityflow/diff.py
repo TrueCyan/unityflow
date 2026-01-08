@@ -10,7 +10,6 @@ import difflib
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Iterator
 
 from unityflow.normalizer import UnityPrefabNormalizer
 

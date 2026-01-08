@@ -10,33 +10,69 @@ import json
 import os
 import re
 import sqlite3
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Iterator
+from typing import Any
 
 from unityflow.git_utils import UNITY_EXTENSIONS
-
 
 # Common binary asset extensions in Unity
 BINARY_ASSET_EXTENSIONS = {
     # Textures
-    ".png", ".jpg", ".jpeg", ".tga", ".psd", ".tiff", ".tif",
-    ".gif", ".bmp", ".exr", ".hdr",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tga",
+    ".psd",
+    ".tiff",
+    ".tif",
+    ".gif",
+    ".bmp",
+    ".exr",
+    ".hdr",
     # 3D Models
-    ".fbx", ".obj", ".dae", ".3ds", ".blend", ".max", ".ma", ".mb",
+    ".fbx",
+    ".obj",
+    ".dae",
+    ".3ds",
+    ".blend",
+    ".max",
+    ".ma",
+    ".mb",
     # Audio
-    ".wav", ".mp3", ".ogg", ".aiff", ".aif", ".flac", ".m4a",
+    ".wav",
+    ".mp3",
+    ".ogg",
+    ".aiff",
+    ".aif",
+    ".flac",
+    ".m4a",
     # Video
-    ".mp4", ".mov", ".avi", ".webm",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".webm",
     # Fonts
-    ".ttf", ".otf", ".fon",
+    ".ttf",
+    ".otf",
+    ".fon",
     # Other
-    ".dll", ".so", ".dylib",  # Native plugins
-    ".shader", ".cginc", ".hlsl", ".glsl",  # Shaders
+    ".dll",
+    ".so",
+    ".dylib",  # Native plugins
+    ".shader",
+    ".cginc",
+    ".hlsl",
+    ".glsl",  # Shaders
     ".compute",  # Compute shaders
-    ".bytes", ".txt", ".json", ".xml", ".csv",  # Data files
+    ".bytes",
+    ".txt",
+    ".json",
+    ".xml",
+    ".csv",  # Data files
 }
 
 # Pattern to extract GUID from .meta files
@@ -537,7 +573,8 @@ def _classify_asset_type(path: Path) -> str:
     ext = path.suffix.lower()
 
     # Textures
-    if ext in {".png", ".jpg", ".jpeg", ".tga", ".psd", ".tiff", ".tif", ".gif", ".bmp", ".exr", ".hdr"}:
+    texture_exts = {".png", ".jpg", ".jpeg", ".tga", ".psd", ".tiff", ".tif", ".gif", ".bmp", ".exr", ".hdr"}
+    if ext in texture_exts:
         return "Texture"
 
     # 3D Models
@@ -684,8 +721,7 @@ def analyze_dependencies(
 
     # Sort dependencies
     sorted_deps = sorted(
-        all_deps.values(),
-        key=lambda d: (not d.is_resolved, d.asset_type or "", str(d.path or d.guid))
+        all_deps.values(), key=lambda d: (not d.is_resolved, d.asset_type or "", str(d.path or d.guid))
     )
 
     return DependencyReport(
@@ -832,7 +868,8 @@ class CachedGUIDIndex:
 
     def _init_db(self, conn: sqlite3.Connection) -> None:
         """Initialize database schema."""
-        conn.executescript("""
+        conn.executescript(
+            """
             CREATE TABLE IF NOT EXISTS metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT
@@ -845,7 +882,8 @@ class CachedGUIDIndex:
             );
 
             CREATE INDEX IF NOT EXISTS idx_path ON guid_cache(path);
-        """)
+        """
+        )
         conn.commit()
 
     def _needs_full_rebuild(
@@ -859,23 +897,17 @@ class CachedGUIDIndex:
 
         try:
             with self._db_lock, self._get_db_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT value FROM metadata WHERE key = 'version'"
-                )
+                cursor = conn.execute("SELECT value FROM metadata WHERE key = 'version'")
                 row = cursor.fetchone()
                 if not row or int(row[0]) != CACHE_VERSION:
                     return True
 
-                cursor = conn.execute(
-                    "SELECT value FROM metadata WHERE key = 'include_packages'"
-                )
+                cursor = conn.execute("SELECT value FROM metadata WHERE key = 'include_packages'")
                 row = cursor.fetchone()
                 if not row or (row[0] == "1") != include_packages:
                     return True
 
-                cursor = conn.execute(
-                    "SELECT value FROM metadata WHERE key = 'package_versions'"
-                )
+                cursor = conn.execute("SELECT value FROM metadata WHERE key = 'package_versions'")
                 row = cursor.fetchone()
                 cached_versions = json.loads(row[0]) if row else {}
                 if cached_versions != current_package_versions:
@@ -907,24 +939,18 @@ class CachedGUIDIndex:
                 conn.execute("DELETE FROM metadata")
 
                 # Save metadata
+                conn.execute("INSERT INTO metadata (key, value) VALUES (?, ?)", ("version", str(CACHE_VERSION)))
                 conn.execute(
                     "INSERT INTO metadata (key, value) VALUES (?, ?)",
-                    ("version", str(CACHE_VERSION))
+                    ("include_packages", "1" if include_packages else "0"),
                 )
                 conn.execute(
                     "INSERT INTO metadata (key, value) VALUES (?, ?)",
-                    ("include_packages", "1" if include_packages else "0")
-                )
-                conn.execute(
-                    "INSERT INTO metadata (key, value) VALUES (?, ?)",
-                    ("package_versions", json.dumps(package_versions))
+                    ("package_versions", json.dumps(package_versions)),
                 )
 
                 # Batch insert GUIDs with mtime (already calculated during scan)
-                conn.executemany(
-                    "INSERT OR REPLACE INTO guid_cache (guid, path, mtime) VALUES (?, ?, ?)",
-                    db_entries
-                )
+                conn.executemany("INSERT OR REPLACE INTO guid_cache (guid, path, mtime) VALUES (?, ?, ?)", db_entries)
                 conn.commit()
         except sqlite3.Error:
             pass  # Ignore cache write errors
@@ -1062,16 +1088,12 @@ class CachedGUIDIndex:
                 # Delete removed entries
                 if deleted_paths:
                     placeholders = ",".join("?" * len(deleted_paths))
-                    conn.execute(
-                        f"DELETE FROM guid_cache WHERE path IN ({placeholders})",
-                        list(deleted_paths)
-                    )
+                    conn.execute(f"DELETE FROM guid_cache WHERE path IN ({placeholders})", list(deleted_paths))
 
                 # Update changed entries (already have mtime from parse)
                 if db_updates:
                     conn.executemany(
-                        "INSERT OR REPLACE INTO guid_cache (guid, path, mtime) VALUES (?, ?, ?)",
-                        db_updates
+                        "INSERT OR REPLACE INTO guid_cache (guid, path, mtime) VALUES (?, ?, ?)", db_updates
                     )
 
                 conn.commit()
@@ -1186,8 +1208,7 @@ class CachedGUIDIndex:
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(_parse_meta_file, meta_path, self.project_root): meta_path
-                for meta_path in meta_files
+                executor.submit(_parse_meta_file, meta_path, self.project_root): meta_path for meta_path in meta_files
             }
 
             for future in as_completed(futures):
@@ -1446,9 +1467,7 @@ class LazyGUIDIndex:
         try:
             with self._db_lock:
                 conn = self._get_connection()
-                cursor = conn.execute(
-                    "SELECT path FROM guid_cache WHERE guid = ?", (guid,)
-                )
+                cursor = conn.execute("SELECT path FROM guid_cache WHERE guid = ?", (guid,))
                 row = cursor.fetchone()
                 if row:
                     path = Path(row[0])
@@ -1492,9 +1511,7 @@ class LazyGUIDIndex:
             with self._db_lock:
                 conn = self._get_connection()
                 for p in paths_to_check:
-                    cursor = conn.execute(
-                        "SELECT guid FROM guid_cache WHERE path = ?", (str(p),)
-                    )
+                    cursor = conn.execute("SELECT guid FROM guid_cache WHERE path = ?", (str(p),))
                     row = cursor.fetchone()
                     if row:
                         guid = row[0]

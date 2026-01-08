@@ -3,8 +3,6 @@
 import math
 from pathlib import Path
 
-import pytest
-
 from unityflow.normalizer import UnityPrefabNormalizer, normalize_prefab
 from unityflow.parser import UnityYAMLDocument
 
@@ -89,7 +87,7 @@ class TestQuaternionNormalization:
         content = transform.get_content()
         q = content["m_LocalRotation"]
 
-        length = math.sqrt(q["x"]**2 + q["y"]**2 + q["z"]**2 + q["w"]**2)
+        length = math.sqrt(q["x"] ** 2 + q["y"] ** 2 + q["z"] ** 2 + q["w"] ** 2)
         assert abs(length - 1.0) < 0.0001
 
 

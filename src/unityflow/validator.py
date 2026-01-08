@@ -11,7 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from unityflow.parser import UnityYAMLDocument, UnityYAMLObject, CLASS_IDS
+from unityflow.parser import CLASS_IDS, UnityYAMLDocument, UnityYAMLObject
 
 # Valid GUID pattern: 32 hexadecimal characters
 GUID_PATTERN = re.compile(r"^[0-9a-fA-F]{32}$")
@@ -277,11 +277,12 @@ class PrefabValidator:
         if root_key:
             expected = CLASS_IDS.get(obj.class_id)
             if expected and root_key != expected:
+                msg = f"Root key '{root_key}' doesn't match expected '{expected}' for class {obj.class_id}"
                 issues.append(
                     ValidationIssue(
                         severity=Severity.WARNING,
                         file_id=obj.file_id,
-                        message=f"Root key '{root_key}' doesn't match expected '{expected}' for class ID {obj.class_id}",
+                        message=msg,
                     )
                 )
 
@@ -300,9 +301,7 @@ class PrefabValidator:
 
         return issues
 
-    def _validate_game_object(
-        self, obj: UnityYAMLObject, content: dict[str, Any]
-    ) -> list[ValidationIssue]:
+    def _validate_game_object(self, obj: UnityYAMLObject, content: dict[str, Any]) -> list[ValidationIssue]:
         """Validate a GameObject object."""
         issues: list[ValidationIssue] = []
 
@@ -329,9 +328,7 @@ class PrefabValidator:
 
         return issues
 
-    def _validate_transform(
-        self, obj: UnityYAMLObject, content: dict[str, Any]
-    ) -> list[ValidationIssue]:
+    def _validate_transform(self, obj: UnityYAMLObject, content: dict[str, Any]) -> list[ValidationIssue]:
         """Validate a Transform object."""
         issues: list[ValidationIssue] = []
 
@@ -407,9 +404,7 @@ class PrefabValidator:
 
         return issues
 
-    def _validate_class_id_root_key_match(
-        self, obj: UnityYAMLObject
-    ) -> list[ValidationIssue]:
+    def _validate_class_id_root_key_match(self, obj: UnityYAMLObject) -> list[ValidationIssue]:
         """Validate that classId matches the root key in the data.
 
         This detects cases where LLM generated incorrect classIds,
@@ -423,13 +418,15 @@ class PrefabValidator:
 
         # Special case: SceneRoots classId (1660057539) must have SceneRoots root key
         if obj.class_id == 1660057539 and root_key != "SceneRoots":
+            msg = f"ClassID 1660057539 (SceneRoots) used for '{root_key}' - Unity will fail to cast"
+            suggestion = f"'{root_key}' needs a different classId. Check Unity docs."
             issues.append(
                 ValidationIssue(
                     severity=Severity.ERROR,
                     file_id=obj.file_id,
-                    message=f"ClassID 1660057539 (SceneRoots) used for '{root_key}' - this will cause Unity to fail casting SceneRoots to Component",
+                    message=msg,
                     property_path=root_key,
-                    suggestion=f"'{root_key}' needs a different classId. Check Unity documentation for the correct classId.",
+                    suggestion=suggestion,
                 )
             )
 
@@ -459,21 +456,21 @@ class PrefabValidator:
         if expected_root_key and root_key != expected_root_key:
             # Only error for well-known types where mismatch is definitely wrong
             if obj.class_id in (1, 4, 224, 1001, 1660057539):  # Critical types
+                msg = f"ClassID {obj.class_id} expects '{expected_root_key}' but found '{root_key}'"
+                suggestion = f"Change classId to match '{root_key}' or root key to '{expected_root_key}'"
                 issues.append(
                     ValidationIssue(
                         severity=Severity.ERROR,
                         file_id=obj.file_id,
-                        message=f"ClassID {obj.class_id} expects '{expected_root_key}' but found '{root_key}'",
+                        message=msg,
                         property_path=root_key,
-                        suggestion=f"Either change classId to match '{root_key}' or change root key to '{expected_root_key}'",
+                        suggestion=suggestion,
                     )
                 )
 
         return issues
 
-    def _validate_prefab_instance(
-        self, obj: UnityYAMLObject, content: dict[str, Any]
-    ) -> list[ValidationIssue]:
+    def _validate_prefab_instance(self, obj: UnityYAMLObject, content: dict[str, Any]) -> list[ValidationIssue]:
         """Validate a PrefabInstance object."""
         issues: list[ValidationIssue] = []
 
@@ -532,7 +529,6 @@ class PrefabValidator:
 
                     # Check reference validity based on type
                     if file_id and file_id != 0:
-                        is_external_ref = guid and is_valid_guid(guid)
                         is_internal_ref = not guid or ref_type == 0
 
                         if is_internal_ref:
@@ -541,23 +537,27 @@ class PrefabValidator:
                                 # Unity builtin assets use special fileIDs (typically < 100000)
                                 # with type: 0 or type: 3, but should have a valid guid
                                 if ref_type == 0 and not guid:
+                                    msg = f"Broken ref: fileID {file_id} with type:0 not in file"
+                                    sug = "Builtin assets need guid. Ensure target exists."
                                     issues.append(
                                         ValidationIssue(
                                             severity=Severity.ERROR,
                                             file_id=obj.file_id,
-                                            message=f"Broken reference: fileID {file_id} with type:0 doesn't exist in file",
+                                            message=msg,
                                             property_path=path,
-                                            suggestion="Unity builtin assets need guid. For internal refs, ensure the target object exists.",
+                                            suggestion=sug,
                                         )
                                     )
                                 else:
+                                    msg = f"Internal ref to non-existent fileID: {file_id}"
+                                    sug = "Reference may be broken or external"
                                     issues.append(
                                         ValidationIssue(
                                             severity=Severity.WARNING,
                                             file_id=obj.file_id,
-                                            message=f"Internal reference to non-existent fileID: {file_id}",
+                                            message=msg,
                                             property_path=path,
-                                            suggestion="Reference may be broken or refers to external object",
+                                            suggestion=sug,
                                         )
                                     )
 
@@ -624,11 +624,13 @@ class PrefabValidator:
         # Check for missing roots
         missing_roots = root_transform_ids - scene_root_ids
         if missing_roots:
+            count = len(missing_roots)
+            msg = f"SceneRoots missing {count} root transform(s): {sorted(missing_roots)}"
             issues.append(
                 ValidationIssue(
                     severity=Severity.ERROR,
                     file_id=scene_roots_obj.file_id,
-                    message=f"SceneRoots missing {len(missing_roots)} root transform(s): {sorted(missing_roots)}",
+                    message=msg,
                     property_path="SceneRoots.m_Roots",
                     suggestion="Use fix_scene_roots() to automatically fix this issue",
                 )

@@ -6,61 +6,60 @@ Provides functions to detect changed Unity files based on git status or commit h
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
-
 
 # Unity YAML file extensions that can be normalized
 # Core assets
 UNITY_CORE_EXTENSIONS = {
-    ".prefab",      # Prefab files
-    ".unity",       # Scene files
-    ".asset",       # ScriptableObject and generic assets
+    ".prefab",  # Prefab files
+    ".unity",  # Scene files
+    ".asset",  # ScriptableObject and generic assets
 }
 
 # Animation & control
 UNITY_ANIMATION_EXTENSIONS = {
-    ".anim",                # Animation clips
-    ".controller",          # Animator Controller
+    ".anim",  # Animation clips
+    ".controller",  # Animator Controller
     ".overrideController",  # Animator Override Controller
-    ".playable",            # Playable assets (Timeline, etc.)
-    ".mask",                # Avatar masks
-    ".signal",              # Timeline Signal assets
+    ".playable",  # Playable assets (Timeline, etc.)
+    ".mask",  # Avatar masks
+    ".signal",  # Timeline Signal assets
 }
 
 # Materials & rendering
 UNITY_RENDERING_EXTENSIONS = {
-    ".mat",             # Materials
-    ".renderTexture",   # Render Textures
-    ".flare",           # Lens flare assets
+    ".mat",  # Materials
+    ".renderTexture",  # Render Textures
+    ".flare",  # Lens flare assets
     ".shadervariants",  # Shader variant collections
-    ".spriteatlas",     # Sprite atlases
-    ".cubemap",         # Cubemap assets
+    ".spriteatlas",  # Sprite atlases
+    ".cubemap",  # Cubemap assets
 }
 
 # Physics
 UNITY_PHYSICS_EXTENSIONS = {
-    ".physicMaterial",      # 3D Physics materials
-    ".physicsMaterial2D",   # 2D Physics materials
+    ".physicMaterial",  # 3D Physics materials
+    ".physicsMaterial2D",  # 2D Physics materials
 }
 
 # Terrain
 UNITY_TERRAIN_EXTENSIONS = {
-    ".terrainlayer",    # Terrain layer assets
-    ".brush",           # Terrain brush assets
+    ".terrainlayer",  # Terrain layer assets
+    ".brush",  # Terrain brush assets
 }
 
 # Audio
 UNITY_AUDIO_EXTENSIONS = {
-    ".mixer",           # Audio Mixer assets
+    ".mixer",  # Audio Mixer assets
 }
 
 # UI & Editor
 UNITY_UI_EXTENSIONS = {
-    ".guiskin",         # GUI Skin assets
-    ".fontsettings",    # Font settings
-    ".preset",          # Presets
-    ".giparams",        # Global Illumination parameters
+    ".guiskin",  # GUI Skin assets
+    ".fontsettings",  # Font settings
+    ".preset",  # Presets
+    ".giparams",  # Global Illumination parameters
 }
 
 # All Unity YAML extensions combined

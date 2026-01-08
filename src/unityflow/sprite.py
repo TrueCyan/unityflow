@@ -15,7 +15,6 @@ from typing import Any
 
 from unityflow.asset_tracker import META_GUID_PATTERN
 
-
 # Well-known material GUIDs
 KNOWN_MATERIALS = {
     # URP (Universal Render Pipeline)

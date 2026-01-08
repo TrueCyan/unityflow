@@ -2,19 +2,16 @@
 
 from pathlib import Path
 
-import pytest
-
-from unityflow.parser import UnityYAMLDocument
 from unityflow.hierarchy import (
     ComponentInfo,
-    HierarchyNode,
     Hierarchy,
+    HierarchyNode,
     build_hierarchy,
-    resolve_game_object_for_component,
     get_prefab_instance_for_stripped,
     get_stripped_objects_for_prefab,
+    resolve_game_object_for_component,
 )
-
+from unityflow.parser import UnityYAMLDocument
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -40,9 +37,7 @@ class TestHierarchyBuild:
         assert len(hierarchy.root_objects) >= 1
 
         # Find PrefabInstance nodes
-        prefab_instances = [
-            node for node in hierarchy.iter_all() if node.is_prefab_instance
-        ]
+        prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
         assert len(prefab_instances) >= 1
 
     def test_hierarchy_indexes_stripped_objects(self):
@@ -171,9 +166,7 @@ class TestPrefabInstanceNode:
         doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
         hierarchy = build_hierarchy(doc)
 
-        prefab_instances = [
-            node for node in hierarchy.iter_all() if node.is_prefab_instance
-        ]
+        prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
         assert len(prefab_instances) >= 1
 
         instance = prefab_instances[0]
@@ -184,9 +177,7 @@ class TestPrefabInstanceNode:
         doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
         hierarchy = build_hierarchy(doc)
 
-        prefab_instances = [
-            node for node in hierarchy.iter_all() if node.is_prefab_instance
-        ]
+        prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
         if prefab_instances:
             instance = prefab_instances[0]
             # Should have modifications (position, name)
@@ -410,9 +401,7 @@ class TestSetProperty:
         hierarchy = build_hierarchy(doc)
 
         # Find PrefabInstance node
-        prefab_instances = [
-            node for node in hierarchy.iter_all() if node.is_prefab_instance
-        ]
+        prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
         assert len(prefab_instances) >= 1
 
         instance = prefab_instances[0]
@@ -434,9 +423,7 @@ class TestSetProperty:
         hierarchy = build_hierarchy(doc)
 
         # Find PrefabInstance node
-        prefab_instances = [
-            node for node in hierarchy.iter_all() if node.is_prefab_instance
-        ]
+        prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
         assert len(prefab_instances) >= 1
 
         instance = prefab_instances[0]
@@ -482,9 +469,7 @@ class TestSetProperty:
         hierarchy = build_hierarchy(doc)
 
         # Find PrefabInstance nodes
-        prefab_instances = [
-            node for node in hierarchy.iter_all() if node.is_prefab_instance
-        ]
+        prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
         assert len(prefab_instances) >= 1
 
         # All PrefabInstances in nested_prefab.prefab use RectTransform
@@ -497,9 +482,7 @@ class TestSetProperty:
         hierarchy = build_hierarchy(doc)
 
         # Find first PrefabInstance (MyButton)
-        prefab_instances = [
-            node for node in hierarchy.iter_all() if node.is_prefab_instance
-        ]
+        prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
         instance = prefab_instances[0]
 
         # These values are set in modifications
@@ -732,9 +715,7 @@ class TestLLMFriendlyAPI:
         doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
         hierarchy = build_hierarchy(doc)
 
-        prefab_instances = [
-            node for node in hierarchy.iter_all() if node.is_prefab_instance
-        ]
+        prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
         if prefab_instances:
             node = prefab_instances[0]
             # Without guid_index and project_root, should return False
@@ -807,9 +788,11 @@ class TestChildrenSortOrder:
         # Children should be in m_Children order: Header, Content, Footer
         # NOT in document traversal order: Footer, Header, Content
         child_names = [c.name for c in canvas.children]
-        assert child_names == ["Header", "Content", "Footer"], (
-            f"Expected ['Header', 'Content', 'Footer'] but got {child_names}"
-        )
+        assert child_names == [
+            "Header",
+            "Content",
+            "Footer",
+        ], f"Expected ['Header', 'Content', 'Footer'] but got {child_names}"
 
     def test_children_order_find_by_path(self):
         """Test that find works correctly with sorted children."""
@@ -895,17 +878,13 @@ Transform:
 
             # Load nested hierarchy
             source_guid = "test_guid_for_caching"
-            result1 = hierarchy._get_or_load_nested_hierarchy(
-                source_guid, prefab_path, None
-            )
+            result1 = hierarchy._get_or_load_nested_hierarchy(source_guid, prefab_path, None)
 
             assert result1 is not None
             assert source_guid in hierarchy._nested_prefab_cache
 
             # Load again - should return cached result
-            result2 = hierarchy._get_or_load_nested_hierarchy(
-                source_guid, prefab_path, None
-            )
+            result2 = hierarchy._get_or_load_nested_hierarchy(source_guid, prefab_path, None)
 
             # Should be the exact same object (cached)
             assert result1 is result2
@@ -940,12 +919,8 @@ Transform:
             hierarchy = build_hierarchy(doc)
 
             # Load both prefabs
-            result1 = hierarchy._get_or_load_nested_hierarchy(
-                "guid1", project_root / "Assets" / "Prefab1.prefab", None
-            )
-            result2 = hierarchy._get_or_load_nested_hierarchy(
-                "guid2", project_root / "Assets" / "Prefab2.prefab", None
-            )
+            result1 = hierarchy._get_or_load_nested_hierarchy("guid1", project_root / "Assets" / "Prefab1.prefab", None)
+            result2 = hierarchy._get_or_load_nested_hierarchy("guid2", project_root / "Assets" / "Prefab2.prefab", None)
 
             # Should have 2 cache entries
             assert len(hierarchy._nested_prefab_cache) == 2
@@ -974,6 +949,7 @@ Transform:
     def test_load_source_prefab_uses_cache(self):
         """Test that load_source_prefab uses hierarchy cache."""
         import tempfile
+
         from unityflow.asset_tracker import GUIDIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1056,9 +1032,7 @@ Transform:
             hierarchy = build_hierarchy(parent_doc, guid_index=guid_index, project_root=project_root)
 
             # Find the two PrefabInstance nodes
-            prefab_instances = [
-                node for node in hierarchy.iter_all() if node.is_prefab_instance
-            ]
+            prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
             assert len(prefab_instances) == 2
 
             # Load first instance

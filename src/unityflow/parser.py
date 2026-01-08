@@ -12,15 +12,16 @@ import json
 import random
 import re
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from unityflow.fast_parser import (
     LARGE_FILE_THRESHOLD,
     ProgressCallback,
-    fast_parse_unity_yaml,
     fast_dump_unity_object,
+    fast_parse_unity_yaml,
     get_file_stats,
     iter_dump_unity_object,
     iter_parse_unity_yaml,
@@ -34,9 +35,7 @@ UNITY_HEADER = """%YAML 1.1
 
 # Pattern to match Unity document headers: --- !u!{ClassID} &{fileID}
 # Note: fileID can be negative (Unity uses 64-bit signed integers)
-DOCUMENT_HEADER_PATTERN = re.compile(
-    r"^--- !u!(\d+) &(-?\d+)(?: stripped)?$", re.MULTILINE
-)
+DOCUMENT_HEADER_PATTERN = re.compile(r"^--- !u!(\d+) &(-?\d+)(?: stripped)?$", re.MULTILINE)
 
 
 def _load_class_ids() -> dict[int, str]:
@@ -319,9 +318,7 @@ class UnityYAMLDocument:
         Yields:
             UnityYAMLObject instances
         """
-        for class_id, file_id, stripped, data in iter_parse_unity_yaml(
-            content, progress_callback
-        ):
+        for class_id, file_id, stripped, data in iter_parse_unity_yaml(content, progress_callback):
             yield UnityYAMLObject(
                 class_id=class_id,
                 file_id=file_id,

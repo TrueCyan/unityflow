@@ -6,30 +6,26 @@ Provides commands for normalizing, diffing, and validating Unity YAML files.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable
 
 import click
 
 from unityflow import __version__
+from unityflow.asset_tracker import (
+    find_unity_project_root,
+)
 from unityflow.diff import DiffFormat, PrefabDiff
 from unityflow.git_utils import (
-    UNITY_EXTENSIONS,
     get_changed_files,
     get_files_changed_since,
     get_repo_root,
     is_git_repository,
 )
 from unityflow.normalizer import UnityPrefabNormalizer
+from unityflow.parser import UnityYAMLDocument
 from unityflow.validator import PrefabValidator
-from unityflow.asset_tracker import (
-    analyze_dependencies,
-    find_references_to_asset,
-    find_unity_project_root,
-    build_guid_index,
-    BINARY_ASSET_EXTENSIONS,
-)
 
 
 def _normalize_single_file(args: tuple) -> tuple[Path, bool, str]:
@@ -324,7 +320,8 @@ def normalize(
 
     # Parallel processing for batch mode
     if parallel_jobs > 1 and len(files_to_normalize) > 1 and not stdout and not output:
-        click.echo(f"Processing {len(files_to_normalize)} files with {parallel_jobs} parallel workers...")
+        file_count = len(files_to_normalize)
+        click.echo(f"Processing {file_count} files with {parallel_jobs} parallel workers...")
 
         tasks = [(f, normalizer_kwargs) for f in files_to_normalize]
 
@@ -592,24 +589,45 @@ PACKAGE_COMPONENT_GUIDS: dict[str, str] = {
 # Built-in component types (native Unity components)
 BUILTIN_COMPONENT_TYPES = [
     # Renderer
-    "SpriteRenderer", "MeshRenderer", "TrailRenderer", "LineRenderer", "SkinnedMeshRenderer",
+    "SpriteRenderer",
+    "MeshRenderer",
+    "TrailRenderer",
+    "LineRenderer",
+    "SkinnedMeshRenderer",
     # Camera & Light
-    "Camera", "Light",
+    "Camera",
+    "Light",
     # Audio
-    "AudioSource", "AudioListener",
+    "AudioSource",
+    "AudioListener",
     # 3D Colliders
-    "BoxCollider", "SphereCollider", "CapsuleCollider", "MeshCollider",
+    "BoxCollider",
+    "SphereCollider",
+    "CapsuleCollider",
+    "MeshCollider",
     # 2D Colliders
-    "BoxCollider2D", "CircleCollider2D", "PolygonCollider2D", "EdgeCollider2D",
-    "CapsuleCollider2D", "CompositeCollider2D",
+    "BoxCollider2D",
+    "CircleCollider2D",
+    "PolygonCollider2D",
+    "EdgeCollider2D",
+    "CapsuleCollider2D",
+    "CompositeCollider2D",
     # Physics
-    "Rigidbody", "Rigidbody2D", "CharacterController",
+    "Rigidbody",
+    "Rigidbody2D",
+    "CharacterController",
     # Animation
-    "Animator", "Animation",
+    "Animator",
+    "Animation",
     # UI
-    "Canvas", "CanvasGroup", "CanvasRenderer",
+    "Canvas",
+    "CanvasGroup",
+    "CanvasRenderer",
     # Misc
-    "MeshFilter", "TextMesh", "ParticleSystem", "SpriteMask",
+    "MeshFilter",
+    "TextMesh",
+    "ParticleSystem",
+    "SpriteMask",
 ]
 
 # All supported component types for --type option
@@ -620,18 +638,20 @@ ALL_COMPONENT_TYPES = BUILTIN_COMPONENT_TYPES + list(PACKAGE_COMPONENT_GUIDS.key
 # Field Type Validation
 # ============================================================================
 
+
 class FieldType:
     """Unity field types for validation."""
-    VECTOR2 = "Vector2"      # {x, y}
-    VECTOR3 = "Vector3"      # {x, y, z}
-    VECTOR4 = "Vector4"      # {x, y, z, w}
+
+    VECTOR2 = "Vector2"  # {x, y}
+    VECTOR3 = "Vector3"  # {x, y, z}
+    VECTOR4 = "Vector4"  # {x, y, z, w}
     QUATERNION = "Quaternion"  # {x, y, z, w}
-    COLOR = "Color"          # {r, g, b, a}
-    BOOL = "bool"            # 0 or 1
-    INT = "int"              # integer
-    FLOAT = "float"          # number
-    STRING = "string"        # string
-    ASSET_REF = "AssetRef"   # {fileID, guid, type}
+    COLOR = "Color"  # {r, g, b, a}
+    BOOL = "bool"  # 0 or 1
+    INT = "int"  # integer
+    FLOAT = "float"  # number
+    STRING = "string"  # string
+    ASSET_REF = "AssetRef"  # {fileID, guid, type}
 
 
 # Field name to type mapping
@@ -642,11 +662,9 @@ FIELD_TYPES: dict[str, str] = {
     "m_LocalEulerAnglesHint": FieldType.VECTOR3,
     "localPosition": FieldType.VECTOR3,
     "localScale": FieldType.VECTOR3,
-
     # Transform - Quaternion
     "m_LocalRotation": FieldType.QUATERNION,
     "localRotation": FieldType.QUATERNION,
-
     # RectTransform - Vector2
     "m_AnchorMin": FieldType.VECTOR2,
     "m_AnchorMax": FieldType.VECTOR2,
@@ -658,11 +676,9 @@ FIELD_TYPES: dict[str, str] = {
     "anchoredPosition": FieldType.VECTOR2,
     "sizeDelta": FieldType.VECTOR2,
     "pivot": FieldType.VECTOR2,
-
     # RectTransform - Vector4
     "m_RaycastPadding": FieldType.VECTOR4,
     "m_margin": FieldType.VECTOR4,
-
     # Color fields
     "m_Color": FieldType.COLOR,
     "m_BackGroundColor": FieldType.COLOR,
@@ -671,7 +687,6 @@ FIELD_TYPES: dict[str, str] = {
     "m_PressedColor": FieldType.COLOR,
     "m_SelectedColor": FieldType.COLOR,
     "m_DisabledColor": FieldType.COLOR,
-
     # Common numeric fields
     "m_Enabled": FieldType.BOOL,
     "m_IsActive": FieldType.BOOL,
@@ -680,7 +695,6 @@ FIELD_TYPES: dict[str, str] = {
     "m_PreserveAspect": FieldType.BOOL,
     "m_FillCenter": FieldType.BOOL,
     "m_UseSpriteMesh": FieldType.BOOL,
-
     # Asset reference fields
     "m_Sprite": FieldType.ASSET_REF,
     "m_Material": FieldType.ASSET_REF,
@@ -705,60 +719,65 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
         return True, None
 
     if field_type == FieldType.VECTOR2:
+        fmt = '{"x": 0, "y": 0}'
         if not isinstance(value, dict):
-            return False, f"'{field_name}'은(는) Vector2 형식이어야 합니다: {{\"x\": 0, \"y\": 0}}"
+            return False, f"'{field_name}'은(는) Vector2 형식이어야 합니다: {fmt}"
         required = {"x", "y"}
         if not required.issubset(value.keys()):
             missing = required - set(value.keys())
-            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"x\": 0, \"y\": 0}}"
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["x", "y"]:
             if not isinstance(value.get(k), (int, float)):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
         return True, None
 
     if field_type == FieldType.VECTOR3:
+        fmt = '{"x": 0, "y": 0, "z": 0}'
         if not isinstance(value, dict):
-            return False, f"'{field_name}'은(는) Vector3 형식이어야 합니다: {{\"x\": 0, \"y\": 0, \"z\": 0}}"
+            return False, f"'{field_name}'은(는) Vector3 형식이어야 합니다: {fmt}"
         required = {"x", "y", "z"}
         if not required.issubset(value.keys()):
             missing = required - set(value.keys())
-            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"x\": 0, \"y\": 0, \"z\": 0}}"
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["x", "y", "z"]:
             if not isinstance(value.get(k), (int, float)):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
         return True, None
 
     if field_type == FieldType.VECTOR4:
+        fmt = '{"x": 0, "y": 0, "z": 0, "w": 0}'
         if not isinstance(value, dict):
-            return False, f"'{field_name}'은(는) Vector4 형식이어야 합니다: {{\"x\": 0, \"y\": 0, \"z\": 0, \"w\": 0}}"
+            return False, f"'{field_name}'은(는) Vector4 형식이어야 합니다: {fmt}"
         required = {"x", "y", "z", "w"}
         if not required.issubset(value.keys()):
             missing = required - set(value.keys())
-            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"x\": 0, \"y\": 0, \"z\": 0, \"w\": 0}}"
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["x", "y", "z", "w"]:
             if not isinstance(value.get(k), (int, float)):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
         return True, None
 
     if field_type == FieldType.QUATERNION:
+        fmt = '{"x": 0, "y": 0, "z": 0, "w": 1}'
         if not isinstance(value, dict):
-            return False, f"'{field_name}'은(는) Quaternion 형식이어야 합니다: {{\"x\": 0, \"y\": 0, \"z\": 0, \"w\": 1}}"
+            return False, f"'{field_name}'은(는) Quaternion 형식이어야 합니다: {fmt}"
         required = {"x", "y", "z", "w"}
         if not required.issubset(value.keys()):
             missing = required - set(value.keys())
-            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"x\": 0, \"y\": 0, \"z\": 0, \"w\": 1}}"
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["x", "y", "z", "w"]:
             if not isinstance(value.get(k), (int, float)):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
         return True, None
 
     if field_type == FieldType.COLOR:
+        fmt = '{"r": 1, "g": 1, "b": 1, "a": 1}'
         if not isinstance(value, dict):
-            return False, f"'{field_name}'은(는) Color 형식이어야 합니다: {{\"r\": 1, \"g\": 1, \"b\": 1, \"a\": 1}}"
+            return False, f"'{field_name}'은(는) Color 형식이어야 합니다: {fmt}"
         required = {"r", "g", "b", "a"}
         if not required.issubset(value.keys()):
             missing = required - set(value.keys())
-            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}. 형식: {{\"r\": 1, \"g\": 1, \"b\": 1, \"a\": 1}}"
+            return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["r", "g", "b", "a"]:
             if not isinstance(value.get(k), (int, float)):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
@@ -792,7 +811,7 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
         # If it's a string starting with @, it will be resolved later
         if isinstance(value, str) and value.startswith("@"):
             return True, None
-        return False, f"'{field_name}'은(는) 에셋 참조 형식이어야 합니다: \"@Assets/path/to/asset.ext\""
+        return False, f"'{field_name}'은(는) 에셋 참조여야 합니다: @Assets/path.ext"
 
     return True, None
 
@@ -801,8 +820,9 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
 # Path Resolution Helpers
 # ============================================================================
 
+
 def _resolve_gameobject_by_path(
-    doc: "UnityYAMLDocument",
+    doc: UnityYAMLDocument,
     path_spec: str,
 ) -> tuple[int | None, str | None]:
     """Resolve a GameObject by path specification.
@@ -887,16 +907,17 @@ def _resolve_gameobject_by_path(
         if index < len(matches):
             return matches[index][0], None
         else:
-            return None, f"Index [{index}] out of range. Found {len(matches)} GameObjects at path '{path}'"
+            count = len(matches)
+            return None, f"Index [{index}] out of range. Found {count} GameObjects at '{path}'"
 
     # No index specified, show options
     error_lines = [f"Multiple GameObjects at path '{path}'."]
-    error_lines.append(f"Use index to select: --to \"{path}[0]\" (0 to {len(matches) - 1})")
+    error_lines.append(f'Use index to select: --to "{path}[0]" (0 to {len(matches) - 1})')
     return None, "\n".join(error_lines)
 
 
 def _resolve_component_path(
-    doc: "UnityYAMLDocument",
+    doc: UnityYAMLDocument,
     path_spec: str,
 ) -> tuple[str | None, str | None]:
     """Resolve a component path to the internal format.
@@ -916,6 +937,7 @@ def _resolve_component_path(
         Tuple of (resolved_path, error_message). If successful, error_message is None.
     """
     import re
+
     from unityflow.parser import CLASS_IDS
 
     # Check if already in internal format (components/12345/... or gameObjects/12345/...)
@@ -936,10 +958,21 @@ def _resolve_component_path(
 
     # Also add package component names (they're MonoBehaviour)
     package_components = {
-        "image", "button", "scrollrect", "mask", "rectmask2d",
-        "graphicraycaster", "canvasscaler", "verticallayoutgroup",
-        "horizontallayoutgroup", "contentsizefitter", "textmeshprougui",
-        "tmp_inputfield", "eventsystem", "inputsystemuiinputmodule", "light2d"
+        "image",
+        "button",
+        "scrollrect",
+        "mask",
+        "rectmask2d",
+        "graphicraycaster",
+        "canvasscaler",
+        "verticallayoutgroup",
+        "horizontallayoutgroup",
+        "contentsizefitter",
+        "textmeshprougui",
+        "tmp_inputfield",
+        "eventsystem",
+        "inputsystemuiinputmodule",
+        "light2d",
     }
 
     # Check if the LAST part is a component type (for batch mode - path ends with component)
@@ -952,9 +985,9 @@ def _resolve_component_path(
 
         # Check if last part is a known component type
         last_is_component = (
-            last_component_type_lower in name_to_ids or
-            last_component_type_lower in package_components or
-            last_component_type == "MonoBehaviour"
+            last_component_type_lower in name_to_ids
+            or last_component_type_lower in package_components
+            or last_component_type == "MonoBehaviour"
         )
 
         if last_is_component:
@@ -971,11 +1004,11 @@ def _resolve_component_path(
             # Find the component
             go = doc.get_by_file_id(go_id)
             if not go:
-                return None, f"GameObject not found"
+                return None, "GameObject not found"
 
             go_content = go.get_content()
             if not go_content or "m_Component" not in go_content:
-                return None, f"GameObject has no components"
+                return None, "GameObject has no components"
 
             # Find matching components
             matching_components: list[int] = []
@@ -994,7 +1027,10 @@ def _resolve_component_path(
                         comp_content = comp.get_content()
                         if comp_content:
                             script_ref = comp_content.get("m_Script", {})
-                            script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+                            if isinstance(script_ref, dict):
+                                script_guid = script_ref.get("guid", "")
+                            else:
+                                script_guid = ""
                             # Check if GUID matches the package component
                             # Use case-insensitive key lookup
                             expected_guid = ""
@@ -1017,13 +1053,18 @@ def _resolve_component_path(
             # Multiple matches
             if last_component_index is not None:
                 if last_component_index < len(matching_components):
-                    return f"components/{matching_components[last_component_index]}", None
+                    comp_id = matching_components[last_component_index]
+                    return f"components/{comp_id}", None
                 else:
-                    return None, f"Index [{last_component_index}] out of range. Found {len(matching_components)} {last_component_type} components"
+                    count = len(matching_components)
+                    idx = last_component_index
+                    return None, f"Index [{idx}] out of range. Found {count} components"
 
             # No index specified
-            error_lines = [f"Multiple '{last_component_type}' components on '{go_path}'."]
-            error_lines.append(f"Use index to select: \"{go_path}/{last_component_type}[0]\" (0 to {len(matching_components) - 1})")
+            comp_type = last_component_type
+            error_lines = [f"Multiple '{comp_type}' components on '{go_path}'."]
+            max_idx = len(matching_components) - 1
+            error_lines.append(f'Use index: "{go_path}/{comp_type}[0]" (0-{max_idx})')
             return None, "\n".join(error_lines)
 
     # Last part is the property name
@@ -1039,9 +1080,9 @@ def _resolve_component_path(
 
         # Check if it's a known component type
         is_component = (
-            component_type_lower in name_to_ids or
-            component_type_lower in package_components or
-            component_type == "MonoBehaviour"
+            component_type_lower in name_to_ids
+            or component_type_lower in package_components
+            or component_type == "MonoBehaviour"
         )
 
         if is_component:
@@ -1058,11 +1099,11 @@ def _resolve_component_path(
             # Find the component
             go = doc.get_by_file_id(go_id)
             if not go:
-                return None, f"GameObject not found"
+                return None, "GameObject not found"
 
             go_content = go.get_content()
             if not go_content or "m_Component" not in go_content:
-                return None, f"GameObject has no components"
+                return None, "GameObject has no components"
 
             # Find matching components
             matching_components: list[int] = []
@@ -1081,7 +1122,10 @@ def _resolve_component_path(
                         comp_content = comp.get_content()
                         if comp_content:
                             script_ref = comp_content.get("m_Script", {})
-                            script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+                            if isinstance(script_ref, dict):
+                                script_guid = script_ref.get("guid", "")
+                            else:
+                                script_guid = ""
                             # Check if GUID matches the package component
                             # Use case-insensitive key lookup
                             expected_guid = ""
@@ -1103,13 +1147,17 @@ def _resolve_component_path(
             # Multiple matches
             if component_index is not None:
                 if component_index < len(matching_components):
-                    return f"components/{matching_components[component_index]}/{property_name}", None
+                    comp_id = matching_components[component_index]
+                    return f"components/{comp_id}/{property_name}", None
                 else:
-                    return None, f"Index [{component_index}] out of range. Found {len(matching_components)} {component_type} components"
+                    count = len(matching_components)
+                    return None, f"Index [{component_index}] out of range. Found {count}"
 
             # No index specified
-            error_lines = [f"Multiple '{component_type}' components on '{go_path}'."]
-            error_lines.append(f"Use index to select: \"{go_path}/{component_type}[0]/{property_name}\" (0 to {len(matching_components) - 1})")
+            comp_type = component_type
+            error_lines = [f"Multiple '{comp_type}' components on '{go_path}'."]
+            max_idx = len(matching_components) - 1
+            error_lines.append(f'Use index: "{go_path}/{comp_type}[0]/..." (0-{max_idx})')
             return None, "\n".join(error_lines)
 
     # Not a component path - treat as GameObject property
@@ -1163,9 +1211,10 @@ def get_value_cmd(
         # Output as text (for simple values)
         unityflow get Player.prefab "Player/Transform/localPosition" --format text
     """
+    import json
+
     from unityflow.parser import UnityYAMLDocument
     from unityflow.query import get_value
-    import json
 
     try:
         doc = UnityYAMLDocument.load(file)
@@ -1279,20 +1328,23 @@ def set_value_cmd(
             "@Assets/Sprites/atlas.png:idle_0"  -> Sub-sprite
             "@Assets/Prefabs/Enemy.prefab"      -> Prefab reference
     """
-    from unityflow.parser import UnityYAMLDocument
-    from unityflow.query import set_value, merge_values
-    from unityflow.asset_resolver import (
-        resolve_value,
-        is_asset_reference,
-        AssetTypeMismatchError,
-    )
     import json
 
+    from unityflow.asset_resolver import (
+        AssetTypeMismatchError,
+        is_asset_reference,
+        resolve_value,
+    )
+    from unityflow.parser import UnityYAMLDocument
+    from unityflow.query import merge_values, set_value
+
     # Count how many value modes are specified
-    value_modes = sum([
-        value is not None,
-        batch_values_json is not None,
-    ])
+    value_modes = sum(
+        [
+            value is not None,
+            batch_values_json is not None,
+        ]
+    )
 
     # Validate options
     if value_modes == 0:
@@ -1601,8 +1653,10 @@ def setup(
 
     # Configure merge driver
     click.echo("  Configuring merge driver...")
-    subprocess.run([*git_config_cmd, "merge.unity.name", "Unity YAML Merge (unityflow)"], check=True)
-    subprocess.run([*git_config_cmd, "merge.unity.driver", "unityflow merge %O %A %B -o %A --path %P"], check=True)
+    merge_name = "Unity YAML Merge (unityflow)"
+    merge_driver = "unityflow merge %O %A %B -o %A --path %P"
+    subprocess.run([*git_config_cmd, "merge.unity.name", merge_name], check=True)
+    subprocess.run([*git_config_cmd, "merge.unity.driver", merge_driver], check=True)
     subprocess.run([*git_config_cmd, "merge.unity.recursive", "binary"], check=True)
 
     # Configure difftool (for Git Fork and other GUI clients)
@@ -1617,8 +1671,9 @@ def setup(
 
         # Set up difftool
         subprocess.run([*git_config_cmd, "diff.tool", "prefab-unity"], check=True)
+        difftool_cmd = f'unityflow difftool{backend_arg} "$LOCAL" "$REMOTE"'
         subprocess.run(
-            [*git_config_cmd, "difftool.prefab-unity.cmd", f'unityflow difftool{backend_arg} "$LOCAL" "$REMOTE"'],
+            [*git_config_cmd, "difftool.prefab-unity.cmd", difftool_cmd],
             check=True,
         )
 
@@ -1715,7 +1770,8 @@ def setup(
 set -e
 
 # Get list of staged Unity files
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\\.(prefab|unity|asset)$' || true)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | \\
+  grep -E '\\.(prefab|unity|asset)$' || true)
 
 if [ -n "$STAGED_FILES" ]; then
     echo "Normalizing Unity files..."
@@ -1906,6 +1962,7 @@ def hierarchy_cmd(
 
     # Output
     if output_format == "json":
+
         def node_to_dict(node, current_depth: int = 0):
             result = {
                 "name": node.name,
@@ -1927,10 +1984,7 @@ def hierarchy_cmd(
 
             if depth is None or current_depth < depth:
                 if node.children:
-                    result["children"] = [
-                        node_to_dict(child, current_depth + 1)
-                        for child in node.children
-                    ]
+                    result["children"] = [node_to_dict(child, current_depth + 1) for child in node.children]
             return result
 
         output_data = [node_to_dict(n) for n in root_nodes]
@@ -2125,11 +2179,12 @@ def inspect_cmd(
                     "localScale": transform_content.get("m_LocalScale"),
                 }
                 if transform_obj.class_id == 224:
-                    result["transform"]["anchoredPosition"] = transform_content.get("m_AnchoredPosition")
-                    result["transform"]["sizeDelta"] = transform_content.get("m_SizeDelta")
-                    result["transform"]["anchorMin"] = transform_content.get("m_AnchorMin")
-                    result["transform"]["anchorMax"] = transform_content.get("m_AnchorMax")
-                    result["transform"]["pivot"] = transform_content.get("m_Pivot")
+                    t = result["transform"]
+                    t["anchoredPosition"] = transform_content.get("m_AnchoredPosition")
+                    t["sizeDelta"] = transform_content.get("m_SizeDelta")
+                    t["anchorMin"] = transform_content.get("m_AnchorMin")
+                    t["anchorMax"] = transform_content.get("m_AnchorMax")
+                    t["pivot"] = transform_content.get("m_Pivot")
 
         # Add components
         result["components"] = []
@@ -2156,7 +2211,7 @@ def inspect_cmd(
         click.echo(f"Tag: {go_content.get('m_TagString', 'Untagged')}")
 
         if node.is_prefab_instance:
-            click.echo(f"Is Prefab Instance: Yes")
+            click.echo("Is Prefab Instance: Yes")
             if node.source_guid:
                 click.echo(f"Source GUID: {node.source_guid}")
 
@@ -2170,39 +2225,48 @@ def inspect_cmd(
                 transform_type = "RectTransform" if transform_obj.class_id == 224 else "Transform"
                 click.echo(f"[{transform_type}]")
 
+                def fmt_vec3(v: dict, dx=0, dy=0, dz=0) -> str:
+                    return f"({v.get('x', dx)}, {v.get('y', dy)}, {v.get('z', dz)})"
+
+                def fmt_vec4(v: dict, dx=0, dy=0, dz=0, dw=1) -> str:
+                    return f"({v.get('x', dx)}, {v.get('y', dy)}, {v.get('z', dz)}, {v.get('w', dw)})"
+
+                def fmt_vec2(v: dict, dx=0, dy=0) -> str:
+                    return f"({v.get('x', dx)}, {v.get('y', dy)})"
+
                 pos = transform_content.get("m_LocalPosition", {})
                 if isinstance(pos, dict):
-                    click.echo(f"  localPosition: ({pos.get('x', 0)}, {pos.get('y', 0)}, {pos.get('z', 0)})")
+                    click.echo(f"  localPosition: {fmt_vec3(pos)}")
 
                 rot = transform_content.get("m_LocalRotation", {})
                 if isinstance(rot, dict):
-                    click.echo(f"  localRotation: ({rot.get('x', 0)}, {rot.get('y', 0)}, {rot.get('z', 0)}, {rot.get('w', 1)})")
+                    click.echo(f"  localRotation: {fmt_vec4(rot)}")
 
                 scale = transform_content.get("m_LocalScale", {})
                 if isinstance(scale, dict):
-                    click.echo(f"  localScale: ({scale.get('x', 1)}, {scale.get('y', 1)}, {scale.get('z', 1)})")
+                    click.echo(f"  localScale: {fmt_vec3(scale, 1, 1, 1)}")
 
                 # RectTransform specific
                 if transform_obj.class_id == 224:
                     anchor_pos = transform_content.get("m_AnchoredPosition", {})
                     if isinstance(anchor_pos, dict):
-                        click.echo(f"  anchoredPosition: ({anchor_pos.get('x', 0)}, {anchor_pos.get('y', 0)})")
+                        click.echo(f"  anchoredPosition: {fmt_vec2(anchor_pos)}")
 
                     size = transform_content.get("m_SizeDelta", {})
                     if isinstance(size, dict):
-                        click.echo(f"  sizeDelta: ({size.get('x', 0)}, {size.get('y', 0)})")
+                        click.echo(f"  sizeDelta: {fmt_vec2(size)}")
 
                     anchor_min = transform_content.get("m_AnchorMin", {})
                     if isinstance(anchor_min, dict):
-                        click.echo(f"  anchorMin: ({anchor_min.get('x', 0)}, {anchor_min.get('y', 0)})")
+                        click.echo(f"  anchorMin: {fmt_vec2(anchor_min)}")
 
                     anchor_max = transform_content.get("m_AnchorMax", {})
                     if isinstance(anchor_max, dict):
-                        click.echo(f"  anchorMax: ({anchor_max.get('x', 0)}, {anchor_max.get('y', 0)})")
+                        click.echo(f"  anchorMax: {fmt_vec2(anchor_max)}")
 
                     pivot = transform_content.get("m_Pivot", {})
                     if isinstance(pivot, dict):
-                        click.echo(f"  pivot: ({pivot.get('x', 0.5)}, {pivot.get('y', 0.5)})")
+                        click.echo(f"  pivot: {fmt_vec2(pivot, 0.5, 0.5)}")
 
                 click.echo()
 
@@ -2215,8 +2279,15 @@ def inspect_cmd(
                 click.echo(f"  script_guid: {comp.script_guid}")
 
             # Show key properties (excluding internal Unity fields)
-            skip_keys = {"m_ObjectHideFlags", "m_CorrespondingSourceObject", "m_PrefabInstance",
-                         "m_PrefabAsset", "m_GameObject", "m_Enabled", "m_Script"}
+            skip_keys = {
+                "m_ObjectHideFlags",
+                "m_CorrespondingSourceObject",
+                "m_PrefabInstance",
+                "m_PrefabAsset",
+                "m_GameObject",
+                "m_Enabled",
+                "m_Script",
+            }
             for key, value in comp.data.items():
                 if key not in skip_keys:
                     # Format value for display

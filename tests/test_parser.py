@@ -2,14 +2,11 @@
 
 from pathlib import Path
 
-import pytest
-
 from unityflow.parser import (
     UnityYAMLDocument,
     UnityYAMLObject,
-    CLASS_IDS,
-    parse_file_reference,
     create_file_reference,
+    parse_file_reference,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"

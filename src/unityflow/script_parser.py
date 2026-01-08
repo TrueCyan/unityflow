@@ -10,9 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
 
-from unityflow.asset_tracker import GUIDIndex, build_guid_index, find_unity_project_root
+from unityflow.asset_tracker import GUIDIndex, build_guid_index
 
 
 @dataclass
@@ -36,7 +35,7 @@ class SerializedField:
         former_names: list[str] | None = None,
         default_value: any = None,
         **kwargs,
-    ) -> "SerializedField":
+    ) -> SerializedField:
         """Create a SerializedField with auto-generated Unity name."""
         # Unity uses m_FieldName format for serialized fields
         unity_name = f"m_{name[0].upper()}{name[1:]}" if name else ""
@@ -99,7 +98,7 @@ class ScriptInfo:
         valid_names = self.get_valid_field_names()
         return unity_name not in valid_names
 
-    def get_missing_fields(self, existing_names: set[str]) -> list["SerializedField"]:
+    def get_missing_fields(self, existing_names: set[str]) -> list[SerializedField]:
         """Get fields that exist in script but not in the existing set.
 
         Args:
@@ -120,17 +119,11 @@ class ScriptInfo:
 
 # Match class declaration
 CLASS_PATTERN = re.compile(
-    r"(?:public\s+)?(?:partial\s+)?class\s+(\w+)"
-    r"(?:\s*:\s*(\w+(?:\s*,\s*\w+)*))?"
-    r"\s*\{",
-    re.MULTILINE
+    r"(?:public\s+)?(?:partial\s+)?class\s+(\w+)" r"(?:\s*:\s*(\w+(?:\s*,\s*\w+)*))?" r"\s*\{", re.MULTILINE
 )
 
 # Match namespace declaration
-NAMESPACE_PATTERN = re.compile(
-    r"namespace\s+([\w.]+)\s*\{",
-    re.MULTILINE
-)
+NAMESPACE_PATTERN = re.compile(r"namespace\s+([\w.]+)\s*\{", re.MULTILINE)
 
 # Match field declarations with attributes
 # Captures: attributes, access_modifier, static/const/readonly, type, name, default_value
@@ -142,7 +135,7 @@ FIELD_PATTERN = re.compile(
     r"(?P<type>[\w.<>,\[\]\s?]+?)\s+"  # Type (including generics, arrays, nullable)
     r"(?P<name>\w+)\s*"  # Field name
     r"(?:=\s*(?P<default>[^;]+))?\s*;",  # Optional initializer and semicolon
-    re.MULTILINE
+    re.MULTILINE,
 )
 
 # Match SerializeField attribute
@@ -157,8 +150,7 @@ HIDE_IN_INSPECTOR_ATTR = re.compile(r"\[\s*HideInInspector\s*\]", re.IGNORECASE)
 # Match FormerlySerializedAs attribute - captures the old field name
 # Example: [FormerlySerializedAs("oldName")] or [UnityEngine.Serialization.FormerlySerializedAs("oldName")]
 FORMERLY_SERIALIZED_AS_ATTR = re.compile(
-    r"\[\s*(?:UnityEngine\.Serialization\.)?FormerlySerializedAs\s*\(\s*\"(\w+)\"\s*\)\s*\]",
-    re.IGNORECASE
+    r"\[\s*(?:UnityEngine\.Serialization\.)?FormerlySerializedAs\s*\(\s*\"(\w+)\"\s*\)\s*\]", re.IGNORECASE
 )
 
 
@@ -212,7 +204,7 @@ def _parse_default_value(value_str: str | None, field_type: str) -> any:
     int_suffixes = ["u", "U", "l", "L", "ul", "UL", "lu", "LU"]
     for suffix in int_suffixes:
         if value_str.endswith(suffix):
-            value_str = value_str[:-len(suffix)]
+            value_str = value_str[: -len(suffix)]
             break
 
     # Try integer
@@ -229,11 +221,7 @@ def _parse_default_value(value_str: str | None, field_type: str) -> any:
 
     # Handle Vector2/Vector3/Vector4 constructors
     # new Vector3(1, 2, 3) or Vector3.zero etc.
-    vector_match = re.match(
-        r"new\s+(Vector[234]|Quaternion|Color)\s*\(\s*([^)]*)\s*\)",
-        value_str,
-        re.IGNORECASE
-    )
+    vector_match = re.match(r"new\s+(Vector[234]|Quaternion|Color)\s*\(\s*([^)]*)\s*\)", value_str, re.IGNORECASE)
     if vector_match:
         vec_type = vector_match.group(1).lower()
         args_str = vector_match.group(2)
@@ -388,13 +376,29 @@ def _get_type_default(field_type: str) -> any:
 def _is_reference_type(type_name: str) -> bool:
     """Check if a type is a Unity reference type."""
     reference_types = {
-        "gameobject", "transform", "component", "monobehaviour",
-        "rigidbody", "rigidbody2d", "collider", "collider2d",
-        "renderer", "spriterenderer", "meshrenderer",
-        "animator", "animation", "audioSource",
-        "camera", "light",
-        "sprite", "texture", "texture2d", "material", "mesh",
-        "scriptableobject", "object",
+        "gameobject",
+        "transform",
+        "component",
+        "monobehaviour",
+        "rigidbody",
+        "rigidbody2d",
+        "collider",
+        "collider2d",
+        "renderer",
+        "spriterenderer",
+        "meshrenderer",
+        "animator",
+        "animation",
+        "audioSource",
+        "camera",
+        "light",
+        "sprite",
+        "texture",
+        "texture2d",
+        "material",
+        "mesh",
+        "scriptableobject",
+        "object",
     }
     return type_name.lower() in reference_types
 
@@ -472,7 +476,7 @@ def parse_script(content: str, path: Path | None = None) -> ScriptInfo | None:
         # - Private/Protected with [SerializeField]
         if is_public or has_serialize_field:
             # Calculate line number
-            line_num = content[:class_start + match.start()].count("\n") + 1
+            line_num = content[: class_start + match.start()].count("\n") + 1
 
             # Extract FormerlySerializedAs names
             former_names = FORMERLY_SERIALIZED_AS_ATTR.findall(attrs)
@@ -480,15 +484,17 @@ def parse_script(content: str, path: Path | None = None) -> ScriptInfo | None:
             # Parse default value
             default_value = _parse_default_value(default_str, field_type)
 
-            info.fields.append(SerializedField.from_field_name(
-                name=field_name,
-                field_type=field_type,
-                former_names=former_names,
-                default_value=default_value,
-                is_public=is_public,
-                has_serialize_field=has_serialize_field,
-                line_number=line_num,
-            ))
+            info.fields.append(
+                SerializedField.from_field_name(
+                    name=field_name,
+                    field_type=field_type,
+                    former_names=former_names,
+                    default_value=default_value,
+                    is_public=is_public,
+                    has_serialize_field=has_serialize_field,
+                    line_number=line_num,
+                )
+            )
 
     return info
 
@@ -572,7 +578,7 @@ def reorder_fields(
         New dictionary with reordered fields
     """
     # Unity standard fields that should always come first
-    UNITY_STANDARD_FIELDS = [
+    unity_standard_fields = [
         "m_ObjectHideFlags",
         "m_CorrespondingSourceObject",
         "m_PrefabInstance",
@@ -589,7 +595,7 @@ def reorder_fields(
 
     # Add Unity standard fields first (if present)
     if unity_fields_first:
-        for key in UNITY_STANDARD_FIELDS:
+        for key in unity_standard_fields:
             if key in fields:
                 result[key] = fields[key]
 
@@ -641,7 +647,7 @@ def _extract_class_body(content: str, start_pos: int) -> str | None:
     if depth != 0:
         return None
 
-    return content[start_pos:pos - 1]
+    return content[start_pos : pos - 1]
 
 
 def _is_unity_serializable_class(base_class: str | None, content: str) -> bool:
