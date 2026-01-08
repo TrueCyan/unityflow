@@ -16,7 +16,6 @@ from unityflow import __version__
 from unityflow.asset_tracker import (
     find_unity_project_root,
 )
-from unityflow.diff import DiffFormat, PrefabDiff
 from unityflow.git_utils import (
     get_changed_files,
     get_files_changed_since,
@@ -399,25 +398,6 @@ def normalize(
 @click.argument("old_file", type=click.Path(exists=True, path_type=Path))
 @click.argument("new_file", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--no-normalize",
-    is_flag=True,
-    help="Don't normalize files before diffing",
-)
-@click.option(
-    "--context",
-    "-C",
-    type=int,
-    default=3,
-    help="Number of context lines (default: 3)",
-)
-@click.option(
-    "--format",
-    "diff_format",
-    type=click.Choice(["unified", "context", "summary"]),
-    default="unified",
-    help="Diff output format (default: unified)",
-)
-@click.option(
     "--exit-code",
     is_flag=True,
     help="Exit with 1 if files differ, 0 if identical",
@@ -425,51 +405,82 @@ def normalize(
 def diff(
     old_file: Path,
     new_file: Path,
-    no_normalize: bool,
-    context: int,
-    diff_format: str,
     exit_code: bool,
 ) -> None:
     """Show differences between two Unity YAML files.
 
-    Normalizes both files before comparison to eliminate noise
-    from Unity's non-deterministic serialization.
+    Uses semantic diff which compares at property level,
+    ignoring fileID changes and document order.
 
     Examples:
 
         # Compare two prefabs
         unityflow diff old.prefab new.prefab
 
-        # Show raw diff without normalization
-        unityflow diff old.prefab new.prefab --no-normalize
-
         # Exit with status code (for scripts)
         unityflow diff old.prefab new.prefab --exit-code
     """
-    format_map = {
-        "unified": DiffFormat.UNIFIED,
-        "context": DiffFormat.CONTEXT,
-        "summary": DiffFormat.SUMMARY,
-    }
-
-    differ = PrefabDiff(
-        normalize=not no_normalize,
-        context_lines=context,
-        format=format_map[diff_format],
-    )
+    from unityflow.semantic_diff import ChangeType, semantic_diff
 
     try:
-        result = differ.diff_files(old_file, new_file)
+        left_doc = UnityYAMLDocument.load(old_file)
+        right_doc = UnityYAMLDocument.load(new_file)
     except Exception as e:
-        click.echo(f"Error: Failed to diff files: {e}", err=True)
+        click.echo(f"Error: Failed to load files: {e}", err=True)
         sys.exit(1)
 
+    result = semantic_diff(left_doc, right_doc)
+
     if result.has_changes:
-        click.echo("\n".join(result.diff_lines))
+        # Format semantic diff output
+        click.echo(f"--- {old_file}")
+        click.echo(f"+++ {new_file}")
+        click.echo()
+
+        # Show object changes
+        if result.object_changes:
+            click.echo("Object Changes:")
+            for change in result.object_changes:
+                if change.change_type == ChangeType.ADDED:
+                    prefix = "+"
+                else:
+                    prefix = "-"
+                name_str = f" ({change.game_object_name})" if change.game_object_name else ""
+                click.echo(f"  {prefix} {change.class_name} [fileID: {change.file_id}]{name_str}")
+            click.echo()
+
+        # Show property changes grouped by object
+        if result.property_changes:
+            click.echo("Property Changes:")
+            # Group by file_id
+            by_object: dict[int, list] = {}
+            for change in result.property_changes:
+                if change.file_id not in by_object:
+                    by_object[change.file_id] = []
+                by_object[change.file_id].append(change)
+
+            for file_id, changes in sorted(by_object.items()):
+                first = changes[0]
+                name_str = f" ({first.game_object_name})" if first.game_object_name else ""
+                click.echo(f"  {first.class_name} [fileID: {file_id}]{name_str}:")
+                for change in changes:
+                    if change.change_type == ChangeType.ADDED:
+                        click.echo(f"    + {change.property_path}: {change.new_value}")
+                    elif change.change_type == ChangeType.REMOVED:
+                        click.echo(f"    - {change.property_path}: {change.old_value}")
+                    else:  # MODIFIED
+                        click.echo(f"    ~ {change.property_path}: {change.old_value} -> {change.new_value}")
+            click.echo()
+
+        # Summary
+        click.echo(
+            f"Summary: {result.added_count} added, {result.removed_count} removed, " f"{result.modified_count} modified"
+        )
+
         if exit_code:
             sys.exit(1)
     else:
-        click.echo("Files are identical (after normalization)")
+        click.echo("Files are identical")
         if exit_code:
             sys.exit(0)
 
@@ -1507,7 +1518,10 @@ def merge_files(
     output: Path | None,
     file_path: str | None,
 ) -> None:
-    """Three-way merge of Unity YAML files.
+    """Semantic three-way merge of Unity YAML files.
+
+    Uses property-level merge which enables accurate conflict detection
+    and automatic merging of non-conflicting changes.
 
     This command is designed to work as a git merge driver.
 
@@ -1531,28 +1545,29 @@ def merge_files(
         *.unity merge=unity
         *.asset merge=unity
     """
-    from unityflow.merge import three_way_merge
-
-    normalizer = UnityPrefabNormalizer()
+    from unityflow.semantic_merge import semantic_three_way_merge
 
     try:
-        base_content = normalizer.normalize_file(base)
-        ours_content = normalizer.normalize_file(ours)
-        theirs_content = normalizer.normalize_file(theirs)
+        base_doc = UnityYAMLDocument.load(base)
+        ours_doc = UnityYAMLDocument.load(ours)
+        theirs_doc = UnityYAMLDocument.load(theirs)
     except Exception as e:
-        click.echo(f"Error: Failed to normalize files: {e}", err=True)
+        click.echo(f"Error: Failed to load files: {e}", err=True)
         sys.exit(1)
 
-    # Perform 3-way merge
-    result, has_conflict = three_way_merge(base_content, ours_content, theirs_content)
+    # Perform semantic 3-way merge
+    result = semantic_three_way_merge(base_doc, ours_doc, theirs_doc)
 
     output_path = output or ours
-    output_path.write_text(result, encoding="utf-8", newline="\n")
+    result.merged_document.save(output_path)
 
     display_path = file_path or str(output_path)
 
-    if has_conflict:
-        click.echo(f"Conflict: {display_path} (manual resolution needed)", err=True)
+    if result.has_conflicts:
+        click.echo(f"Conflict: {display_path} ({result.conflict_count} conflicts)", err=True)
+        for conflict in result.property_conflicts:
+            name_str = f" ({conflict.game_object_name})" if conflict.game_object_name else ""
+            click.echo(f"  - {conflict.class_name}.{conflict.property_path}{name_str}", err=True)
         sys.exit(1)
     else:
         # Silent success for git integration (git expects no output on success)
