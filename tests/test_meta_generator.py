@@ -1,28 +1,25 @@
 """Tests for Unity .meta file generator."""
 
-import tempfile
-from pathlib import Path
-
 import pytest
 
 from unityflow.meta_generator import (
+    EXTENSION_TO_TYPE,
     AssetType,
     MetaFileOptions,
-    EXTENSION_TO_TYPE,
-    generate_guid,
     detect_asset_type,
+    ensure_meta_file,
+    generate_guid,
     generate_meta_content,
     generate_meta_file,
     generate_meta_files_recursive,
-    ensure_meta_file,
     get_guid_from_meta,
+    get_meta_info,
     # Meta modification functions
     modify_meta_file,
-    set_texture_sprite_mode,
-    set_texture_max_size,
-    set_script_execution_order,
     set_asset_bundle,
-    get_meta_info,
+    set_script_execution_order,
+    set_texture_max_size,
+    set_texture_sprite_mode,
 )
 
 
@@ -326,7 +323,7 @@ class TestGenerateMetaFilesRecursive:
         generate_meta_file(script)
 
         # Run recursive - should skip existing
-        results = generate_meta_files_recursive(tmp_path, skip_existing=True)
+        generate_meta_files_recursive(tmp_path, skip_existing=True)
 
         # The script's meta should not be in the successful results
         # (only tmp_path meta would be created)
@@ -341,7 +338,7 @@ class TestGenerateMetaFilesRecursive:
         hidden_dir.mkdir()
         (hidden_dir / "config").touch()
 
-        results = generate_meta_files_recursive(tmp_path)
+        generate_meta_files_recursive(tmp_path)
 
         # Hidden files should not have meta files
         assert not (tmp_path / ".hidden.meta").exists()

@@ -7,11 +7,9 @@ serialization.
 
 from __future__ import annotations
 
-import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Iterator
-
 
 # Conflict markers
 CONFLICT_START = "<<<<<<< ours"

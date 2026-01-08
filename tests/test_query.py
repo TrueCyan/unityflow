@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from unityflow.query import query_path, set_value, get_value, merge_values
 from unityflow.parser import UnityYAMLDocument
+from unityflow.query import get_value, merge_values, query_path, set_value
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -71,14 +71,11 @@ class TestSetValue:
         """Test setting a simple value."""
         doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
 
-        # Get original value
-        go = doc.get_by_file_id(100000)
-        original_name = go.get_content()["m_Name"]
-
         # Set new value
         result = set_value(doc, "gameObjects/100000/m_Name", "NewName")
 
         assert result is True
+        go = doc.get_by_file_id(100000)
         assert go.get_content()["m_Name"] == "NewName"
 
     def test_set_vector_value(self):

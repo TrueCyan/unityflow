@@ -1,11 +1,8 @@
 """Tests for C# script parser."""
 
-import pytest
-
 from unityflow.script_parser import (
-    parse_script,
     SerializedField,
-    ScriptInfo,
+    parse_script,
     reorder_fields,
 )
 
@@ -15,7 +12,7 @@ class TestParseScript:
 
     def test_parse_simple_monobehaviour(self):
         """Test parsing a simple MonoBehaviour with public fields."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class Player : MonoBehaviour
@@ -24,7 +21,7 @@ public class Player : MonoBehaviour
     public int health;
     public string playerName;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -40,7 +37,7 @@ public class Player : MonoBehaviour
 
     def test_parse_serialize_field_attribute(self):
         """Test parsing private fields with [SerializeField]."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class Enemy : MonoBehaviour
@@ -53,7 +50,7 @@ public class Enemy : MonoBehaviour
 
     private int currentHealth;  // Not serialized
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -65,7 +62,7 @@ public class Enemy : MonoBehaviour
 
     def test_parse_mixed_fields(self):
         """Test parsing a class with mixed public and private fields."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class GameManager : MonoBehaviour
@@ -82,7 +79,7 @@ public class GameManager : MonoBehaviour
 
     private int internalCounter;  // Not serialized
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -95,7 +92,7 @@ public class GameManager : MonoBehaviour
 
     def test_skip_static_fields(self):
         """Test that static fields are skipped."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class Config : MonoBehaviour
@@ -104,7 +101,7 @@ public class Config : MonoBehaviour
     public float normalField;
     private static string staticPrivate;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -113,7 +110,7 @@ public class Config : MonoBehaviour
 
     def test_skip_const_fields(self):
         """Test that const fields are skipped."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class Constants : MonoBehaviour
@@ -122,7 +119,7 @@ public class Constants : MonoBehaviour
     public float speed;
     private const string NAME = "Player";
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -131,7 +128,7 @@ public class Constants : MonoBehaviour
 
     def test_skip_readonly_fields(self):
         """Test that readonly fields are skipped."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class ReadOnlyTest : MonoBehaviour
@@ -139,7 +136,7 @@ public class ReadOnlyTest : MonoBehaviour
     public readonly int readonlyField = 5;
     public float mutableField;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -148,7 +145,7 @@ public class ReadOnlyTest : MonoBehaviour
 
     def test_skip_nonserialized_fields(self):
         """Test that [NonSerialized] fields are skipped."""
-        script = '''
+        script = """
 using UnityEngine;
 using System;
 
@@ -162,7 +159,7 @@ public class NonSerializedTest : MonoBehaviour
     [System.NonSerialized]
     public string alsoNotSerialized;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -171,7 +168,7 @@ public class NonSerializedTest : MonoBehaviour
 
     def test_parse_complex_types(self):
         """Test parsing fields with complex types."""
-        script = '''
+        script = """
 using UnityEngine;
 using System.Collections.Generic;
 
@@ -183,7 +180,7 @@ public class ComplexTypes : MonoBehaviour
     public Vector3 position;
     public GameObject? nullableObject;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -196,7 +193,7 @@ public class ComplexTypes : MonoBehaviour
 
     def test_parse_with_namespace(self):
         """Test parsing a class with namespace."""
-        script = '''
+        script = """
 namespace Game.Characters
 {
     using UnityEngine;
@@ -206,7 +203,7 @@ namespace Game.Characters
         public float strength;
     }
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -215,7 +212,7 @@ namespace Game.Characters
 
     def test_parse_with_comments(self):
         """Test that comments don't interfere with parsing."""
-        script = '''
+        script = """
 using UnityEngine;
 
 // This is a player class
@@ -231,7 +228,7 @@ public class Player : MonoBehaviour
     // [SerializeField]
     // private int commentedOut;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -240,7 +237,7 @@ public class Player : MonoBehaviour
 
     def test_parse_with_initializers(self):
         """Test parsing fields with initializers."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class Initialized : MonoBehaviour
@@ -250,7 +247,7 @@ public class Initialized : MonoBehaviour
     public string name = "Default";
     public bool enabled = true;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -258,7 +255,7 @@ public class Initialized : MonoBehaviour
 
     def test_parse_scriptable_object(self):
         """Test parsing a ScriptableObject."""
-        script = '''
+        script = """
 using UnityEngine;
 
 [CreateAssetMenu(fileName = "Data", menuName = "Game/Data")]
@@ -267,7 +264,7 @@ public class GameData : ScriptableObject
     public string gameName;
     public int maxPlayers;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -277,7 +274,7 @@ public class GameData : ScriptableObject
 
     def test_get_field_order(self):
         """Test getting field order as Unity names."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class OrderTest : MonoBehaviour
@@ -286,7 +283,7 @@ public class OrderTest : MonoBehaviour
     public int beta;
     public string gamma;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -295,7 +292,7 @@ public class OrderTest : MonoBehaviour
 
     def test_get_field_index(self):
         """Test getting field index by Unity name."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class IndexTest : MonoBehaviour
@@ -304,7 +301,7 @@ public class IndexTest : MonoBehaviour
     public int second;
     public string third;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -424,13 +421,13 @@ class TestEdgeCases:
 
     def test_parse_empty_class(self):
         """Test parsing a class with no fields."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class Empty : MonoBehaviour
 {
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -439,24 +436,24 @@ public class Empty : MonoBehaviour
 
     def test_parse_no_class(self):
         """Test parsing content with no class definition."""
-        script = '''
+        script = """
 using UnityEngine;
 using System;
-'''
+"""
         info = parse_script(script)
 
         assert info is None
 
     def test_parse_interface(self):
         """Test that interfaces are not parsed as classes."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public interface IPlayer
 {
     float Speed { get; }
 }
-'''
+"""
         info = parse_script(script)
 
         # Should not find a class
@@ -464,14 +461,14 @@ public interface IPlayer
 
     def test_parse_partial_class(self):
         """Test parsing a partial class."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public partial class Player : MonoBehaviour
 {
     public float speed;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -480,7 +477,7 @@ public partial class Player : MonoBehaviour
 
     def test_parse_generic_class(self):
         """Test parsing fields in a generic-like context."""
-        script = '''
+        script = """
 using UnityEngine;
 using System.Collections.Generic;
 
@@ -489,7 +486,7 @@ public class Container : MonoBehaviour
     public List<GameObject> items;
     public Dictionary<string, int> scores;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None
@@ -497,7 +494,7 @@ public class Container : MonoBehaviour
 
     def test_parse_multiline_attribute(self):
         """Test parsing with multi-line attributes."""
-        script = '''
+        script = """
 using UnityEngine;
 
 public class Attributed : MonoBehaviour
@@ -510,7 +507,7 @@ public class Attributed : MonoBehaviour
     [Tooltip("Player name")]
     public string playerName;
 }
-'''
+"""
         info = parse_script(script)
 
         assert info is not None

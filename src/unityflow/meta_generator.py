@@ -7,9 +7,6 @@ Supports various asset types with appropriate importer settings.
 from __future__ import annotations
 
 import hashlib
-import os
-import random
-import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -851,7 +848,6 @@ def parse_meta_file(meta_path: Path) -> dict[str, Any]:
         FileNotFoundError: If meta file doesn't exist
         ValueError: If meta file is invalid
     """
-    import re
 
     if not meta_path.exists():
         raise FileNotFoundError(f"Meta file not found: {meta_path}")
@@ -874,7 +870,7 @@ def parse_meta_file(meta_path: Path) -> dict[str, Any]:
         if ":" in stripped:
             colon_idx = stripped.index(":")
             key = stripped[:colon_idx].strip()
-            value_part = stripped[colon_idx + 1:].strip()
+            value_part = stripped[colon_idx + 1 :].strip()
 
             # Pop stack until we find the right parent
             while len(stack) > 1 and stack[-1][1] >= indent:
@@ -932,8 +928,9 @@ def _parse_yaml_value(value_str: str) -> Any:
         return False
 
     # Handle quoted strings
-    if (value_str.startswith('"') and value_str.endswith('"')) or \
-       (value_str.startswith("'") and value_str.endswith("'")):
+    if (value_str.startswith('"') and value_str.endswith('"')) or (
+        value_str.startswith("'") and value_str.endswith("'")
+    ):
         return value_str[1:-1]
 
     return value_str
@@ -1022,7 +1019,6 @@ def modify_meta_file(
 
 def _apply_modifications(lines: list[str], modifications: dict[str, Any]) -> list[str]:
     """Apply modifications to meta file lines."""
-    import re
 
     result = lines.copy()
 
@@ -1051,10 +1047,6 @@ def _modify_field(lines: list[str], path_parts: list[str], value: Any) -> list[s
         parent_path = path_parts[:-1]
         field_name = path_parts[-1]
 
-        # Find the section
-        section_start = -1
-        section_indent = -1
-
         current_path: list[str] = []
         indent_stack: list[int] = [-1]
 
@@ -1081,8 +1073,7 @@ def _modify_field(lines: list[str], path_parts: list[str], value: Any) -> list[s
                     indent_stack.append(indent)
 
                     if current_path == parent_path:
-                        section_start = i
-                        section_indent = indent
+                        pass  # Found parent section
                 elif current_path == parent_path and key == field_name:
                     # Found the field to modify
                     result[i] = f"{' ' * indent}{field_name}: {_serialize_yaml_value(value)}"
@@ -1092,8 +1083,6 @@ def _modify_field(lines: list[str], path_parts: list[str], value: Any) -> list[s
         # For now, just return as-is if not found
 
     return result
-
-
 
 
 def set_texture_sprite_mode(
@@ -1260,9 +1249,17 @@ def get_meta_info(meta_path: Path) -> dict[str, Any]:
 
     # Detect importer type
     importer_types = [
-        "DefaultImporter", "MonoImporter", "TextureImporter", "AudioImporter",
-        "VideoClipImporter", "ModelImporter", "ShaderImporter", "PluginImporter",
-        "TrueTypeFontImporter", "TextScriptImporter", "NativeFormatImporter",
+        "DefaultImporter",
+        "MonoImporter",
+        "TextureImporter",
+        "AudioImporter",
+        "VideoClipImporter",
+        "ModelImporter",
+        "ShaderImporter",
+        "PluginImporter",
+        "TrueTypeFontImporter",
+        "TextScriptImporter",
+        "NativeFormatImporter",
     ]
     for importer in importer_types:
         if f"{importer}:" in content:

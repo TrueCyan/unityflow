@@ -1,21 +1,22 @@
 """Tests for asset_resolver module."""
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 from unityflow.asset_resolver import (
-    is_asset_reference,
-    parse_asset_reference,
-    resolve_value,
-    resolve_asset_reference,
-    get_guid_from_meta,
-    get_sprite_file_id,
-    get_expected_types_for_field,
-    get_asset_type_from_extension,
-    validate_asset_type_for_field,
+    ASSET_TYPE_FILE_IDS,
     AssetType,
     AssetTypeMismatchError,
-    ASSET_TYPE_FILE_IDS,
+    get_asset_type_from_extension,
+    get_expected_types_for_field,
+    get_guid_from_meta,
+    get_sprite_file_id,
+    is_asset_reference,
+    parse_asset_reference,
+    resolve_asset_reference,
+    resolve_value,
+    validate_asset_type_for_field,
 )
 
 
@@ -141,10 +142,7 @@ class TestGetSpriteFileId:
     def test_single_mode_sprite(self, tmp_path):
         meta_path = tmp_path / "icon.png.meta"
         meta_path.write_text(
-            "fileFormatVersion: 2\n"
-            "guid: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n"
-            "TextureImporter:\n"
-            "  spriteMode: 1\n"
+            "fileFormatVersion: 2\n" "guid: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n" "TextureImporter:\n" "  spriteMode: 1\n"
         )
         file_id = get_sprite_file_id(meta_path)
         assert file_id == 21300000
@@ -237,10 +235,7 @@ class TestResolveAssetReferenceIntegration:
 
         meta_path = Path(str(sprite_path) + ".meta")
         meta_path.write_text(
-            "fileFormatVersion: 2\n"
-            "guid: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n"
-            "TextureImporter:\n"
-            "  spriteMode: 1\n"
+            "fileFormatVersion: 2\n" "guid: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n" "TextureImporter:\n" "  spriteMode: 1\n"
         )
 
         result = resolve_value("@Assets/Sprites/icon.png", tmp_path)
@@ -428,10 +423,7 @@ class TestResolveValueWithTypeValidation:
 
         meta_path = Path(str(sprite_path) + ".meta")
         meta_path.write_text(
-            "fileFormatVersion: 2\n"
-            "guid: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n"
-            "TextureImporter:\n"
-            "  spriteMode: 1\n"
+            "fileFormatVersion: 2\n" "guid: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n" "TextureImporter:\n" "  spriteMode: 1\n"
         )
 
         # Should succeed - sprite for m_Sprite field
@@ -467,10 +459,7 @@ class TestResolveValueWithTypeValidation:
 
         meta_path = Path(str(sprite_path) + ".meta")
         meta_path.write_text(
-            "fileFormatVersion: 2\n"
-            "guid: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n"
-            "TextureImporter:\n"
-            "  spriteMode: 1\n"
+            "fileFormatVersion: 2\n" "guid: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n" "TextureImporter:\n" "  spriteMode: 1\n"
         )
 
         # Should fail - sprite for audioClip field in batch mode

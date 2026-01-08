@@ -4,8 +4,6 @@ import tempfile
 import time
 from pathlib import Path
 
-import pytest
-
 from unityflow.asset_tracker import (
     BINARY_ASSET_EXTENSIONS,
     AssetDependency,
@@ -14,6 +12,8 @@ from unityflow.asset_tracker import (
     DependencyReport,
     GUIDIndex,
     LazyGUIDIndex,
+    _classify_asset_type,
+    _parse_meta_file,
     analyze_dependencies,
     build_guid_index,
     extract_guid_references,
@@ -23,8 +23,6 @@ from unityflow.asset_tracker import (
     get_file_dependencies,
     get_lazy_guid_index,
     get_local_package_paths,
-    _classify_asset_type,
-    _parse_meta_file,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -135,9 +133,7 @@ class TestExtractGUIDReferences:
 
     def test_extract_simple_reference(self):
         """Test extracting a simple GUID reference."""
-        data = {
-            "m_Script": {"fileID": 11500000, "guid": "abc123def456", "type": 3}
-        }
+        data = {"m_Script": {"fileID": 11500000, "guid": "abc123def456", "type": 3}}
 
         refs = list(extract_guid_references(data))
 
@@ -702,9 +698,7 @@ class TestCachedGUIDIndex:
             # Create initial asset
             meta_path = project_root / "Assets" / "test.txt.meta"
             (project_root / "Assets" / "test.txt").write_text("content")
-            meta_path.write_text(
-                "fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n"
-            )
+            meta_path.write_text("fileFormatVersion: 2\nguid: 0123456789abcdef0123456789abcdef\n")
 
             # Build initial cache
             cache = CachedGUIDIndex(project_root=project_root)
@@ -716,9 +710,7 @@ class TestCachedGUIDIndex:
 
             # Modify the meta file with a new GUID (wait to ensure mtime changes)
             time.sleep(0.1)
-            meta_path.write_text(
-                "fileFormatVersion: 2\nguid: aaaabbbbccccddddeeeeffffaaaabbbb\n"
-            )
+            meta_path.write_text("fileFormatVersion: 2\nguid: aaaabbbbccccddddeeeeffffaaaabbbb\n")
 
             # Get index again (should do incremental update)
             index2 = cache.get_index(include_packages=False)
@@ -734,9 +726,7 @@ class TestCachedGUIDIndex:
             # Create test assets
             for i in range(5):
                 (project_root / "Assets" / f"test{i}.txt").write_text(f"content{i}")
-                (project_root / "Assets" / f"test{i}.txt.meta").write_text(
-                    f"fileFormatVersion: 2\nguid: {i:032x}\n"
-                )
+                (project_root / "Assets" / f"test{i}.txt.meta").write_text(f"fileFormatVersion: 2\nguid: {i:032x}\n")
 
             progress_calls = []
 
@@ -782,9 +772,7 @@ class TestGetCachedGUIDIndex:
             # Create test assets
             for i in range(3):
                 (project_root / "Assets" / f"test{i}.txt").write_text(f"content{i}")
-                (project_root / "Assets" / f"test{i}.txt.meta").write_text(
-                    f"fileFormatVersion: 2\nguid: {i:032x}\n"
-                )
+                (project_root / "Assets" / f"test{i}.txt.meta").write_text(f"fileFormatVersion: 2\nguid: {i:032x}\n")
 
             index = get_cached_guid_index(
                 project_root,
@@ -913,14 +901,10 @@ class TestLazyGUIDIndex:
             # Create multiple test assets
             for i in range(5):
                 (project_root / "Assets" / f"test{i}.txt").write_text(f"content{i}")
-                (project_root / "Assets" / f"test{i}.txt.meta").write_text(
-                    f"fileFormatVersion: 2\nguid: {i:032x}\n"
-                )
+                (project_root / "Assets" / f"test{i}.txt.meta").write_text(f"fileFormatVersion: 2\nguid: {i:032x}\n")
 
             # Get lazy index with small cache
-            lazy_index = get_lazy_guid_index(
-                project_root, include_packages=False, cache_size=2
-            )
+            lazy_index = get_lazy_guid_index(project_root, include_packages=False, cache_size=2)
 
             # Access all 5 GUIDs
             for i in range(5):
@@ -939,9 +923,7 @@ class TestLazyGUIDIndex:
             # Create multiple test assets
             for i in range(3):
                 (project_root / "Assets" / f"test{i}.txt").write_text(f"content{i}")
-                (project_root / "Assets" / f"test{i}.txt.meta").write_text(
-                    f"fileFormatVersion: 2\nguid: {i:032x}\n"
-                )
+                (project_root / "Assets" / f"test{i}.txt.meta").write_text(f"fileFormatVersion: 2\nguid: {i:032x}\n")
 
             lazy_index = get_lazy_guid_index(project_root, include_packages=False)
 
@@ -1029,14 +1011,8 @@ class TestLocalPackageGUIDCaching:
             package_dir.mkdir()
 
             # Create manifest.json with file: reference
-            manifest = {
-                "dependencies": {
-                    "com.test.mypackage": f"file:../../packages/com.test.mypackage"
-                }
-            }
-            (project_root / "Packages" / "manifest.json").write_text(
-                __import__("json").dumps(manifest)
-            )
+            manifest = {"dependencies": {"com.test.mypackage": "file:../../packages/com.test.mypackage"}}
+            (project_root / "Packages" / "manifest.json").write_text(__import__("json").dumps(manifest))
 
             # Test the utility function directly
             local_paths = get_local_package_paths(project_root)
@@ -1060,14 +1036,8 @@ class TestLocalPackageGUIDCaching:
             package_dir.mkdir()
 
             # Create manifest.json with file: reference
-            manifest = {
-                "dependencies": {
-                    "com.test.mypackage": f"file:../../packages/com.test.mypackage"
-                }
-            }
-            (project_root / "Packages" / "manifest.json").write_text(
-                __import__("json").dumps(manifest)
-            )
+            manifest = {"dependencies": {"com.test.mypackage": "file:../../packages/com.test.mypackage"}}
+            (project_root / "Packages" / "manifest.json").write_text(__import__("json").dumps(manifest))
 
             cache = CachedGUIDIndex(project_root=project_root)
             local_paths = cache._get_local_package_paths()
@@ -1103,14 +1073,8 @@ class TestLocalPackageGUIDCaching:
             )
 
             # Create manifest.json with file: reference
-            manifest = {
-                "dependencies": {
-                    "com.test.mypackage": f"file:../../packages/com.test.mypackage"
-                }
-            }
-            (project_root / "Packages" / "manifest.json").write_text(
-                __import__("json").dumps(manifest)
-            )
+            manifest = {"dependencies": {"com.test.mypackage": "file:../../packages/com.test.mypackage"}}
+            (project_root / "Packages" / "manifest.json").write_text(__import__("json").dumps(manifest))
 
             # Build index with packages
             cache = CachedGUIDIndex(project_root=project_root)
@@ -1136,14 +1100,8 @@ class TestLocalPackageGUIDCaching:
             package_dir.mkdir()
 
             # Create manifest.json with file: reference
-            manifest = {
-                "dependencies": {
-                    "com.test.pkg": "file:../../packages/com.test.pkg"
-                }
-            }
-            (project_root / "Packages" / "manifest.json").write_text(
-                __import__("json").dumps(manifest)
-            )
+            manifest = {"dependencies": {"com.test.pkg": "file:../../packages/com.test.pkg"}}
+            (project_root / "Packages" / "manifest.json").write_text(__import__("json").dumps(manifest))
 
             cache = CachedGUIDIndex(project_root=project_root)
             versions = cache._get_package_versions()
@@ -1174,14 +1132,8 @@ class TestLocalPackageGUIDCaching:
             )
 
             # Create manifest.json with file: reference (matching user's example)
-            manifest = {
-                "dependencies": {
-                    "com.domybest.mybox": "file:../../NK.Packages/com.domybest.mybox@1.7.0"
-                }
-            }
-            (project_root / "Packages" / "manifest.json").write_text(
-                __import__("json").dumps(manifest)
-            )
+            manifest = {"dependencies": {"com.domybest.mybox": "file:../../NK.Packages/com.domybest.mybox@1.7.0"}}
+            (project_root / "Packages" / "manifest.json").write_text(__import__("json").dumps(manifest))
 
             # Build index with packages
             cache = CachedGUIDIndex(project_root=project_root)
@@ -1219,14 +1171,8 @@ class TestLocalPackageGUIDCaching:
             )
 
             # Create manifest.json with file: reference
-            manifest = {
-                "dependencies": {
-                    "com.test.external": "file:../../external/com.test.external"
-                }
-            }
-            (project_root / "Packages" / "manifest.json").write_text(
-                __import__("json").dumps(manifest)
-            )
+            manifest = {"dependencies": {"com.test.external": "file:../../external/com.test.external"}}
+            (project_root / "Packages" / "manifest.json").write_text(__import__("json").dumps(manifest))
 
             # Test build_guid_index with include_packages=True
             index = build_guid_index(project_root, include_packages=True)
@@ -1263,14 +1209,8 @@ class TestLocalPackageGUIDCaching:
             )
 
             # Create manifest.json with file: reference
-            manifest = {
-                "dependencies": {
-                    "com.test.external": "file:../../external/com.test.external"
-                }
-            }
-            (project_root / "Packages" / "manifest.json").write_text(
-                __import__("json").dumps(manifest)
-            )
+            manifest = {"dependencies": {"com.test.external": "file:../../external/com.test.external"}}
+            (project_root / "Packages" / "manifest.json").write_text(__import__("json").dumps(manifest))
 
             # Test build_guid_index with include_packages=False (default)
             index = build_guid_index(project_root, include_packages=False)

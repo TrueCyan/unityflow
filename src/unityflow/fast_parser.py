@@ -6,12 +6,10 @@ Includes streaming support for large files and progress callbacks.
 
 from __future__ import annotations
 
-import io
-import mmap
-import os
 import re
+from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterator, TextIO
+from typing import Any
 
 import ryml
 
@@ -28,9 +26,7 @@ UNITY_HEADER = """%YAML 1.1
 
 # Pattern to match Unity document headers: --- !u!{ClassID} &{fileID}
 # Note: fileID can be negative (Unity uses 64-bit signed integers)
-DOCUMENT_HEADER_PATTERN = re.compile(
-    r"^--- !u!(\d+) &(-?\d+)(?: stripped)?$", re.MULTILINE
-)
+DOCUMENT_HEADER_PATTERN = re.compile(r"^--- !u!(\d+) &(-?\d+)(?: stripped)?$", re.MULTILINE)
 
 # Pattern to match Unity GUIDs (32 hexadecimal characters)
 # This is used to prevent GUIDs like "0000000000000000e000000000000000" from being
@@ -56,7 +52,7 @@ def _to_python(tree: Any, node_id: int) -> Any:
         result = {}
         for child in _iter_children(tree, node_id):
             if tree.has_key(child):
-                key = bytes(tree.key(child)).decode('utf-8')
+                key = bytes(tree.key(child)).decode("utf-8")
             else:
                 key = ""
             result[key] = _to_python(tree, child)
@@ -70,17 +66,17 @@ def _to_python(tree: Any, node_id: int) -> Any:
         val_bytes = bytes(val_mv)
         if not val_bytes:
             return ""
-        val = val_bytes.decode('utf-8')
+        val = val_bytes.decode("utf-8")
 
         # Handle YAML null values
         if val in ("null", "~", ""):
             return None
 
         # Try converting to int (but preserve strings with leading zeros)
-        if val.lstrip('-').isdigit():
+        if val.lstrip("-").isdigit():
             # Check for leading zeros - keep as string to preserve format
-            stripped = val.lstrip('-')
-            if len(stripped) > 1 and stripped.startswith('0'):
+            stripped = val.lstrip("-")
+            if len(stripped) > 1 and stripped.startswith("0"):
                 # Has leading zeros - keep as string
                 return val
             try:
@@ -115,7 +111,7 @@ def fast_parse_yaml(content: str) -> dict[str, Any]:
     Returns:
         Parsed Python dictionary
     """
-    tree = ryml.parse_in_arena(content.encode('utf-8'))
+    tree = ryml.parse_in_arena(content.encode("utf-8"))
     return _to_python(tree, tree.root_id())
 
 
@@ -163,14 +159,14 @@ def fast_parse_unity_yaml(
             end_line = len(lines)
 
         # Extract document content (skip the --- header line)
-        doc_content = "\n".join(lines[start_line + 1:end_line])
+        doc_content = "\n".join(lines[start_line + 1 : end_line])
 
         if not doc_content.strip():
             # Empty document
             data = {}
         else:
             try:
-                tree = ryml.parse_in_arena(doc_content.encode('utf-8'))
+                tree = ryml.parse_in_arena(doc_content.encode("utf-8"))
                 data = _to_python(tree, tree.root_id())
                 if not isinstance(data, dict):
                     data = {}
@@ -235,14 +231,14 @@ def iter_parse_unity_yaml(
             end_line = len(lines)
 
         # Extract document content (skip the --- header line)
-        doc_content = "\n".join(lines[start_line + 1:end_line])
+        doc_content = "\n".join(lines[start_line + 1 : end_line])
 
         if not doc_content.strip():
             # Empty document
             data = {}
         else:
             try:
-                tree = ryml.parse_in_arena(doc_content.encode('utf-8'))
+                tree = ryml.parse_in_arena(doc_content.encode("utf-8"))
                 data = _to_python(tree, tree.root_id())
                 if not isinstance(data, dict):
                     data = {}
@@ -291,7 +287,7 @@ def stream_parse_unity_yaml_file(
     bytes_read = 0
     pending_doc: tuple[int, int, bool, list[str]] | None = None
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         while True:
             chunk = f.read(chunk_size)
             if not chunk:
@@ -311,7 +307,7 @@ def stream_parse_unity_yaml_file(
                 if pending_doc is not None:
                     class_id, file_id, stripped, doc_lines = pending_doc
                     # Everything before this match belongs to the previous document
-                    doc_content = buffer[:match.start()]
+                    doc_content = buffer[: match.start()]
                     doc_lines.append(doc_content)
                     full_content = "".join(doc_lines).strip()
 
@@ -334,7 +330,7 @@ def stream_parse_unity_yaml_file(
                 stripped = "stripped" in match.group(0)
 
                 # Move buffer past the header
-                buffer = buffer[match.end():]
+                buffer = buffer[match.end() :]
                 if buffer.startswith("\n"):
                     buffer = buffer[1:]
 
@@ -385,7 +381,7 @@ def get_file_stats(file_path: str | Path) -> dict[str, Any]:
     doc_count = 0
     class_counts: dict[int, int] = {}
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         for line in f:
             match = DOCUMENT_HEADER_PATTERN.match(line)
             if match:
@@ -516,14 +512,10 @@ def _is_flow_dict(d: dict) -> bool:
     if keys <= {"fileID", "guid", "type"}:
         return True
     # Flow style for simple vectors (x, y, z, w)
-    if keys <= {"x", "y", "z", "w"} and all(
-        isinstance(v, (int, float)) for v in d.values()
-    ):
+    if keys <= {"x", "y", "z", "w"} and all(isinstance(v, (int, float)) for v in d.values()):
         return True
     # Flow style for colors (r, g, b, a)
-    if keys <= {"r", "g", "b", "a"} and all(
-        isinstance(v, (int, float)) for v in d.values()
-    ):
+    if keys <= {"r", "g", "b", "a"} and all(isinstance(v, (int, float)) for v in d.values()):
         return True
     return False
 
@@ -559,11 +551,11 @@ def _format_scalar(value: Any) -> str:
         # Check for special characters that require quoting
         # Note: [] don't require quoting when not at start
         needs_quote = False
-        if value.startswith(('[', '{', '*', '&', '!', '|', '>', "'", '"', '%', '@', '`')):
+        if value.startswith(("[", "{", "*", "&", "!", "|", ">", "'", '"', "%", "@", "`")):
             needs_quote = True
         elif any(c in value for c in ":\n#"):
             needs_quote = True
-        elif value.startswith('- ') or value.startswith('? ') or value.startswith('-\t'):
+        elif value.startswith("- ") or value.startswith("? ") or value.startswith("-\t"):
             needs_quote = True
 
         if needs_quote:
@@ -571,7 +563,7 @@ def _format_scalar(value: Any) -> str:
             escaped = value.replace("'", "''")
             return f"'{escaped}'"
         # Check if it looks like a number (but not strings with leading zeros)
-        if not (value.lstrip('-').startswith('0') and len(value.lstrip('-')) > 1):
+        if not (value.lstrip("-").startswith("0") and len(value.lstrip("-")) > 1):
             try:
                 float(value)
                 return f"'{value}'"

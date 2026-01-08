@@ -20,16 +20,13 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any
 
 from .parser import (
-    CLASS_IDS,
     UnityYAMLObject,
-    create_game_object,
-    create_rect_transform,
-    create_transform,
     generate_file_id,
 )
 
@@ -205,9 +202,7 @@ class HierarchyNode:
 
         return None
 
-    def get_component(
-        self, type_name: str, index: int = 0
-    ) -> ComponentInfo | None:
+    def get_component(self, type_name: str, index: int = 0) -> ComponentInfo | None:
         """Get a component by type name.
 
         Args:
@@ -265,10 +260,7 @@ class HierarchyNode:
                 target = mod.get("target", {})
                 # Match by source_guid (same prefab) and propertyPath
                 # target.fileID is the fileID within the source prefab, not the prefab asset
-                if (
-                    target.get("guid") == self.source_guid
-                    and mod.get("propertyPath") == property_path
-                ):
+                if target.get("guid") == self.source_guid and mod.get("propertyPath") == property_path:
                     # If objectReference has a fileID, return that
                     obj_ref = mod.get("objectReference", {})
                     if isinstance(obj_ref, dict) and obj_ref.get("fileID", 0) != 0:
@@ -352,10 +344,7 @@ class HierarchyNode:
             target_found = False
             for mod in modifications:
                 target = mod.get("target", {})
-                if (
-                    target.get("guid") == self.source_guid
-                    and mod.get("propertyPath") == property_path
-                ):
+                if target.get("guid") == self.source_guid and mod.get("propertyPath") == property_path:
                     mod["value"] = value
                     target_found = True
                     break
@@ -378,10 +367,7 @@ class HierarchyNode:
             node_target_found = False
             for mod in self.modifications:
                 target = mod.get("target", {})
-                if (
-                    target.get("guid") == self.source_guid
-                    and mod.get("propertyPath") == property_path
-                ):
+                if target.get("guid") == self.source_guid and mod.get("propertyPath") == property_path:
                     mod["value"] = value
                     node_target_found = True
                     break
@@ -487,6 +473,7 @@ class HierarchyNode:
             if guid_index is None and project_root is not None:
                 # Import here to avoid circular dependency
                 from .asset_tracker import build_guid_index
+
                 guid_index = build_guid_index(project_root)
 
             if guid_index is None:
@@ -519,6 +506,7 @@ class HierarchyNode:
             else:
                 # No parent hierarchy for caching, load directly
                 from .parser import UnityYAMLDocument
+
                 source_doc = UnityYAMLDocument.load_auto(source_path)
                 source_hierarchy = Hierarchy.build(source_doc, guid_index=guid_index)
 
@@ -703,17 +691,13 @@ class Hierarchy:
     guid_index: GUIDIndex | None = field(default=None, repr=False)
     project_root: Path | None = field(default=None, repr=False)
     _document: UnityYAMLDocument | None = field(default=None, repr=False)
-    _nodes_by_file_id: dict[int, HierarchyNode] = field(
-        default_factory=dict, repr=False
-    )
+    _nodes_by_file_id: dict[int, HierarchyNode] = field(default_factory=dict, repr=False)
     _stripped_transforms: dict[int, int] = field(default_factory=dict, repr=False)
     _stripped_game_objects: dict[int, int] = field(default_factory=dict, repr=False)
     _prefab_instances: dict[int, list[int]] = field(default_factory=dict, repr=False)
     # Cache for loaded nested prefab hierarchies (guid -> Hierarchy)
     # This prevents re-loading and re-parsing the same prefab multiple times
-    _nested_prefab_cache: dict[str, Hierarchy] = field(
-        default_factory=dict, repr=False
-    )
+    _nested_prefab_cache: dict[str, Hierarchy] = field(default_factory=dict, repr=False)
 
     @classmethod
     def build(
@@ -816,6 +800,7 @@ class Hierarchy:
         # Load and parse the source prefab
         try:
             from .parser import UnityYAMLDocument
+
             source_doc = UnityYAMLDocument.load_auto(source_path)
 
             # Build hierarchy for the source prefab
@@ -838,11 +823,7 @@ class Hierarchy:
                     continue
 
                 prefab_ref = content.get("m_PrefabInstance", {})
-                prefab_id = (
-                    prefab_ref.get("fileID", 0)
-                    if isinstance(prefab_ref, dict)
-                    else 0
-                )
+                prefab_id = prefab_ref.get("fileID", 0) if isinstance(prefab_ref, dict) else 0
 
                 if prefab_id:
                     # Track stripped object -> PrefabInstance mapping
@@ -941,9 +922,7 @@ class Hierarchy:
                 content = obj.get_content()
                 if content:
                     go_ref = content.get("m_GameObject", {})
-                    go_id = (
-                        go_ref.get("fileID", 0) if isinstance(go_ref, dict) else 0
-                    )
+                    go_id = go_ref.get("fileID", 0) if isinstance(go_ref, dict) else 0
                     if go_id:
                         transform_to_go[obj.file_id] = go_id
                         go_to_transform[go_id] = obj.file_id
@@ -979,20 +958,12 @@ class Hierarchy:
                 for comp_entry in components:
                     if isinstance(comp_entry, dict):
                         comp_ref = comp_entry.get("component", {})
-                        comp_id = (
-                            comp_ref.get("fileID", 0)
-                            if isinstance(comp_ref, dict)
-                            else 0
-                        )
+                        comp_id = comp_ref.get("fileID", 0) if isinstance(comp_ref, dict) else 0
                         if comp_id and comp_id != transform_id:
                             comp_obj = doc.get_by_file_id(comp_id)
                             if comp_obj:
                                 comp_content = comp_obj.get_content() or {}
-                                node.components.append(
-                                    self._create_component_info(
-                                        comp_obj, comp_content
-                                    )
-                                )
+                                node.components.append(self._create_component_info(comp_obj, comp_content))
 
         # Create nodes for PrefabInstances
         for obj in doc.objects:
@@ -1004,9 +975,7 @@ class Hierarchy:
                 # Get source prefab info
                 source = content.get("m_SourcePrefab", {})
                 source_guid = source.get("guid", "") if isinstance(source, dict) else ""
-                source_file_id = (
-                    source.get("fileID", 0) if isinstance(source, dict) else 0
-                )
+                source_file_id = source.get("fileID", 0) if isinstance(source, dict) else 0
 
                 # Get name from modifications
                 modification = content.get("m_Modification", {})
@@ -1054,20 +1023,20 @@ class Hierarchy:
                     if stripped_id in self._stripped_game_objects:
                         # Find components referencing this stripped GameObject
                         for comp_obj in doc.objects:
-                            if comp_obj.class_id not in (
-                                1,
-                                4,
-                                224,
-                                1001,
-                            ) and not comp_obj.stripped:
+                            if (
+                                comp_obj.class_id
+                                not in (
+                                    1,
+                                    4,
+                                    224,
+                                    1001,
+                                )
+                                and not comp_obj.stripped
+                            ):
                                 comp_content = comp_obj.get_content()
                                 if comp_content:
                                     go_ref = comp_content.get("m_GameObject", {})
-                                    go_id = (
-                                        go_ref.get("fileID", 0)
-                                        if isinstance(go_ref, dict)
-                                        else 0
-                                    )
+                                    go_id = go_ref.get("fileID", 0) if isinstance(go_ref, dict) else 0
                                     if go_id == stripped_id:
                                         node.components.append(
                                             self._create_component_info(
@@ -1092,9 +1061,7 @@ class Hierarchy:
                 content = obj.get_content()
                 if content:
                     father = content.get("m_Father", {})
-                    father_id = (
-                        father.get("fileID", 0) if isinstance(father, dict) else 0
-                    )
+                    father_id = father.get("fileID", 0) if isinstance(father, dict) else 0
                     if father_id:
                         transform_parents[obj.file_id] = father_id
 
@@ -1105,11 +1072,7 @@ class Hierarchy:
                 if content:
                     modification = content.get("m_Modification", {})
                     parent_ref = modification.get("m_TransformParent", {})
-                    parent_id = (
-                        parent_ref.get("fileID", 0)
-                        if isinstance(parent_ref, dict)
-                        else 0
-                    )
+                    parent_id = parent_ref.get("fileID", 0) if isinstance(parent_ref, dict) else 0
 
                     # Find the root stripped transform for this PrefabInstance
                     stripped_ids = self._prefab_instances.get(obj.file_id, [])
@@ -1177,9 +1140,7 @@ class Hierarchy:
 
             # Sort children by their transform_id's position in m_Children
             # Nodes not in m_Children go to the end
-            node.children.sort(
-                key=lambda c: order_map.get(c.transform_id, len(m_children))
-            )
+            node.children.sort(key=lambda c: order_map.get(c.transform_id, len(m_children)))
 
     def find(self, path: str) -> HierarchyNode | None:
         """Find a node by full path from root.
@@ -1263,10 +1224,7 @@ class Hierarchy:
         loading_prefabs: set[str] = set()
 
         # Find all PrefabInstance nodes
-        prefab_nodes = [
-            node for node in self.iter_all()
-            if node.is_prefab_instance and not node.nested_prefab_loaded
-        ]
+        prefab_nodes = [node for node in self.iter_all() if node.is_prefab_instance and not node.nested_prefab_loaded]
 
         for node in prefab_nodes:
             if node.load_source_prefab(
@@ -1278,9 +1236,7 @@ class Hierarchy:
 
                 # Recursively load nested prefabs in the newly loaded content
                 if recursive:
-                    loaded_count += self._load_nested_in_children(
-                        node, loading_prefabs
-                    )
+                    loaded_count += self._load_nested_in_children(node, loading_prefabs)
 
         return loaded_count
 
@@ -1308,13 +1264,9 @@ class Hierarchy:
                     _loading_prefabs=loading_prefabs,
                 ):
                     loaded_count += 1
-                    loaded_count += self._load_nested_in_children(
-                        child, loading_prefabs
-                    )
+                    loaded_count += self._load_nested_in_children(child, loading_prefabs)
             elif child.children:
-                loaded_count += self._load_nested_in_children(
-                    child, loading_prefabs
-                )
+                loaded_count += self._load_nested_in_children(child, loading_prefabs)
 
         return loaded_count
 
@@ -1377,9 +1329,7 @@ class Hierarchy:
                 content = obj.get_content()
                 if content:
                     go_ref = content.get("m_GameObject", {})
-                    go_id = (
-                        go_ref.get("fileID", 0) if isinstance(go_ref, dict) else 0
-                    )
+                    go_id = go_ref.get("fileID", 0) if isinstance(go_ref, dict) else 0
                     if go_id:
                         return self.resolve_game_object(go_id)
 
@@ -1640,9 +1590,7 @@ def build_hierarchy(
     )
 
 
-def resolve_game_object_for_component(
-    doc: UnityYAMLDocument, component_file_id: int
-) -> int:
+def resolve_game_object_for_component(doc: UnityYAMLDocument, component_file_id: int) -> int:
     """Resolve a component to its owning GameObject, handling stripped objects.
 
     Args:
@@ -1673,9 +1621,7 @@ def resolve_game_object_for_component(
         go_content = go.get_content()
         if go_content:
             prefab_ref = go_content.get("m_PrefabInstance", {})
-            prefab_id = (
-                prefab_ref.get("fileID", 0) if isinstance(prefab_ref, dict) else 0
-            )
+            prefab_id = prefab_ref.get("fileID", 0) if isinstance(prefab_ref, dict) else 0
             if prefab_id:
                 return prefab_id
 

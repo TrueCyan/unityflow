@@ -1,14 +1,11 @@
 """Tests for three-way merge functionality."""
 
-import pytest
-
 from unityflow.merge import (
-    three_way_merge,
-    merge_lines,
-    compute_changes,
-    Change,
-    CONFLICT_START,
     CONFLICT_END,
+    CONFLICT_START,
+    compute_changes,
+    merge_lines,
+    three_way_merge,
 )
 
 

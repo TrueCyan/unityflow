@@ -5,12 +5,11 @@ Provides JSONPath-like querying and modification of Unity prefab data.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any
 
-from unityflow.parser import UnityYAMLDocument, UnityYAMLObject
-from unityflow.formats import export_to_json, PrefabJSON
+from unityflow.formats import export_to_json
+from unityflow.parser import UnityYAMLDocument
 
 
 @dataclass
@@ -79,11 +78,13 @@ def _query_objects(
     if not path_parts:
         # Return all objects
         for key, value in objects.items():
-            results.append(QueryResult(
-                path=f"{prefix}/{key}" if prefix else key,
-                value=value,
-                file_id=int(key) if key.isdigit() else None,
-            ))
+            results.append(
+                QueryResult(
+                    path=f"{prefix}/{key}" if prefix else key,
+                    value=value,
+                    file_id=int(key) if key.isdigit() else None,
+                )
+            )
         return
 
     selector = path_parts[0]
@@ -96,11 +97,13 @@ def _query_objects(
                 _query_value(obj, rest, f"{prefix}/{key}" if prefix else key, results)
             else:
                 if not rest:
-                    results.append(QueryResult(
-                        path=f"{prefix}/{key}" if prefix else key,
-                        value=obj,
-                        file_id=int(key) if key.isdigit() else None,
-                    ))
+                    results.append(
+                        QueryResult(
+                            path=f"{prefix}/{key}" if prefix else key,
+                            value=obj,
+                            file_id=int(key) if key.isdigit() else None,
+                        )
+                    )
     elif selector in objects:
         # Specific key
         obj = objects[selector]
@@ -108,11 +111,13 @@ def _query_objects(
             _query_value(obj, rest, f"{prefix}/{selector}" if prefix else selector, results)
         else:
             if not rest:
-                results.append(QueryResult(
-                    path=f"{prefix}/{selector}" if prefix else selector,
-                    value=obj,
-                    file_id=int(selector) if selector.isdigit() else None,
-                ))
+                results.append(
+                    QueryResult(
+                        path=f"{prefix}/{selector}" if prefix else selector,
+                        value=obj,
+                        file_id=int(selector) if selector.isdigit() else None,
+                    )
+                )
 
 
 def _query_value(
@@ -206,7 +211,6 @@ def set_value(
     if len(parts) < 2:
         return False
 
-    root = parts[0]
     file_id_str = parts[1]
     property_path = parts[2:] if len(parts) > 2 else []
 
@@ -229,7 +233,7 @@ def set_value(
         return False
 
     target = content
-    for i, part in enumerate(property_path[:-1]):
+    for part in property_path[:-1]:
         if isinstance(target, dict):
             if part in target:
                 target = target[part]

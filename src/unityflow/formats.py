@@ -11,12 +11,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from unityflow.parser import UnityYAMLDocument, UnityYAMLObject, CLASS_IDS
-
+from unityflow.parser import CLASS_IDS, UnityYAMLDocument, UnityYAMLObject
 
 # =============================================================================
 # RectTransform Editor <-> File Format Conversion Utilities
 # =============================================================================
+
 
 @dataclass
 class RectTransformEditorValues:
@@ -28,6 +28,7 @@ class RectTransformEditorValues:
         - pos_x, pos_y: position relative to anchor
         - width, height: size of the rect
     """
+
     # Anchors (same for both modes)
     anchor_min_x: float = 0.5
     anchor_min_y: float = 0.5
@@ -67,6 +68,7 @@ class RectTransformEditorValues:
 @dataclass
 class RectTransformFileValues:
     """Values as stored in Unity YAML file."""
+
     anchor_min: dict[str, float]  # {x, y}
     anchor_max: dict[str, float]  # {x, y}
     anchored_position: dict[str, float]  # {x, y}
@@ -289,6 +291,7 @@ def create_rect_transform_file_values(
 
     return editor_to_file_values(editor)
 
+
 # Reverse mapping: class name -> class ID
 CLASS_NAME_TO_ID = {name: id for id, name in CLASS_IDS.items()}
 
@@ -481,9 +484,9 @@ def _analyze_layout_driven_properties(doc: UnityYAMLDocument) -> dict[str, dict[
                                 # ContentSizeFitter and be in a LayoutGroup)
                                 if child_rect_id in driven_info:
                                     existing = driven_info[child_rect_id]
-                                    existing["drivenProperties"] = list(set(
-                                        existing["drivenProperties"] + driven_props
-                                    ))
+                                    existing["drivenProperties"] = list(
+                                        set(existing["drivenProperties"] + driven_props)
+                                    )
                                     existing["drivenBy"] = f"{existing['drivenBy']}, {component_name}"
                                 else:
                                     driven_info[child_rect_id] = {
@@ -604,9 +607,7 @@ def _export_game_object(obj: UnityYAMLObject, content: dict[str, Any]) -> dict[s
     components = content.get("m_Component", [])
     if components:
         result["components"] = [
-            str(c.get("component", {}).get("fileID", 0))
-            for c in components
-            if isinstance(c, dict) and "component" in c
+            str(c.get("component", {}).get("fileID", 0)) for c in components if isinstance(c, dict) and "component" in c
         ]
 
     return result
@@ -676,9 +677,7 @@ def _export_transform(content: dict[str, Any]) -> dict[str, Any]:
     children = content.get("m_Children", [])
     if children:
         result["children"] = [
-            str(c.get("fileID", 0))
-            for c in children
-            if isinstance(c, dict) and c.get("fileID", 0) != 0
+            str(c.get("fileID", 0)) for c in children if isinstance(c, dict) and c.get("fileID", 0) != 0
         ]
 
     return result
@@ -783,9 +782,17 @@ def _export_monobehaviour(content: dict[str, Any]) -> dict[str, Any]:
 
     # Custom properties (everything else)
     properties: dict[str, Any] = {}
-    skip_keys = {"m_ObjectHideFlags", "m_CorrespondingSourceObject", "m_PrefabInstance",
-                 "m_PrefabAsset", "m_GameObject", "m_Enabled", "m_Script", "m_EditorHideFlags",
-                 "m_EditorClassIdentifier"}
+    skip_keys = {
+        "m_ObjectHideFlags",
+        "m_CorrespondingSourceObject",
+        "m_PrefabInstance",
+        "m_PrefabAsset",
+        "m_GameObject",
+        "m_Enabled",
+        "m_Script",
+        "m_EditorHideFlags",
+        "m_EditorClassIdentifier",
+    }
 
     for key, value in content.items():
         if key not in skip_keys:
@@ -834,8 +841,13 @@ def _export_generic_component(content: dict[str, Any]) -> dict[str, Any]:
     """Export a generic component's fields."""
     result: dict[str, Any] = {}
 
-    skip_keys = {"m_ObjectHideFlags", "m_CorrespondingSourceObject", "m_PrefabInstance",
-                 "m_PrefabAsset", "m_GameObject"}
+    skip_keys = {
+        "m_ObjectHideFlags",
+        "m_CorrespondingSourceObject",
+        "m_PrefabInstance",
+        "m_PrefabAsset",
+        "m_GameObject",
+    }
 
     for key, value in content.items():
         if key not in skip_keys:
@@ -903,8 +915,17 @@ def _get_structured_fields_for_class(class_id: int) -> set[str]:
         return {"m_LocalPosition", "m_LocalRotation", "m_LocalScale", "m_Children", "m_Father", "m_GameObject"}
     elif class_id == 224:  # RectTransform
         return {
-            "m_LocalPosition", "m_LocalRotation", "m_LocalScale", "m_Children", "m_Father", "m_GameObject",
-            "m_AnchorMin", "m_AnchorMax", "m_AnchoredPosition", "m_SizeDelta", "m_Pivot"
+            "m_LocalPosition",
+            "m_LocalRotation",
+            "m_LocalScale",
+            "m_Children",
+            "m_Father",
+            "m_GameObject",
+            "m_AnchorMin",
+            "m_AnchorMax",
+            "m_AnchoredPosition",
+            "m_SizeDelta",
+            "m_Pivot",
         }
     elif class_id == 114:  # MonoBehaviour
         return {"m_Script", "m_Enabled", "m_GameObject"}
@@ -980,14 +1001,13 @@ def import_from_json(
     # Apply automatic fixes if requested
     if auto_fix:
         from unityflow.validator import fix_document
+
         fix_document(doc)
 
     return doc
 
 
-def _import_game_object(
-    file_id: int, data: dict[str, Any], raw_fields: dict[str, Any]
-) -> UnityYAMLObject:
+def _import_game_object(file_id: int, data: dict[str, Any], raw_fields: dict[str, Any]) -> UnityYAMLObject:
     """Import a GameObject from JSON format."""
     content: dict[str, Any] = {}
 
@@ -1001,9 +1021,7 @@ def _import_game_object(
     # Component references
     components = data.get("components", [])
     if components:
-        content["m_Component"] = [
-            {"component": {"fileID": int(c)}} for c in components
-        ]
+        content["m_Component"] = [{"component": {"fileID": int(c)}} for c in components]
     else:
         content["m_Component"] = []
 
@@ -1040,9 +1058,7 @@ def _import_game_object(
     )
 
 
-def _import_component(
-    file_id: int, data: dict[str, Any], raw_fields: dict[str, Any]
-) -> UnityYAMLObject:
+def _import_component(file_id: int, data: dict[str, Any], raw_fields: dict[str, Any]) -> UnityYAMLObject:
     """Import a component from JSON format."""
     class_id = data.get("classId", 0)
     comp_type = data.get("type", "")
@@ -1083,9 +1099,7 @@ def _import_component(
     )
 
 
-def _import_transform(
-    data: dict[str, Any], raw_fields: dict[str, Any]
-) -> dict[str, Any]:
+def _import_transform(data: dict[str, Any], raw_fields: dict[str, Any]) -> dict[str, Any]:
     """Import Transform-specific fields."""
     content: dict[str, Any] = {}
 
@@ -1151,9 +1165,7 @@ def _import_transform(
     return content
 
 
-def _import_rect_transform(
-    data: dict[str, Any], raw_fields: dict[str, Any]
-) -> dict[str, Any]:
+def _import_rect_transform(data: dict[str, Any], raw_fields: dict[str, Any]) -> dict[str, Any]:
     """Import RectTransform-specific fields (extends Transform).
 
     Supports two ways to specify RectTransform values:
@@ -1245,9 +1257,7 @@ def _import_rect_transform(
     return content
 
 
-def _import_monobehaviour(
-    data: dict[str, Any], raw_fields: dict[str, Any]
-) -> dict[str, Any]:
+def _import_monobehaviour(data: dict[str, Any], raw_fields: dict[str, Any]) -> dict[str, Any]:
     """Import MonoBehaviour-specific fields."""
     content: dict[str, Any] = {}
 
@@ -1297,9 +1307,7 @@ def _import_monobehaviour(
     return content
 
 
-def _import_prefab_instance(
-    data: dict[str, Any], raw_fields: dict[str, Any]
-) -> dict[str, Any]:
+def _import_prefab_instance(data: dict[str, Any], raw_fields: dict[str, Any]) -> dict[str, Any]:
     """Import PrefabInstance-specific fields."""
     content: dict[str, Any] = {}
 
@@ -1334,15 +1342,17 @@ def _import_prefab_instance(
         mods_list = []
         for mod in data["modifications"]:
             target = mod.get("target", {})
-            mods_list.append({
-                "target": {
-                    "fileID": target.get("fileID", 0),
-                    "guid": target.get("guid", ""),
-                },
-                "propertyPath": mod.get("propertyPath", ""),
-                "value": mod.get("value"),
-                "objectReference": mod.get("objectReference", {"fileID": 0}),
-            })
+            mods_list.append(
+                {
+                    "target": {
+                        "fileID": target.get("fileID", 0),
+                        "guid": target.get("guid", ""),
+                    },
+                    "propertyPath": mod.get("propertyPath", ""),
+                    "value": mod.get("value"),
+                    "objectReference": mod.get("objectReference", {"fileID": 0}),
+                }
+            )
         modification["m_Modifications"] = mods_list
     elif "m_Modification" in raw_fields and "m_Modifications" in raw_fields["m_Modification"]:
         modification["m_Modifications"] = raw_fields["m_Modification"]["m_Modifications"]
@@ -1370,9 +1380,7 @@ def _import_prefab_instance(
     return content
 
 
-def _import_generic_component(
-    data: dict[str, Any], raw_fields: dict[str, Any]
-) -> dict[str, Any]:
+def _import_generic_component(data: dict[str, Any], raw_fields: dict[str, Any]) -> dict[str, Any]:
     """Import a generic component's fields.
 
     For unknown/generic components, prioritize raw_fields to preserve

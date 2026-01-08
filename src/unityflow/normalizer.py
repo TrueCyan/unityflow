@@ -21,7 +21,6 @@ from typing import Any
 
 from unityflow.parser import UnityYAMLDocument, UnityYAMLObject
 
-
 # Properties that contain quaternion values
 QUATERNION_PROPERTIES = {
     "m_LocalRotation",
@@ -89,6 +88,7 @@ class UnityPrefabNormalizer:
         # Auto-detect project root if not specified
         if self.project_root is None:
             from unityflow.asset_tracker import find_unity_project_root
+
             self.project_root = find_unity_project_root(input_path)
 
         doc = UnityYAMLDocument.load(input_path)
@@ -161,6 +161,7 @@ class UnityPrefabNormalizer:
 
         # Reorder the content fields
         from unityflow.script_parser import reorder_fields
+
         reordered = reorder_fields(content, field_order, unity_fields_first=True)
 
         # Replace content in place
@@ -259,6 +260,7 @@ class UnityPrefabNormalizer:
         # Lazy initialize GUID index
         if self._guid_index is None:
             from unityflow.asset_tracker import build_guid_index
+
             self._guid_index = build_guid_index(self.project_root)
 
         # Find script path
@@ -278,6 +280,7 @@ class UnityPrefabNormalizer:
 
         # Parse script
         from unityflow.script_parser import parse_script_file
+
         result = parse_script_file(script_path)
         self._script_info_cache[script_guid] = result
         return result
@@ -296,8 +299,8 @@ class UnityPrefabNormalizer:
 
         # Lazy initialize cache
         if self._script_cache is None:
-            from unityflow.script_parser import ScriptFieldCache
             from unityflow.asset_tracker import build_guid_index
+            from unityflow.script_parser import ScriptFieldCache
 
             # Build GUID index if not already done
             if self._guid_index is None:
@@ -354,9 +357,7 @@ class UnityPrefabNormalizer:
         property_path = mod.get("propertyPath", "")
         return (file_id, property_path)
 
-    def _get_modification_sort_key(
-        self, item: dict[str, Any], target_key: str
-    ) -> tuple[int, str, int]:
+    def _get_modification_sort_key(self, item: dict[str, Any], target_key: str) -> tuple[int, str, int]:
         """Generate sort key for removed/added component entries."""
         target = item.get(target_key, {})
         file_id = target.get("fileID", 0) if isinstance(target, dict) else 0
@@ -370,6 +371,7 @@ class UnityPrefabNormalizer:
         Handles arrays like m_Component and m_Children which contain
         references in the format: {component: {fileID: X}} or {fileID: X}
         """
+
         def get_sort_key(item: Any) -> int:
             if isinstance(item, dict):
                 # Handle {component: {fileID: X}} format (m_Component)
@@ -387,9 +389,7 @@ class UnityPrefabNormalizer:
         arr.clear()
         arr.extend(sorted_items)
 
-    def _normalize_value(
-        self, value: Any, parent_key: str | None = None, property_path: str = ""
-    ) -> Any:
+    def _normalize_value(self, value: Any, parent_key: str | None = None, property_path: str = "") -> Any:
         """Recursively normalize a value."""
         if isinstance(value, dict):
             # Check if this is a quaternion
