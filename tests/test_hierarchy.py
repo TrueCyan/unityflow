@@ -791,6 +791,65 @@ class TestGUIDIndexResolution:
         assert path is None
 
 
+class TestChildrenSortOrder:
+    """Test that children are sorted according to Transform's m_Children order."""
+
+    def test_children_sorted_by_m_children_order(self):
+        """Test that children match Unity Editor order based on m_Children."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "children_order.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Find Canvas node
+        canvas = hierarchy.find("Canvas")
+        assert canvas is not None
+        assert len(canvas.children) == 3
+
+        # Children should be in m_Children order: Header, Content, Footer
+        # NOT in document traversal order: Footer, Header, Content
+        child_names = [c.name for c in canvas.children]
+        assert child_names == ["Header", "Content", "Footer"], (
+            f"Expected ['Header', 'Content', 'Footer'] but got {child_names}"
+        )
+
+    def test_children_order_find_by_path(self):
+        """Test that find works correctly with sorted children."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "children_order.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Should find correct child by index
+        header = hierarchy.find("Canvas/Header")
+        assert header is not None
+        assert header.name == "Header"
+
+        content = hierarchy.find("Canvas/Content")
+        assert content is not None
+        assert content.name == "Content"
+
+        footer = hierarchy.find("Canvas/Footer")
+        assert footer is not None
+        assert footer.name == "Footer"
+
+    def test_children_order_with_index_notation(self):
+        """Test that index notation works correctly with sorted children."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "children_order.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        canvas = hierarchy.find("Canvas")
+        assert canvas is not None
+
+        # First child (index 0) should be Header
+        first = canvas.children[0]
+        assert first.name == "Header"
+
+        # Second child (index 1) should be Content
+        second = canvas.children[1]
+        assert second.name == "Content"
+
+        # Third child (index 2) should be Footer
+        third = canvas.children[2]
+        assert third.name == "Footer"
+
+
 class TestNestedPrefabCaching:
     """Test nested prefab hierarchy caching."""
 

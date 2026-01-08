@@ -1133,10 +1133,53 @@ class Hierarchy:
                     node.parent = parent_node
                     parent_node.children.append(node)
 
+        # Sort children based on Transform's m_Children order
+        self._sort_children_by_transform_order(doc)
+
         # Collect root objects
         for node in self._nodes_by_file_id.values():
             if node.parent is None:
                 self.root_objects.append(node)
+
+    def _sort_children_by_transform_order(self, doc: UnityYAMLDocument) -> None:
+        """Sort children of each node based on Transform's m_Children order.
+
+        Unity Editor displays children in the order specified by the parent
+        Transform's m_Children array. This method ensures HierarchyNode.children
+        matches that order.
+
+        Args:
+            doc: The Unity YAML document
+        """
+        for node in self._nodes_by_file_id.values():
+            if not node.children or not node.transform_id:
+                continue
+
+            transform_obj = doc.get_by_file_id(node.transform_id)
+            if transform_obj is None:
+                continue
+
+            content = transform_obj.get_content()
+            if content is None:
+                continue
+
+            m_children = content.get("m_Children", [])
+            if not m_children:
+                continue
+
+            # Build order map: child_transform_id -> index
+            order_map: dict[int, int] = {}
+            for idx, child_ref in enumerate(m_children):
+                if isinstance(child_ref, dict):
+                    child_id = child_ref.get("fileID", 0)
+                    if child_id:
+                        order_map[child_id] = idx
+
+            # Sort children by their transform_id's position in m_Children
+            # Nodes not in m_Children go to the end
+            node.children.sort(
+                key=lambda c: order_map.get(c.transform_id, len(m_children))
+            )
 
     def find(self, path: str) -> HierarchyNode | None:
         """Find a node by full path from root.
