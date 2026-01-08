@@ -1,5 +1,9 @@
 # unityflow
 
+[![PyPI version](https://badge.fury.io/py/unityflow.svg)](https://pypi.org/project/unityflow/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Unity 워크플로우 자동화 도구입니다. Unity 에디터 없이 프리팹, 씬, 에셋을 편집하고, diff/merge하고, LLM과 통합할 수 있습니다.
 
 ## 주요 기능
@@ -222,16 +226,16 @@ doc.save("MyObject.prefab")  # 또는 .unity, .asset
 ## CLI 명령어 요약
 
 ```bash
-unityflow setup       # Git 통합 설정
-unityflow normalize   # Unity YAML 파일 정규화
-unityflow validate    # 구조적 무결성 검증
-unityflow diff        # 두 파일 비교
-unityflow merge       # 3-way 병합
-unityflow query       # 경로 기반 데이터 조회
-unityflow set         # 경로 기반 값 설정
-unityflow deps        # 에셋 의존성 분석
-unityflow find-refs   # 역참조 검색
-unityflow stats       # 파일 통계 조회
+unityflow setup        # Git 통합 설정
+unityflow normalize    # Unity YAML 파일 정규화
+unityflow validate     # 구조적 무결성 검증
+unityflow diff         # 두 파일 비교
+unityflow merge        # 3-way 병합
+unityflow get          # 경로 기반 데이터 조회
+unityflow set          # 경로 기반 값 설정
+unityflow hierarchy    # 계층 구조 표시
+unityflow inspect      # GameObject/컴포넌트 상세 조회
+unityflow git-textconv # Git diff용 정규화 출력
 ```
 
 전체 옵션은 `unityflow <command> --help`로 확인하세요.
