@@ -1051,3 +1051,371 @@ Transform:
 
             # Cache should still have one entry (same GUID)
             assert len(hierarchy._nested_prefab_cache) == 1
+
+
+class TestMixedChildrenOrder:
+    """Test that children are sorted correctly when mixing PrefabInstances with regular GameObjects."""
+
+    def test_mixed_prefab_instance_and_gameobject_order(self):
+        """Test that PrefabInstances and GameObjects are sorted according to m_Children order.
+
+        The m_Children array may contain a mix of:
+        - Regular Transform fileIDs (for normal GameObjects)
+        - Stripped Transform fileIDs (for PrefabInstances)
+
+        All children should be sorted in the order they appear in m_Children.
+        """
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "mixed_children_order.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Find Canvas node
+        canvas = hierarchy.find("Canvas")
+        assert canvas is not None
+        assert len(canvas.children) == 5
+
+        # Expected order based on m_Children:
+        # - {fileID: 400001} -> Header (regular GameObject)
+        # - {fileID: 500001} -> ButtonPrefab1 (PrefabInstance, stripped transform)
+        # - {fileID: 400002} -> Content (regular GameObject)
+        # - {fileID: 500002} -> ButtonPrefab2 (PrefabInstance, stripped transform)
+        # - {fileID: 400003} -> Footer (regular GameObject)
+        child_names = [c.name for c in canvas.children]
+        expected = ["Header", "ButtonPrefab1", "Content", "ButtonPrefab2", "Footer"]
+        assert child_names == expected, f"Expected {expected} but got {child_names}"
+
+    def test_prefab_instance_uses_stripped_transform_id(self):
+        """Test that PrefabInstance nodes use stripped transform ID for sorting."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "mixed_children_order.prefab")
+        hierarchy = build_hierarchy(doc)
+
+        # Find PrefabInstance nodes
+        prefab_instances = [node for node in hierarchy.iter_all() if node.is_prefab_instance]
+        assert len(prefab_instances) == 2
+
+        # Each PrefabInstance should have transform_id set to the stripped transform
+        for node in prefab_instances:
+            assert node.transform_id != 0, f"PrefabInstance {node.name} should have transform_id"
+            # The transform_id should be the stripped transform, not the PrefabInstance fileID
+            assert node.transform_id != node.file_id
+
+
+class TestNestedPrefabChildrenOrder:
+    """Test children ordering after loading nested prefabs."""
+
+    def test_added_objects_mixed_with_nested_prefab_children(self):
+        """Test that m_AddedGameObjects are properly sorted with nested prefab children.
+
+        When a PrefabInstance has m_AddedGameObjects:
+        - The added objects are defined in the current document
+        - After load_source_prefab(), nested prefab children are also available
+        - Both should be sorted according to their proper order
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            # Create source prefab with 3 buttons
+            source_guid = "eeee5555ffff6666aaaa7777bbbb8888"
+            source_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1000000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4000000}
+  m_Layer: 5
+  m_Name: ButtonPanel
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &4000000
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1000000}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 4100000}
+  - {fileID: 4200000}
+  - {fileID: 4300000}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 1, y: 1}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 0}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!1 &1100000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4100000}
+  m_Layer: 5
+  m_Name: Button1
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &4100000
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1100000}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 4000000}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 100, y: 50}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!1 &1200000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4200000}
+  m_Layer: 5
+  m_Name: Button2
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &4200000
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1200000}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 4000000}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 110, y: 0}
+  m_SizeDelta: {x: 100, y: 50}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!1 &1300000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4300000}
+  m_Layer: 5
+  m_Name: Button3
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &4300000
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1300000}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 4000000}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 220, y: 0}
+  m_SizeDelta: {x: 100, y: 50}
+  m_Pivot: {x: 0.5, y: 0.5}
+"""
+            source_path = project_root / "Assets" / "ButtonPanel.prefab"
+            source_path.write_text(source_content)
+
+            # Create .meta file for the source prefab
+            meta_content = f"""fileFormatVersion: 2
+guid: {source_guid}
+PrefabImporter:
+  externalObjects: {{}}
+  userData:
+  assetBundleName:
+  assetBundleVariant:
+"""
+            (source_path.parent / (source_path.name + ".meta")).write_text(meta_content)
+
+            # Create the parent prefab with a PrefabInstance that has an added child
+            # The added child (AddedChild) has m_Father pointing to the stripped transform
+            parent_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {{fileID: 0}}
+  m_PrefabInstance: {{fileID: 0}}
+  m_PrefabAsset: {{fileID: 0}}
+  serializedVersion: 6
+  m_Component:
+  - component: {{fileID: 400000}}
+  m_Layer: 5
+  m_Name: RootCanvas
+  m_TagString: Untagged
+  m_Icon: {{fileID: 0}}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &400000
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {{fileID: 0}}
+  m_PrefabInstance: {{fileID: 0}}
+  m_PrefabAsset: {{fileID: 0}}
+  m_GameObject: {{fileID: 100000}}
+  m_LocalRotation: {{x: 0, y: 0, z: 0, w: 1}}
+  m_LocalPosition: {{x: 0, y: 0, z: 0}}
+  m_LocalScale: {{x: 1, y: 1, z: 1}}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {{fileID: 500001}}
+  m_Father: {{fileID: 0}}
+  m_LocalEulerAnglesHint: {{x: 0, y: 0, z: 0}}
+  m_AnchorMin: {{x: 0, y: 0}}
+  m_AnchorMax: {{x: 1, y: 1}}
+  m_AnchoredPosition: {{x: 0, y: 0}}
+  m_SizeDelta: {{x: 0, y: 0}}
+  m_Pivot: {{x: 0.5, y: 0.5}}
+--- !u!1001 &200001
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 1000000, guid: {source_guid}}}
+      propertyPath: m_Name
+      value: ButtonPanel
+      objectReference: {{fileID: 0}}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {{fileID: 4000000, guid: {source_guid}}}
+      addedObject: {{fileID: 400100}}
+    m_AddedComponents: []
+  m_SourcePrefab: {{fileID: 100100000, guid: {source_guid}, type: 3}}
+--- !u!224 &500001 stripped
+RectTransform:
+  m_CorrespondingSourceObject: {{fileID: 4000000, guid: {source_guid}}}
+  m_PrefabInstance: {{fileID: 200001}}
+--- !u!1 &600001 stripped
+GameObject:
+  m_CorrespondingSourceObject: {{fileID: 1000000, guid: {source_guid}}}
+  m_PrefabInstance: {{fileID: 200001}}
+--- !u!1 &100100
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {{fileID: 0}}
+  m_PrefabInstance: {{fileID: 0}}
+  m_PrefabAsset: {{fileID: 0}}
+  serializedVersion: 6
+  m_Component:
+  - component: {{fileID: 400100}}
+  m_Layer: 5
+  m_Name: AddedChild
+  m_TagString: Untagged
+  m_Icon: {{fileID: 0}}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &400100
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {{fileID: 0}}
+  m_PrefabInstance: {{fileID: 0}}
+  m_PrefabAsset: {{fileID: 0}}
+  m_GameObject: {{fileID: 100100}}
+  m_LocalRotation: {{x: 0, y: 0, z: 0, w: 1}}
+  m_LocalPosition: {{x: 0, y: 0, z: 0}}
+  m_LocalScale: {{x: 1, y: 1, z: 1}}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {{fileID: 500001}}
+  m_LocalEulerAnglesHint: {{x: 0, y: 0, z: 0}}
+  m_AnchorMin: {{x: 0, y: 0}}
+  m_AnchorMax: {{x: 1, y: 1}}
+  m_AnchoredPosition: {{x: 0, y: 0}}
+  m_SizeDelta: {{x: 0, y: 0}}
+  m_Pivot: {{x: 0.5, y: 0.5}}
+"""
+            parent_path = project_root / "Assets" / "ParentPrefab.prefab"
+            parent_path.write_text(parent_content)
+
+            # Build guid index
+            from unityflow.asset_tracker import build_guid_index
+
+            guid_index = build_guid_index(project_root)
+
+            # Load parent hierarchy
+            parent_doc = UnityYAMLDocument.load(parent_path)
+            hierarchy = build_hierarchy(parent_doc, guid_index=guid_index, project_root=project_root)
+
+            # Find the ButtonPanel PrefabInstance (it's under RootCanvas)
+            button_panel = hierarchy.find("RootCanvas/ButtonPanel")
+            assert button_panel is not None, f"Root objects: {[r.name for r in hierarchy.root_objects]}"
+            assert button_panel.is_prefab_instance
+
+            # Before loading nested prefab, ButtonPanel has AddedChild as its only child
+            # (because it's linked via m_Father pointing to stripped transform 500001)
+            assert len(button_panel.children) == 1
+            assert button_panel.children[0].name == "AddedChild"
+
+            # Load the nested prefab
+            result = button_panel.load_source_prefab()
+            assert result is True
+
+            # After loading, ButtonPanel should have:
+            # - Button1, Button2, Button3 from source prefab
+            # - AddedChild from current document
+            # The order should preserve source prefab order, with AddedChild at the end
+            # (since it was added after the source prefab children)
+            child_names = [c.name for c in button_panel.children]
+
+            # The expected order: source prefab children first, then added child
+            # This matches Unity Editor behavior where added objects appear after source children
+            # unless sibling index is modified
+            expected = ["Button1", "Button2", "Button3", "AddedChild"]
+            assert child_names == expected, f"Expected {expected} but got {child_names}"

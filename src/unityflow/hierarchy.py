@@ -513,10 +513,29 @@ class HierarchyNode:
             if source_hierarchy is None:
                 return False
 
-            # Merge root objects from source as children of this node
-            # Note: Nodes are copied (not shared) so each PrefabInstance has its own tree
+            # Merge children of source root objects into this node's children
+            # Note: The source root represents the PrefabInstance itself,
+            # so we merge its children, not the root itself.
+            # Nodes are copied (not shared) so each PrefabInstance has its own tree.
             for source_root in source_hierarchy.root_objects:
-                self._merge_nested_node(source_root, guid_index, _loading_prefabs)
+                # Group modifications by target fileID for component linking
+                mods_by_target: dict[int, list[dict[str, Any]]] = {}
+                for mod in self.modifications:
+                    target = mod.get("target", {})
+                    target_id = target.get("fileID", 0)
+                    if target_id:
+                        if target_id not in mods_by_target:
+                            mods_by_target[target_id] = []
+                        mods_by_target[target_id].append(mod)
+
+                # Merge the source root's children (not the root itself)
+                for child in source_root.children:
+                    self._merge_nested_child(child, guid_index, _loading_prefabs, mods_by_target)
+
+            # Sort children to ensure proper order:
+            # Source prefab children should come first (in their original order),
+            # followed by any added children from the current document.
+            self._sort_merged_children()
 
             self.nested_prefab_loaded = True
             return True
@@ -651,6 +670,36 @@ class HierarchyNode:
         # Recursively merge grandchildren
         for grandchild in source_child.children:
             merged_child._merge_nested_child(grandchild, guid_index, loading_prefabs, mods_by_target)
+
+    def _sort_merged_children(self) -> None:
+        """Sort children after merging nested prefab content.
+
+        After loading a nested prefab, the children list contains:
+        - Children from the source prefab (is_from_nested_prefab=True)
+        - Added children from the current document (is_from_nested_prefab=False)
+
+        This method sorts them so that:
+        1. Source prefab children come first (preserving their original order)
+        2. Added children come after (they were added by the user after the prefab)
+
+        This matches Unity Editor behavior where added objects appear after
+        source prefab children unless the sibling index is explicitly modified.
+        """
+        if not self.children:
+            return
+
+        # Separate children into two groups
+        nested_children = []
+        added_children = []
+        for child in self.children:
+            if child.is_from_nested_prefab:
+                nested_children.append(child)
+            else:
+                added_children.append(child)
+
+        # Reconstruct children list: nested first, then added
+        # Both groups preserve their original order
+        self.children = nested_children + added_children
 
 
 @dataclass
