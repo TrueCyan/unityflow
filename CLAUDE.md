@@ -1,5 +1,22 @@
 # Claude Code Instructions for unityflow
 
+## Environment Setup
+
+작업 시작 전 반드시 환경을 세팅합니다:
+
+```bash
+# 의존성 설치
+pip install rapidyaml pytest click
+
+# 테스트 실행 (PYTHONPATH 설정 필수)
+PYTHONPATH=src python -m pytest tests/ -v
+```
+
+### 주의사항
+
+- Python 3.12+ 권장이지만, Python 3.11에서도 PYTHONPATH 설정으로 동작
+- `pip install -e .`는 Python 버전 제약으로 실패할 수 있음 → PYTHONPATH 방식 사용
+
 ## Before Completing Any Task
 
 Always run these checks before committing:
