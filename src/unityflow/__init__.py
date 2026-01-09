@@ -8,6 +8,29 @@ from importlib.metadata import version
 
 __version__ = version("unityflow")
 
+# Animation module exports
+from unityflow.animation import (
+    AnimationClip,
+    AnimationClipSettings,
+    AnimationCurve,
+    AnimationEvent,
+    Keyframe,
+    parse_animation_clip,
+    write_animation_clip,
+)
+
+# Animator module exports
+from unityflow.animator import (
+    AnimatorCondition,
+    AnimatorController,
+    AnimatorLayer,
+    AnimatorParameter,
+    AnimatorState,
+    AnimatorStateMachine,
+    AnimatorStateTransition,
+    parse_animator_controller,
+    write_animator_controller,
+)
 from unityflow.asset_tracker import (
     BINARY_ASSET_EXTENSIONS,
     AssetDependency,
@@ -164,4 +187,24 @@ __all__ = [
     "resolve_game_object_for_component",
     "get_prefab_instance_for_stripped",
     "get_stripped_objects_for_prefab",
+    # Animation classes
+    "AnimationClip",
+    "AnimationClipSettings",
+    "AnimationCurve",
+    "AnimationEvent",
+    "Keyframe",
+    # Animation functions
+    "parse_animation_clip",
+    "write_animation_clip",
+    # Animator classes
+    "AnimatorCondition",
+    "AnimatorController",
+    "AnimatorLayer",
+    "AnimatorParameter",
+    "AnimatorState",
+    "AnimatorStateMachine",
+    "AnimatorStateTransition",
+    # Animator functions
+    "parse_animator_controller",
+    "write_animator_controller",
 ]

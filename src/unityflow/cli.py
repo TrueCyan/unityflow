@@ -13,6 +13,10 @@ from pathlib import Path
 import click
 
 from unityflow import __version__
+
+# Animation CLI imports (registered at bottom)
+from unityflow.animation.cli import anim_group
+from unityflow.animator.cli import ctrl_group
 from unityflow.asset_tracker import (
     find_unity_project_root,
 )
@@ -2326,6 +2330,11 @@ def inspect_cmd(
                         click.echo(f"  {key}: {value}")
 
             click.echo()
+
+
+# Register animation CLI commands
+main.add_command(anim_group)
+main.add_command(ctrl_group)
 
 
 if __name__ == "__main__":
