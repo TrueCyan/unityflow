@@ -7,13 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.5] - 2026-01-08
 
-### Added
+### Changed
 
-- **Semantic Diff & Merge**: Unity YAML 파일의 의미론적 비교 및 병합 지원
-  - `unityflow diff` 명령어에 `--semantic` 옵션 추가
-  - `unityflow merge` 명령어에 `--semantic` 옵션 추가
-  - Unity 파일 구조를 이해하여 fileID 변경, 문서 순서 변경을 무시한 정확한 비교
-  - 3-way merge 시 충돌 최소화
+- **Semantic Diff & Merge 기본 적용**: `diff`와 `merge` 명령어가 기본적으로 semantic 모드 사용
+  - `unityflow diff`: 프로퍼티 레벨 비교 (fileID 변경, 문서 순서 변경 무시)
+  - `unityflow merge`: 프로퍼티 레벨 3-way merge (충돌 최소화)
+  - 기존 텍스트 기반 비교/병합은 제거됨 (semantic 방식이 더 정확)
 
 ---
 

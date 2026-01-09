@@ -118,21 +118,20 @@ class TestDiffCommand:
         # Different files should exit with 1
         assert result.exit_code == 1
 
-    def test_diff_summary_format(self, runner):
-        """Test diff with summary format."""
+    def test_diff_semantic_output(self, runner):
+        """Test diff with semantic output format."""
         result = runner.invoke(
             main,
             [
                 "diff",
                 str(FIXTURES_DIR / "basic_prefab.prefab"),
                 str(FIXTURES_DIR / "unsorted_prefab.prefab"),
-                "--format",
-                "summary",
             ],
         )
 
+        # Semantic diff shows summary line
         assert result.exit_code == 0
-        assert "Lines" in result.output or "Comparing" in result.output
+        assert "Summary:" in result.output or "Files are identical" in result.output
 
 
 class TestValidateCommand:
@@ -341,8 +340,8 @@ class TestHelpOption:
         result = runner.invoke(main, ["diff", "--help"])
 
         assert result.exit_code == 0
-        assert "--context" in result.output
-        assert "--format" in result.output
+        assert "--exit-code" in result.output
+        assert "semantic" in result.output.lower()
 
 
 class TestSetCommand:
