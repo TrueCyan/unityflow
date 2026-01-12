@@ -4,9 +4,12 @@ A tool for canonical serialization of Unity YAML files (prefabs, scenes, assets)
 to eliminate non-deterministic changes and reduce VCS noise.
 """
 
-from importlib.metadata import version
+try:
+    from importlib.metadata import version
 
-__version__ = version("unityflow")
+    __version__ = version("unityflow")
+except Exception:
+    __version__ = "0.0.0.dev"
 
 from unityflow.asset_tracker import (
     BINARY_ASSET_EXTENSIONS,

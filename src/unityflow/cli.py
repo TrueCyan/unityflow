@@ -2328,5 +2328,268 @@ def inspect_cmd(
             click.echo()
 
 
+@main.command(name="resolve")
+@click.option(
+    "--auto",
+    "auto_resolve",
+    is_flag=True,
+    default=True,
+    help="Automatically resolve non-conflicting changes (default: enabled)",
+)
+@click.option(
+    "--no-auto",
+    "no_auto",
+    is_flag=True,
+    help="Disable auto-resolution, ask for all conflicts",
+)
+@click.option(
+    "--accept",
+    type=click.Choice(["ours", "theirs", "ask"]),
+    default="ask",
+    help="Default resolution for conflicts (default: ask)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be resolved without making changes",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+def resolve_cmd(
+    auto_resolve: bool,
+    no_auto: bool,
+    accept: str,
+    dry_run: bool,
+    output_format: str,
+) -> None:
+    """Resolve Unity YAML merge conflicts intelligently.
+
+    Automatically detects Git or Perforce and resolves merge conflicts
+    in Unity files (.prefab, .unity, .asset, etc.) using semantic merge.
+
+    Features:
+    - Semantic 3-way merge at property level
+    - Auto-resolve non-overlapping changes
+    - Context-aware suggestions from commit/changelist descriptions
+    - Interactive resolution for overlapping conflicts
+
+    Examples:
+
+        # Resolve all conflicts (auto + interactive)
+        unityflow resolve
+
+        # Auto-resolve only, skip manual conflicts
+        unityflow resolve --accept ours
+
+        # Dry run to see what would happen
+        unityflow resolve --dry-run
+
+        # Disable auto-resolution, decide every conflict
+        unityflow resolve --no-auto
+    """
+    import json as json_module
+
+    from unityflow.vcs_resolver import (
+        detect_vcs,
+        format_conflict_for_user,
+        resolve_conflicts,
+    )
+
+    adapter = detect_vcs()
+    if adapter is None:
+        click.echo("Error: Not in a Git or Perforce workspace", err=True)
+        sys.exit(1)
+
+    vcs_type = adapter.get_vcs_type().value
+    click.echo(f"Detected VCS: {vcs_type}")
+
+    conflicts = adapter.get_conflicts()
+    if not conflicts:
+        click.echo("No Unity files with merge conflicts found.")
+        return
+
+    click.echo(f"Found {len(conflicts)} Unity file(s) with conflicts:")
+    for c in conflicts:
+        click.echo(f"  - {c.local_path.name}")
+    click.echo()
+
+    if dry_run:
+        click.echo("Dry run mode - no changes will be made")
+        # Show what would be resolved
+        for conflict in conflicts:
+            from unityflow.vcs_resolver import analyze_context, resolve_unity_file
+
+            merge_files = adapter.get_merge_files(conflict)
+            if merge_files:
+                try:
+                    context = analyze_context(conflict, adapter)
+                    merge_result, conflict_infos = resolve_unity_file(merge_files, context)
+
+                    click.echo(f"\n{conflict.local_path.name}:")
+                    click.echo(f"  Auto-mergeable changes: {len(merge_result.auto_merged)}")
+                    click.echo(f"  Conflicts: {len(conflict_infos)}")
+
+                    for i, info in enumerate(conflict_infos):
+                        click.echo(f"\n{format_conflict_for_user(info, i + 1)}")
+                except Exception as e:
+                    click.echo(f"  Error analyzing: {e}")
+        return
+
+    # User input function for interactive mode
+    def user_input(prompt: str, choices: list[str]) -> str:
+        if accept == "ours":
+            return "o"
+        elif accept == "theirs":
+            return "t"
+        else:
+            click.echo(prompt)
+            while True:
+                choice = click.prompt("Choice", type=str).lower()
+                if choice in choices:
+                    return choice
+                click.echo(f"Invalid choice. Options: {', '.join(choices)}")
+
+    # Resolve conflicts
+    effective_auto = auto_resolve and not no_auto
+    results = resolve_conflicts(
+        auto_resolve=effective_auto,
+        user_input_fn=user_input if accept == "ask" else None,
+    )
+
+    # Output results
+    if output_format == "json":
+        output = []
+        for r in results:
+            output.append(
+                {
+                    "file": str(r.file_path),
+                    "success": r.success,
+                    "strategy": r.strategy.value,
+                    "auto_merged": r.auto_merged_count,
+                    "conflicts": r.conflict_count,
+                    "resolved": r.conflicts_resolved,
+                    "message": r.message,
+                }
+            )
+        click.echo(json_module.dumps(output, indent=2))
+    else:
+        click.echo("\nResults:")
+        success_count = 0
+        for r in results:
+            status = "OK" if r.success else "CONFLICT"
+            click.echo(f"  [{status}] {r.file_path.name}: {r.message}")
+            if r.success:
+                success_count += 1
+
+        click.echo()
+        click.echo(f"Resolved: {success_count}/{len(results)} files")
+
+        if success_count < len(results):
+            sys.exit(1)
+
+
+@main.command(name="resolve-file")
+@click.argument("base", type=click.Path(exists=True, path_type=Path))
+@click.argument("ours", type=click.Path(exists=True, path_type=Path))
+@click.argument("theirs", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    help="Output file (default: write to 'ours')",
+)
+@click.option(
+    "--accept",
+    type=click.Choice(["ours", "theirs", "ask"]),
+    default="ask",
+    help="Default resolution for conflicts",
+)
+def resolve_file_cmd(
+    base: Path,
+    ours: Path,
+    theirs: Path,
+    output: Path | None,
+    accept: str,
+) -> None:
+    """Resolve conflicts in a single Unity file with explicit base/ours/theirs.
+
+    This command is useful for manual conflict resolution or when
+    using custom merge tools.
+
+    BASE is the common ancestor version.
+    OURS is the current/local version.
+    THEIRS is the incoming/remote version.
+
+    Examples:
+
+        # Resolve with interactive mode
+        unityflow resolve-file base.prefab ours.prefab theirs.prefab
+
+        # Resolve keeping ours for conflicts
+        unityflow resolve-file base.prefab ours.prefab theirs.prefab --accept ours
+
+        # Output to specific file
+        unityflow resolve-file base.prefab ours.prefab theirs.prefab -o merged.prefab
+    """
+    from unityflow.semantic_merge import apply_resolution, semantic_three_way_merge
+    from unityflow.vcs_resolver import _format_value
+
+    try:
+        base_doc = UnityYAMLDocument.load(base)
+        ours_doc = UnityYAMLDocument.load(ours)
+        theirs_doc = UnityYAMLDocument.load(theirs)
+    except Exception as e:
+        click.echo(f"Error: Failed to load files: {e}", err=True)
+        sys.exit(1)
+
+    merge_result = semantic_three_way_merge(base_doc, ours_doc, theirs_doc)
+
+    output_path = output or ours
+    click.echo(f"Auto-merged: {len(merge_result.auto_merged)} changes")
+
+    if merge_result.has_conflicts:
+        click.echo(f"Conflicts: {merge_result.conflict_count}")
+
+        for i, conflict in enumerate(merge_result.property_conflicts):
+            go_name = conflict.game_object_name or f"Object[{conflict.file_id}]"
+            click.echo(f"\n[Conflict {i + 1}] {go_name} / {conflict.class_name}")
+            click.echo(f"  Property: {conflict.property_path}")
+            click.echo(f"  Base:   {_format_value(conflict.base_value)}")
+            click.echo(f"  Ours:   {_format_value(conflict.ours_value)}")
+            click.echo(f"  Theirs: {_format_value(conflict.theirs_value)}")
+
+            if accept == "ours":
+                resolution = "ours"
+            elif accept == "theirs":
+                resolution = "theirs"
+            else:
+                while True:
+                    choice = click.prompt(
+                        "Resolve with (o)urs, (t)heirs, (b)ase",
+                        type=str,
+                    ).lower()
+                    if choice in ["o", "ours"]:
+                        resolution = "ours"
+                        break
+                    elif choice in ["t", "theirs"]:
+                        resolution = "theirs"
+                        break
+                    elif choice in ["b", "base"]:
+                        resolution = "base"
+                        break
+                    click.echo("Invalid choice")
+
+            apply_resolution(merge_result.merged_document, conflict, resolution)
+            click.echo(f"  -> Resolved with {resolution}")
+
+    merge_result.merged_document.save(output_path)
+    click.echo(f"\nSaved to: {output_path}")
+
+
 if __name__ == "__main__":
     main()
