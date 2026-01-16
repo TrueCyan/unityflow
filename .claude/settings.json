@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/ensure-unityflow.sh 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}
