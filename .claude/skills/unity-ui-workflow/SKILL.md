@@ -3,6 +3,19 @@ name: unity-ui-workflow
 description: Unity UI(UGUI) 컴포넌트를 편집합니다. Canvas, Panel, Button, Image, Text, TextMeshPro 등 UI 요소와 RectTransform의 앵커/피벗/크기 조정, LayoutGroup 설정 등의 작업을 수행합니다. 키워드: UI, Canvas, Button, Image, Text, RectTransform, 앵커, 피벗, 레이아웃, UGUI
 ---
 
+## ⚠️ 필수: unityflow CLI 사용
+
+이 skill의 모든 `unityflow` 명령어는 가상환경에 설치된 CLI를 사용합니다.
+
+**명령어 실행 방법** (PATH에 없을 경우):
+```bash
+~/.unityflow-venv/bin/unityflow <command>
+```
+
+SessionStart hook이 자동으로 설치하므로, 일반적으로 `unityflow` 명령어가 바로 작동합니다.
+
+---
+
 # Unity UI Workflow Skill
 
 Unity UI 시스템(UGUI)을 프로그래매틱하게 편집하기 위한 skill입니다.
