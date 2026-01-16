@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.6] - 2026-01-16
+
+### Added
+
+- **`init-skills` 명령어**: Claude Code skills를 프로젝트에 쉽게 설치
+  ```bash
+  # 현재 프로젝트에 설치
+  unityflow init-skills
+
+  # 글로벌 설치 (모든 프로젝트)
+  unityflow init-skills --global
+
+  # 기존 스킬 덮어쓰기
+  unityflow init-skills --force
+  ```
+
+- **`resolve-conflicts` skill**: AI 기반 Unity 머지 컨플릭트 해결
+  - Git/Perforce VCS 지원
+  - Commit/changelist 설명에서 수정 의도 분석
+  - 자동 해결 가능한 변경은 자동 병합
+  - 충돌 발생 시 사용자와 대화하여 결정
+
+- **Animation 파일 지원**: `.anim`, `.controller` 파일 정규화/비교/병합 지원
+
+### Changed
+
+- **Semantic 모드 전용**: diff/merge가 항상 semantic 모드로 동작
+  - `--semantic` 옵션 제거 (기본 동작이 됨)
+  - 프로퍼티 레벨 비교로 의미 없는 변경 무시
+
+---
+
 ## [0.3.5] - 2026-01-08
 
 ### Changed

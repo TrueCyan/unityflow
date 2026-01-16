@@ -229,16 +229,56 @@ doc.save("MyObject.prefab")  # 또는 .unity, .asset
 unityflow setup        # Git 통합 설정
 unityflow normalize    # Unity YAML 파일 정규화
 unityflow validate     # 구조적 무결성 검증
-unityflow diff         # 두 파일 비교
-unityflow merge        # 3-way 병합
+unityflow diff         # 두 파일 비교 (semantic)
+unityflow merge        # 3-way 병합 (semantic)
 unityflow get          # 경로 기반 데이터 조회
 unityflow set          # 경로 기반 값 설정
 unityflow hierarchy    # 계층 구조 표시
 unityflow inspect      # GameObject/컴포넌트 상세 조회
 unityflow git-textconv # Git diff용 정규화 출력
+unityflow init-skills  # Claude Code skills 설치
 ```
 
 전체 옵션은 `unityflow <command> --help`로 확인하세요.
+
+## Claude Code 통합
+
+[Claude Code](https://github.com/anthropics/claude-code)와 함께 사용하면 AI가 Unity 프로젝트를 더 효과적으로 이해하고 수정할 수 있습니다.
+
+### Skills 설치
+
+```bash
+# 현재 프로젝트에 skills 설치 (.claude/skills/)
+unityflow init-skills
+
+# 글로벌 설치 (모든 프로젝트에서 사용)
+unityflow init-skills --global
+```
+
+### 제공되는 Skills
+
+| Skill | 설명 |
+|-------|------|
+| `unity-yaml-workflow` | Unity YAML 파일 편집 가이드 (프리팹, 씬, 에셋) |
+| `unity-ui-workflow` | UI 프리팹 작업 가이드 (Canvas, RectTransform) |
+| `unity-animation-workflow` | 애니메이션 파일 작업 가이드 (.anim, .controller) |
+| `resolve-conflicts` | 머지 컨플릭트 AI 해결 (Git/Perforce 지원) |
+
+### 사용 예시
+
+Claude Code에서 다음과 같이 요청할 수 있습니다:
+
+```
+Player.prefab에 머지 컨플릭트가 있어. 해결해줘.
+```
+
+```
+MainMenu.prefab의 계층 구조를 보여줘.
+```
+
+```
+Player의 Transform 위치를 (10, 0, 5)로 변경해줘.
+```
 
 ## 향후 계획
 
