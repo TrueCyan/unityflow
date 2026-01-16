@@ -2332,6 +2332,101 @@ def inspect_cmd(
             click.echo()
 
 
+@main.command(name="init-skills")
+@click.option(
+    "--global",
+    "global_install",
+    is_flag=True,
+    help="Install to ~/.claude/skills/ instead of current directory",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Overwrite existing skill files",
+)
+def init_skills_cmd(global_install: bool, force: bool) -> None:
+    """Install Claude Code skills for unityflow.
+
+    Copies skill definitions to your project's .claude/skills/ directory,
+    enabling Claude Code to use unityflow commands effectively.
+
+    Examples:
+
+        # Install to current project
+        unityflow init-skills
+
+        # Install globally (for all projects)
+        unityflow init-skills --global
+
+        # Overwrite existing skills
+        unityflow init-skills --force
+    """
+    from importlib.resources import files
+
+    # Determine target directory
+    if global_install:
+        target_dir = Path.home() / ".claude" / "skills"
+    else:
+        target_dir = Path.cwd() / ".claude" / "skills"
+
+    # Get source skills directory from package
+    try:
+        skills_pkg = files("unityflow.skills")
+    except Exception as e:
+        click.echo(f"Error: Could not locate skills package: {e}", err=True)
+        sys.exit(1)
+
+    # List of skills to install
+    skill_names = [
+        "resolve-conflicts",
+        "unity-animation-workflow",
+        "unity-ui-workflow",
+        "unity-yaml-workflow",
+    ]
+
+    installed = []
+    skipped = []
+
+    for skill_name in skill_names:
+        skill_target = target_dir / skill_name
+        skill_file = skill_target / "SKILL.md"
+
+        # Check if already exists
+        if skill_file.exists() and not force:
+            skipped.append(skill_name)
+            continue
+
+        # Create directory
+        skill_target.mkdir(parents=True, exist_ok=True)
+
+        # Copy SKILL.md
+        try:
+            source_file = skills_pkg.joinpath(skill_name, "SKILL.md")
+            content = source_file.read_text()
+            skill_file.write_text(content, encoding="utf-8")
+            installed.append(skill_name)
+        except Exception as e:
+            click.echo(f"Warning: Failed to install {skill_name}: {e}", err=True)
+
+    # Summary
+    click.echo()
+    if installed:
+        click.echo(f"Installed {len(installed)} skill(s) to {target_dir}:")
+        for name in installed:
+            click.echo(f"  - {name}")
+    if skipped:
+        click.echo()
+        click.echo(f"Skipped {len(skipped)} existing skill(s) (use --force to overwrite):")
+        for name in skipped:
+            click.echo(f"  - {name}")
+    if not installed and not skipped:
+        click.echo("No skills were installed.")
+    else:
+        click.echo()
+        click.echo("Skills are now available in Claude Code.")
+
+
 # Register animation CLI commands
 main.add_command(anim_group)
 main.add_command(ctrl_group)

@@ -53,6 +53,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "unityflow.data" = ["*.json"]
+"unityflow.skills" = ["*/SKILL.md"]
 
 [tool.black]
 line-length = 120
