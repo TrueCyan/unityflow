@@ -1,3 +1,8 @@
+---
+name: unity-animation-workflow
+description: 애니메이션 클립(.anim)과 애니메이터 컨트롤러(.controller) 파일을 편집합니다. 키프레임 추가/수정/삭제, 애니메이션 커브 조작, 애니메이터 스테이트/파라미터/트랜지션 설정 등의 작업을 수행합니다. 키워드: 애니메이션, 키프레임, 커브, 애니메이터, 스테이트, 트랜지션, 파라미터, .anim, .controller
+---
+
 # Unity Animation Workflow
 
 This skill enables programmatic editing of Unity animation files (.anim, .controller)

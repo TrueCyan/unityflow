@@ -1,6 +1,6 @@
 ---
 name: unity-yaml-workflow
-description: Unity YAML 파일(.prefab, .unity, .asset)을 편집합니다. unityflow를 사용하여 프리팹 분석, 값 조회/수정, 에셋 연결 등의 작업을 수행합니다.
+description: Unity YAML 파일(.prefab, .unity, .asset)을 편집합니다. 프리팹, 씬, ScriptableObject의 계층 구조 조회, Transform/컴포넌트 값 수정, 에셋 참조 연결 등의 작업을 수행합니다. UI 작업은 unity-ui-workflow를, 애니메이션 작업은 unity-animation-workflow를 사용하세요. 키워드: 프리팹, 씬, Transform, 컴포넌트, 값 수정, 에셋 연결, ScriptableObject
 ---
 
 # Unity YAML Workflow Skill

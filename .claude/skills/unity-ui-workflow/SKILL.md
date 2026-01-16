@@ -1,6 +1,6 @@
 ---
 name: unity-ui-workflow
-description: Unity UI 작업을 수행합니다. unityflow를 사용하여 Canvas, Panel, Button, Image 등 UI 컴포넌트 조회/수정, RectTransform 레이아웃 조정 등의 작업을 수행합니다.
+description: Unity UI(UGUI) 컴포넌트를 편집합니다. Canvas, Panel, Button, Image, Text, TextMeshPro 등 UI 요소와 RectTransform의 앵커/피벗/크기 조정, LayoutGroup 설정 등의 작업을 수행합니다. 키워드: UI, Canvas, Button, Image, Text, RectTransform, 앵커, 피벗, 레이아웃, UGUI
 ---
 
 # Unity UI Workflow Skill
