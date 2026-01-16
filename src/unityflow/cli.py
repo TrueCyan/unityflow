@@ -1743,32 +1743,32 @@ def setup(
 """
 
         if gitattributes_path.exists():
-            existing = gitattributes_path.read_text()
+            existing = gitattributes_path.read_text(encoding="utf-8")
             if "diff=unity" in existing:
                 click.echo("  .gitattributes already configured")
             else:
                 click.echo("  Appending to .gitattributes...")
-                with open(gitattributes_path, "a") as f:
+                with open(gitattributes_path, "a", encoding="utf-8") as f:
                     f.write("\n" + gitattributes_content)
         else:
             click.echo("  Creating .gitattributes...")
-            gitattributes_path.write_text(gitattributes_content)
+            gitattributes_path.write_text(gitattributes_content, encoding="utf-8")
 
         # Setup .gitignore for .unityflow cache directory
         gitignore_path = repo_root / ".gitignore"
         unityflow_ignore_entry = ".unityflow/"
 
         if gitignore_path.exists():
-            existing_gitignore = gitignore_path.read_text()
+            existing_gitignore = gitignore_path.read_text(encoding="utf-8")
             if unityflow_ignore_entry in existing_gitignore or ".unityflow" in existing_gitignore:
                 click.echo("  .gitignore already includes .unityflow/")
             else:
                 click.echo("  Adding .unityflow/ to .gitignore...")
-                with open(gitignore_path, "a") as f:
+                with open(gitignore_path, "a", encoding="utf-8") as f:
                     f.write(f"\n# unityflow cache\n{unityflow_ignore_entry}\n")
         else:
             click.echo("  Creating .gitignore with .unityflow/...")
-            gitignore_path.write_text(f"# unityflow cache\n{unityflow_ignore_entry}\n")
+            gitignore_path.write_text(f"# unityflow cache\n{unityflow_ignore_entry}\n", encoding="utf-8")
 
     # Install hooks if requested
     if with_hooks and repo_root:
@@ -1805,7 +1805,7 @@ if [ -n "$STAGED_FILES" ]; then
     echo "Unity files normalized."
 fi
 """
-            hook_path.write_text(hook_content)
+            hook_path.write_text(hook_content, encoding="utf-8")
             hook_path.chmod(0o755)
             click.echo(f"  Created: {hook_path}")
 
@@ -1834,14 +1834,14 @@ repos:
 """
 
         if config_path.exists() and not force:
-            existing = config_path.read_text()
+            existing = config_path.read_text(encoding="utf-8")
             if "unityflow" in existing:
                 click.echo("  pre-commit already configured for unityflow")
             else:
                 click.echo("  Warning: .pre-commit-config.yaml exists", err=True)
                 click.echo("  Use --force to overwrite", err=True)
         else:
-            config_path.write_text(config_content)
+            config_path.write_text(config_content, encoding="utf-8")
             click.echo(f"  Created: {config_path}")
 
             try:
@@ -2403,7 +2403,7 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
         # Copy SKILL.md
         try:
             source_file = skills_pkg.joinpath(skill_name, "SKILL.md")
-            content = source_file.read_text()
+            content = source_file.read_text(encoding="utf-8")
             skill_file.write_text(content, encoding="utf-8")
             installed.append(skill_name)
         except Exception as e:
