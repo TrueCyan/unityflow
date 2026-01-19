@@ -5,9 +5,7 @@ description: Edits Unity YAML files (.prefab, .unity, .asset). Handles prefab, s
 
 # Unity YAML Workflow Skill
 
-A skill for programmatically editing Unity prefabs (.prefab), scenes (.unity), and ScriptableObject (.asset) files.
-
----
+Edit Unity prefabs (.prefab), scenes (.unity), and ScriptableObject (.asset) files using `unityflow` CLI.
 
 ## Mandatory Rule: Use unityflow
 

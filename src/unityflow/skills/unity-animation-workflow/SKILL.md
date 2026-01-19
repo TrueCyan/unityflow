@@ -5,8 +5,7 @@ description: Edits animation clips (.anim) and animator controller (.controller)
 
 # Unity Animation Workflow
 
-This skill enables programmatic editing of Unity animation files (.anim, .controller)
-using the `unityflow` CLI.
+Edit Unity animation files (.anim, .controller) using `unityflow` CLI.
 
 ## Core Principle
 

@@ -5,18 +5,7 @@ description: Resolves merge conflicts in Unity YAML files. Analyzes Git/Perforce
 
 # Unity Merge Conflict Resolution Skill
 
-A skill for **intelligently** resolving merge conflicts in Unity files (.prefab, .unity, .asset).
-
----
-
-## Purpose of This Skill
-
-1. **VCS Context Analysis**: Understand modification intent from Git commits or Perforce changelist descriptions
-2. **Semantic 3-way Merge**: Precise merging at the property level, not text level
-3. **Automatic Resolution**: Automatically merge non-overlapping changes
-4. **Interactive Resolution**: Resolve overlapping conflicts with user input
-
----
+Resolve merge conflicts in Unity files (.prefab, .unity, .asset) using VCS context analysis and semantic 3-way merge.
 
 ## Workflow
 

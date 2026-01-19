@@ -5,9 +5,7 @@ description: Edits Unity UI (UGUI) components. Handles UI elements like Canvas, 
 
 # Unity UI Workflow Skill
 
-A skill for programmatically editing the Unity UI system (UGUI).
-
----
+Edit Unity UI (UGUI) components using `unityflow` CLI.
 
 ## Mandatory Rule: Use unityflow
 
