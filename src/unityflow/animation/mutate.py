@@ -67,7 +67,7 @@ def set_keyframe_value(
         elif isinstance(value, Vector3Value):
             kf.value = value
     else:
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             kf.value = float(value)
 
     # Update tangent mode
@@ -135,7 +135,7 @@ def add_keyframe(
             out_weight=Vector3Value(x=0.333333, y=0.333333, z=0.333333),
         )
     else:
-        float_value = float(value) if isinstance(value, (int, float)) else 0.0
+        float_value = float(value) if isinstance(value, int | float) else 0.0
         new_kf = Keyframe(
             time=time,
             value=float_value,

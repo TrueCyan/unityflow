@@ -273,7 +273,7 @@ def get_value_at_time(curve: AnimationCurve, time: float) -> Any:
             y=before.value.y + (after.value.y - before.value.y) * t,
             z=before.value.z + (after.value.z - before.value.z) * t,
         )
-    elif isinstance(before.value, (int, float)) and isinstance(after.value, (int, float)):
+    elif isinstance(before.value, int | float) and isinstance(after.value, int | float):
         return before.value + (after.value - before.value) * t
 
     return before.value

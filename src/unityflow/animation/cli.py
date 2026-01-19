@@ -254,7 +254,7 @@ def keyframes_cmd(
                 value_str = f"fileID={kf_data.get('fileID', 0)}"
                 if kf_data.get("guid"):
                     value_str += f" guid={kf_data['guid'][:8]}..."
-            elif isinstance(value, (int, float)):
+            elif isinstance(value, int | float):
                 value_str = f"{value:.4f}"
             else:
                 value_str = str(value)

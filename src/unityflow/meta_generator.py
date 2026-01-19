@@ -951,7 +951,7 @@ def _serialize_yaml_value(value: Any, indent: int = 0) -> str:
         if not value:
             return "{}"
         # Inline dict format for simple values
-        if all(isinstance(v, (int, float, str)) for v in value.values()):
+        if all(isinstance(v, int | float | str) for v in value.values()):
             parts = [f"{k}: {_serialize_yaml_value(v)}" for k, v in value.items()]
             return "{" + ", ".join(parts) + "}"
         # Multi-line dict

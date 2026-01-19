@@ -475,7 +475,7 @@ class UnityPrefabNormalizer:
     def _normalize_vector_to_hex(self, v: dict) -> dict:
         """Convert vector components to hex float format."""
         for key in v:
-            if key in ("x", "y", "z", "w") and isinstance(v[key], (int, float)):
+            if key in ("x", "y", "z", "w") and isinstance(v[key], int | float):
                 v[key] = self._float_to_hex(float(v[key]))
         return v
 

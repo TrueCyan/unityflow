@@ -156,11 +156,11 @@ class Keyframe:
                 else {"x": 0.333333, "y": 0.333333, "z": 0.333333}
             )
         else:
-            result["value"] = self.value if isinstance(self.value, (int, float)) else 0.0
-            result["inSlope"] = self.in_slope if isinstance(self.in_slope, (int, float)) else 0.0
-            result["outSlope"] = self.out_slope if isinstance(self.out_slope, (int, float)) else 0.0
-            result["inWeight"] = self.in_weight if isinstance(self.in_weight, (int, float)) else 0.333333
-            result["outWeight"] = self.out_weight if isinstance(self.out_weight, (int, float)) else 0.333333
+            result["value"] = self.value if isinstance(self.value, int | float) else 0.0
+            result["inSlope"] = self.in_slope if isinstance(self.in_slope, int | float) else 0.0
+            result["outSlope"] = self.out_slope if isinstance(self.out_slope, int | float) else 0.0
+            result["inWeight"] = self.in_weight if isinstance(self.in_weight, int | float) else 0.333333
+            result["outWeight"] = self.out_weight if isinstance(self.out_weight, int | float) else 0.333333
 
         result["tangentMode"] = self.tangent_mode
         result["weightedMode"] = self.weighted_mode

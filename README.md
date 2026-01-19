@@ -262,7 +262,7 @@ unityflow init-skills --global
 | `unity-yaml-workflow` | Unity YAML 파일 편집 가이드 (프리팹, 씬, 에셋) |
 | `unity-ui-workflow` | UI 프리팹 작업 가이드 (Canvas, RectTransform) |
 | `unity-animation-workflow` | 애니메이션 파일 작업 가이드 (.anim, .controller) |
-| `resolve-conflicts` | 머지 컨플릭트 AI 해결 (Git/Perforce 지원) |
+| `unity-yaml-resolve` | Unity YAML 머지 컨플릭트 AI 해결 (Git/Perforce 다중 스트림 지원) |
 
 ### 사용 예시
 

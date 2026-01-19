@@ -1,5 +1,5 @@
 ---
-name: resolve-conflicts
+name: unity-yaml-resolve
 description: Resolves merge conflicts in Unity YAML files. Analyzes Git/Perforce logs to understand modification context, automatically resolves non-overlapping changes, and interactively resolves overlapping conflicts with user input.
 ---
 
@@ -23,29 +23,149 @@ p4 resolve -n
 ### Step 2: Analyze Modification Context
 
 **Git:**
+
+Follow this procedure in order:
+
+**Step 2-1: Identify conflict type**
+```bash
+# Check which operation caused the conflict
+if [ -f .git/MERGE_HEAD ]; then
+    echo "MERGE conflict"
+elif [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+    echo "REBASE conflict"
+elif [ -f .git/CHERRY_PICK_HEAD ]; then
+    echo "CHERRY-PICK conflict"
+else
+    echo "Unknown conflict type"
+fi
+
+# For octopus merge, check if multiple MERGE_HEADs exist
+cat .git/MERGE_HEAD 2>/dev/null | wc -l
+```
+
+**Step 2-2: Get file history and branch context**
+```bash
+# Current branch history
+git log --oneline -10 -- <filepath>
+
+# Find which branches touched this file recently
+git log --oneline --all -20 -- <filepath>
+
+# Show commit details with full message
+git log -1 --format=full <commit_hash>
+```
+
+**Step 2-3: Gather context based on conflict type**
+
+*For MERGE conflicts:*
 ```bash
 # Our branch changes
 git log --oneline HEAD~5..HEAD -- <filepath>
+
+# Their branch changes (single merge)
+git log --oneline MERGE_HEAD~5..MERGE_HEAD -- <filepath>
+
+# For octopus merge (multiple branches), iterate:
+for head in $(cat .git/MERGE_HEAD); do
+    echo "=== Branch: $head ==="
+    git log --oneline $head~5..$head -- <filepath>
+done
+```
+
+*For REBASE conflicts:*
+```bash
+# Original branch being rebased
+git log --oneline REBASE_HEAD~5..REBASE_HEAD -- <filepath>
+
+# Target branch (onto)
+git log --oneline HEAD~5..HEAD -- <filepath>
+
+# Current commit being applied
+cat .git/rebase-merge/current-commit 2>/dev/null || cat .git/rebase-apply/original-commit
+```
+
+*For CHERRY-PICK conflicts:*
+```bash
+# The commit being cherry-picked
+git log -1 CHERRY_PICK_HEAD -- <filepath>
+git show CHERRY_PICK_HEAD --stat
+
+# Current branch context
+git log --oneline HEAD~5..HEAD -- <filepath>
+```
+
+**Step 2-4: Extract file versions for 3-way merge**
+```bash
+# Base version (common ancestor)
+# For merge:
+git show $(git merge-base HEAD MERGE_HEAD):<filepath> > /tmp/base.yaml
+# For rebase/cherry-pick:
+git show $(git merge-base HEAD REBASE_HEAD 2>/dev/null || git merge-base HEAD CHERRY_PICK_HEAD):<filepath> > /tmp/base.yaml
+
+# Our version (current HEAD)
 git show HEAD:<filepath> > /tmp/ours.yaml
 
-# Their branch changes
-git log --oneline MERGE_HEAD~5..MERGE_HEAD -- <filepath>
+# Their version
+# For merge:
 git show MERGE_HEAD:<filepath> > /tmp/theirs.yaml
-
-# Common ancestor
-git show $(git merge-base HEAD MERGE_HEAD):<filepath> > /tmp/base.yaml
+# For rebase:
+git show REBASE_HEAD:<filepath> > /tmp/theirs.yaml
+# For cherry-pick:
+git show CHERRY_PICK_HEAD:<filepath> > /tmp/theirs.yaml
 ```
 
 **Perforce:**
-```bash
-# Check changelist descriptions
-p4 changes -l -m 5 <filepath>
 
-# File history
+Follow this procedure in order:
+
+**Step 2-1: Check if using streams**
+```bash
+# Check current client's stream (empty = not using streams)
+p4 client -o | grep "^Stream:"
+
+# If using streams, identify current stream
+p4 info | grep "clientStream"
+```
+
+**Step 2-2: Get file history and changelist context**
+```bash
+# File history with integration info
 p4 filelog -m 10 <filepath>
 
-# Changelist details
+# Recent changelists affecting this file
+p4 changes -l -m 5 <filepath>
+
+# Get details of specific changelist
 p4 describe -s <changelist_number>
+```
+
+**Step 2-3: If streams detected, gather cross-stream context**
+```bash
+# View stream hierarchy to understand parent/child relationships
+p4 streams //depot/...
+
+# Check integration history (where changes came from)
+p4 integrated <filepath>
+
+# Check unmerged changes between current stream and parent
+p4 interchanges -S <current_stream> <parent_stream>
+
+# Get integration status
+p4 istat <current_stream>/...
+```
+
+**Step 2-4: Extract file versions for 3-way merge**
+```bash
+# Base version (common ancestor)
+p4 print <filepath>#have > /tmp/base.yaml
+
+# Our version (current workspace)
+cp <filepath> /tmp/ours.yaml
+
+# Their version (from source stream or revision)
+p4 print <source_stream>/<filepath>#head > /tmp/theirs.yaml
+# Or specific revision:
+p4 print <filepath>#<revision> > /tmp/theirs.yaml
 ```
 
 ### Step 3: Perform Semantic Merge
