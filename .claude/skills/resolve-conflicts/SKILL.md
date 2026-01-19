@@ -1,208 +1,208 @@
 ---
 name: resolve-conflicts
-description: Unity YAML 파일의 머지 컨플릭트를 해결합니다. Git/Perforce 로그를 분석하여 수정 맥락을 파악하고, 자동 해결이 가능한 부분은 해결하고, 겹치는 부분은 사용자와 대화하여 결정합니다.
+description: Resolves merge conflicts in Unity YAML files. Analyzes Git/Perforce logs to understand modification context, automatically resolves non-overlapping changes, and interactively resolves overlapping conflicts with user input.
 ---
 
 # Unity Merge Conflict Resolution Skill
 
-Unity 파일(.prefab, .unity, .asset)의 머지 컨플릭트를 **지능적으로** 해결하는 skill입니다.
+A skill for **intelligently** resolving merge conflicts in Unity files (.prefab, .unity, .asset).
 
 ---
 
-## 이 Skill의 목적
+## Purpose of This Skill
 
-1. **VCS 컨텍스트 분석**: Git commit 또는 Perforce changelist 설명에서 수정 의도 파악
-2. **Semantic 3-way Merge**: 텍스트가 아닌 property 레벨에서 정교한 병합
-3. **자동 해결**: 겹치지 않는 변경은 자동으로 병합
-4. **대화형 해결**: 겹치는 부분은 사용자와 함께 결정
+1. **VCS Context Analysis**: Understand modification intent from Git commits or Perforce changelist descriptions
+2. **Semantic 3-way Merge**: Precise merging at the property level, not text level
+3. **Automatic Resolution**: Automatically merge non-overlapping changes
+4. **Interactive Resolution**: Resolve overlapping conflicts with user input
 
 ---
 
-## 워크플로우
+## Workflow
 
-### 1단계: 컨플릭트 파일 확인
+### Step 1: Identify Conflict Files
 
 ```bash
-# Git의 경우
+# For Git
 git status --porcelain | grep "^UU"
 git diff --name-only --diff-filter=U
 
-# Perforce의 경우
+# For Perforce
 p4 resolve -n
 ```
 
-### 2단계: 수정 맥락 분석
+### Step 2: Analyze Modification Context
 
 **Git:**
 ```bash
-# 우리 브랜치의 변경 내용
-git log --oneline HEAD~5..HEAD -- <파일경로>
-git show HEAD:<파일경로> > /tmp/ours.yaml
+# Our branch changes
+git log --oneline HEAD~5..HEAD -- <filepath>
+git show HEAD:<filepath> > /tmp/ours.yaml
 
-# 상대 브랜치의 변경 내용
-git log --oneline MERGE_HEAD~5..MERGE_HEAD -- <파일경로>
-git show MERGE_HEAD:<파일경로> > /tmp/theirs.yaml
+# Their branch changes
+git log --oneline MERGE_HEAD~5..MERGE_HEAD -- <filepath>
+git show MERGE_HEAD:<filepath> > /tmp/theirs.yaml
 
-# 공통 조상
-git show $(git merge-base HEAD MERGE_HEAD):<파일경로> > /tmp/base.yaml
+# Common ancestor
+git show $(git merge-base HEAD MERGE_HEAD):<filepath> > /tmp/base.yaml
 ```
 
 **Perforce:**
 ```bash
-# changelist 설명 확인
-p4 changes -l -m 5 <파일경로>
+# Check changelist descriptions
+p4 changes -l -m 5 <filepath>
 
-# 파일 히스토리
-p4 filelog -m 10 <파일경로>
+# File history
+p4 filelog -m 10 <filepath>
 
-# changelist 상세 정보
-p4 describe -s <changelist번호>
+# Changelist details
+p4 describe -s <changelist_number>
 ```
 
-### 3단계: Semantic Merge 수행
+### Step 3: Perform Semantic Merge
 
 ```bash
 # 3-way semantic merge
 unityflow merge /tmp/base.yaml /tmp/ours.yaml /tmp/theirs.yaml -o merged.yaml
 
-# 또는 자동 해결 시도
-unityflow resolve --dry-run  # 먼저 미리보기
-unityflow resolve            # 실제 해결
+# Or attempt automatic resolution
+unityflow resolve --dry-run  # Preview first
+unityflow resolve            # Actual resolution
 ```
 
-### 4단계: 컨플릭트 분석 및 사용자 질문
+### Step 4: Analyze Conflicts and Query User
 
-merge 결과에 컨플릭트가 있으면:
+If merge results contain conflicts:
 
-1. **컨플릭트 내용 표시**
+1. **Display Conflict Details**
    ```
    [Conflict 1] Player/Transform
      Property: m_LocalPosition.x
      Base:   0
-     Ours:   10 (commit abc123: "플레이어 시작 위치 수정")
-     Theirs: 5  (commit def456: "레벨 디자인 조정")
+     Ours:   10 (commit abc123: "Adjust player start position")
+     Theirs: 5  (commit def456: "Level design adjustments")
    ```
 
-2. **맥락 기반 제안**
-   - commit/changelist 설명에서 의도 파악
-   - 어떤 쪽이 더 의도적인 변경인지 분석
-   - 제안과 이유 설명
+2. **Context-Based Suggestions**
+   - Understand intent from commit/changelist descriptions
+   - Analyze which side represents a more intentional change
+   - Explain suggestion and reasoning
 
-3. **사용자에게 질문**
+3. **Query User**
    ```
-   이 충돌에 대해:
-   - (o) ours: 10 사용 - "플레이어 시작 위치 수정"
-   - (t) theirs: 5 사용 - "레벨 디자인 조정"
-   - (b) base: 0 사용 - 원래 값 유지
+   For this conflict:
+   - (o) ours: Use 10 - "Adjust player start position"
+   - (t) theirs: Use 5 - "Level design adjustments"
+   - (b) base: Use 0 - Keep original value
 
-   어떤 값을 선택하시겠습니까?
+   Which value would you like to use?
    ```
 
-### 5단계: 결과 적용
+### Step 5: Apply Results
 
 ```bash
-# 해결된 파일 저장
-unityflow normalize merged.yaml  # 정규화
+# Save resolved file
+unityflow normalize merged.yaml  # Normalize
 
-# Git: 해결 완료 표시
-git add <파일경로>
+# Git: Mark as resolved
+git add <filepath>
 
-# Perforce: 해결 완료 표시
-p4 resolve -ae <파일경로>
+# Perforce: Mark as resolved
+p4 resolve -ae <filepath>
 ```
 
 ---
 
-## AI 분석 가이드라인
+## AI Analysis Guidelines
 
-### Commit/Changelist 설명에서 힌트 찾기
+### Finding Hints from Commit/Changelist Descriptions
 
-| 키워드 | 의미 | 우선순위 |
-|--------|------|----------|
-| fix, bug, crash | 버그 수정 | 높음 |
-| position, layout, align | 레이아웃 변경 | 맥락 확인 필요 |
-| add, new, implement | 새 기능 | 보통 |
-| refactor, cleanup | 리팩토링 | 낮음 |
-| revert | 되돌리기 | 맥락 확인 필요 |
+| Keyword | Meaning | Priority |
+|---------|---------|----------|
+| fix, bug, crash | Bug fix | High |
+| position, layout, align | Layout change | Context check needed |
+| add, new, implement | New feature | Medium |
+| refactor, cleanup | Refactoring | Low |
+| revert | Rollback | Context check needed |
 
-### 자동 해결 가능한 경우
+### Auto-Resolvable Cases
 
-1. **서로 다른 오브젝트 수정**: 한쪽은 Player, 다른쪽은 Enemy 수정
-2. **서로 다른 컴포넌트 수정**: 한쪽은 Transform, 다른쪽은 SpriteRenderer
-3. **서로 다른 속성 수정**: 한쪽은 position, 다른쪽은 color
+1. **Different objects modified**: One side modifies Player, other modifies Enemy
+2. **Different components modified**: One side modifies Transform, other modifies SpriteRenderer
+3. **Different properties modified**: One side modifies position, other modifies color
 
-### 사용자 확인이 필요한 경우
+### Cases Requiring User Confirmation
 
-1. **같은 속성을 다르게 수정**: 둘 다 position.x를 수정
-2. **한쪽이 삭제, 다른쪽이 수정**: 오브젝트 삭제 vs 속성 변경
-3. **의미적 충돌**: sorting order가 둘 다 증가
+1. **Same property modified differently**: Both modified position.x
+2. **One deleted, other modified**: Object deletion vs property change
+3. **Semantic conflict**: Both increased sorting order
 
 ---
 
-## 사용 예시
+## Usage Examples
 
-### 사용자 요청 예시
-
-```
-Player.prefab에 머지 컨플릭트가 있어. 해결해줘.
-```
-
-### AI 응답 예시
+### User Request Example
 
 ```
-Player.prefab의 컨플릭트를 분석하겠습니다.
+There's a merge conflict in Player.prefab. Please resolve it.
+```
 
-[컨텍스트 분석]
-- 우리 브랜치 (abc123): "플레이어 이동 속도 조정"
-- 상대 브랜치 (def456): "레벨 밸런싱"
+### AI Response Example
 
-[자동 해결됨]
-✅ Player/Rigidbody2D/m_Mass: 1.5 (theirs) - 겹치지 않는 변경
-✅ Player/SpriteRenderer/m_Color: rgba(1,1,1,1) (ours) - 겹치지 않는 변경
+```
+I'll analyze the conflict in Player.prefab.
 
-[충돌 발생]
+[Context Analysis]
+- Our branch (abc123): "Adjust player movement speed"
+- Their branch (def456): "Level balancing"
+
+[Auto-Resolved]
+✅ Player/Rigidbody2D/m_Mass: 1.5 (theirs) - Non-overlapping change
+✅ Player/SpriteRenderer/m_Color: rgba(1,1,1,1) (ours) - Non-overlapping change
+
+[Conflict Detected]
 ❌ Player/MonoBehaviour/moveSpeed
    - Base: 5.0
-   - Ours: 7.0 ("플레이어 이동 속도 조정")
-   - Theirs: 4.0 ("레벨 밸런싱")
+   - Ours: 7.0 ("Adjust player movement speed")
+   - Theirs: 4.0 ("Level balancing")
 
-이 속성은 두 브랜치 모두에서 의도적으로 수정되었습니다.
-"플레이어 이동 속도 조정"이 더 구체적인 변경 같습니다.
+This property was intentionally modified in both branches.
+"Adjust player movement speed" appears to be a more specific change.
 
-어떤 값을 사용하시겠습니까?
-1. 7.0 (ours) - 속도 증가
-2. 4.0 (theirs) - 속도 감소
-3. 5.0 (base) - 원래 값 유지
-4. 다른 값 직접 입력
+Which value would you like to use?
+1. 7.0 (ours) - Increase speed
+2. 4.0 (theirs) - Decrease speed
+3. 5.0 (base) - Keep original value
+4. Enter a different value
 ```
 
 ---
 
-## 주의사항
+## Important Notes
 
-1. **항상 백업**: 머지 전 원본 파일 백업 권장
-2. **unityflow 사용**: Unity YAML은 반드시 unityflow로 처리
-3. **검증**: 머지 후 `unityflow validate`로 무결성 확인
-4. **테스트**: Unity에서 실제 동작 확인 권장
+1. **Always backup**: Recommended to backup original files before merging
+2. **Use unityflow**: Unity YAML must be processed with unityflow
+3. **Verify**: Check integrity with `unityflow validate` after merging
+4. **Test**: Recommended to verify actual behavior in Unity
 
 ---
 
-## 관련 명령어
+## Related Commands
 
 ```bash
-# 컨플릭트 미리보기
+# Preview conflicts
 unityflow resolve --dry-run
 
-# 자동 해결만 (대화 없이)
+# Auto-resolve only (no interaction)
 unityflow resolve --accept ours
 unityflow resolve --accept theirs
 
-# 특정 파일만 해결
+# Resolve specific file only
 unityflow resolve-file base.yaml ours.yaml theirs.yaml -o result.yaml
 
-# diff 확인
+# Check diff
 unityflow diff old.prefab new.prefab
 
-# 결과 검증
+# Verify result
 unityflow validate merged.prefab
 ```
