@@ -2346,10 +2346,10 @@ def inspect_cmd(
     help="Overwrite existing skill files",
 )
 def init_skills_cmd(global_install: bool, force: bool) -> None:
-    """Install Claude Code skills for unityflow.
+    """Install Claude Code skills and hooks for unityflow.
 
     Copies skill definitions to your project's .claude/skills/ directory,
-    enabling Claude Code to use unityflow commands effectively.
+    and sets up a SessionStart hook to automatically install unityflow.
 
     Examples:
 
@@ -2362,13 +2362,16 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
         # Overwrite existing skills
         unityflow init-skills --force
     """
+    import json
     from importlib.resources import files
 
     # Determine target directory
     if global_install:
-        target_dir = Path.home() / ".claude" / "skills"
+        claude_dir = Path.home() / ".claude"
     else:
-        target_dir = Path.cwd() / ".claude" / "skills"
+        claude_dir = Path.cwd() / ".claude"
+
+    target_dir = claude_dir / "skills"
 
     # Get source skills directory from package
     try:
@@ -2409,6 +2412,78 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
         except Exception as e:
             click.echo(f"Warning: Failed to install {skill_name}: {e}", err=True)
 
+    # Install hooks
+    hook_installed = False
+    try:
+        hooks_pkg = files("unityflow.hooks")
+
+        # Create scripts directory
+        scripts_dir = claude_dir / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy ensure-unityflow.sh
+        script_source = hooks_pkg.joinpath("scripts", "ensure-unityflow.sh")
+        script_target = scripts_dir / "ensure-unityflow.sh"
+        script_content = script_source.read_text(encoding="utf-8")
+        script_target.write_text(script_content, encoding="utf-8")
+        script_target.chmod(0o755)
+
+        # Merge settings.json (add SessionStart hook)
+        settings_file = claude_dir / "settings.json"
+        hook_entry = {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "bash .claude/scripts/ensure-unityflow.sh 2>&1 || true",
+                }
+            ]
+        }
+
+        if settings_file.exists():
+            # Read existing settings
+            try:
+                existing = json.loads(settings_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                existing = {}
+
+            # Ensure hooks structure exists
+            if "hooks" not in existing:
+                existing["hooks"] = {}
+            if "SessionStart" not in existing["hooks"]:
+                existing["hooks"]["SessionStart"] = []
+
+            # Check if our hook already exists
+            our_command = hook_entry["hooks"][0]["command"]
+            hook_exists = any(
+                (
+                    h.get("hooks", [{}])[0].get("command") == our_command
+                    if isinstance(h.get("hooks"), list) and h.get("hooks")
+                    else False
+                )
+                for h in existing["hooks"]["SessionStart"]
+            )
+
+            if not hook_exists:
+                existing["hooks"]["SessionStart"].append(hook_entry)
+                settings_file.write_text(
+                    json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                hook_installed = True
+            else:
+                click.echo("SessionStart hook already configured.")
+        else:
+            # Create new settings.json
+            settings = {"hooks": {"SessionStart": [hook_entry]}}
+            settings_file.write_text(
+                json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            hook_installed = True
+
+    except Exception as e:
+        click.echo(f"Warning: Failed to install hooks: {e}", err=True)
+
     # Summary
     click.echo()
     if installed:
@@ -2420,6 +2495,9 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
         click.echo(f"Skipped {len(skipped)} existing skill(s) (use --force to overwrite):")
         for name in skipped:
             click.echo(f"  - {name}")
+    if hook_installed:
+        click.echo()
+        click.echo("SessionStart hook installed for automatic unityflow setup.")
     if not installed and not skipped:
         click.echo("No skills were installed.")
     else:
