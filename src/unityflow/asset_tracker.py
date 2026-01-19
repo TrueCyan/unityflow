@@ -868,8 +868,7 @@ class CachedGUIDIndex:
 
     def _init_db(self, conn: sqlite3.Connection) -> None:
         """Initialize database schema."""
-        conn.executescript(
-            """
+        conn.executescript("""
             CREATE TABLE IF NOT EXISTS metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT
@@ -882,8 +881,7 @@ class CachedGUIDIndex:
             );
 
             CREATE INDEX IF NOT EXISTS idx_path ON guid_cache(path);
-        """
-        )
+        """)
         conn.commit()
 
     def _needs_full_rebuild(
