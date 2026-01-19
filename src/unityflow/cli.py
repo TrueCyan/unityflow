@@ -2412,6 +2412,21 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
         except Exception as e:
             click.echo(f"Warning: Failed to install {skill_name}: {e}", err=True)
 
+    # Write manifest file for tracking installed skills
+    manifest_file = target_dir / ".unityflow-manifest.json"
+    manifest_data = {
+        "installed_by": "unityflow",
+        "version": __version__,
+        "skills": skill_names,
+    }
+    try:
+        manifest_file.write_text(
+            json.dumps(manifest_data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as e:
+        click.echo(f"Warning: Failed to write manifest: {e}", err=True)
+
     # Install hooks
     hook_installed = False
     try:

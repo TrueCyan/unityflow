@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.9] - 2026-01-19
+
+### Added
+
+- **스킬 매니페스트 파일**: `init-skills` 실행 시 `.claude/skills/.unityflow-manifest.json` 생성
+  - unityflow가 설치한 스킬 목록 추적
+  - 향후 스킬 이름 변경 시 안전한 마이그레이션 지원
+
+### Changed
+
+- **`unity-yaml-resolve` 스킬 개선**: Git/Perforce 컨텍스트 수집을 절차적 단계로 재구성
+  - Git: merge, rebase, cherry-pick 충돌 타입별 맥락 수집 지원
+  - Git: octopus merge (다중 브랜치 병합) 지원
+  - Perforce: 스트림 환경 자동 감지 및 다중 스트림 맥락 수집 지원
+
+### Fixed
+
+- **hooks 스크립트 패키지 배포**: `ensure-unityflow.sh` 스크립트가 패키지에 포함되지 않던 문제 수정
+
+### Migration
+
+- **스킬 이름 변경**: `resolve-conflicts` → `unity-yaml-resolve`
+  - 0.3.8 이전 버전 사용자는 기존 `.claude/skills/resolve-conflicts/` 폴더를 수동으로 삭제해주세요
+  - 삭제하지 않아도 동작에 문제는 없으나, 중복 스킬이 표시될 수 있습니다
+
+---
+
 ## [0.3.8] - 2026-01-19
 
 ### Added

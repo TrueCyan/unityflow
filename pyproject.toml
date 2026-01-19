@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unityflow"
-version = "0.3.8"
+version = "0.3.9"
 description = "Unity workflow automation - edit, diff, and merge prefabs, scenes, and assets without the Unity Editor"
 readme = "README.md"
 license = {text = "MIT"}
