@@ -742,7 +742,7 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
             missing = required - set(value.keys())
             return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["x", "y"]:
-            if not isinstance(value.get(k), (int, float)):
+            if not isinstance(value.get(k), int | float):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
         return True, None
 
@@ -755,7 +755,7 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
             missing = required - set(value.keys())
             return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["x", "y", "z"]:
-            if not isinstance(value.get(k), (int, float)):
+            if not isinstance(value.get(k), int | float):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
         return True, None
 
@@ -768,7 +768,7 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
             missing = required - set(value.keys())
             return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["x", "y", "z", "w"]:
-            if not isinstance(value.get(k), (int, float)):
+            if not isinstance(value.get(k), int | float):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
         return True, None
 
@@ -781,7 +781,7 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
             missing = required - set(value.keys())
             return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["x", "y", "z", "w"]:
-            if not isinstance(value.get(k), (int, float)):
+            if not isinstance(value.get(k), int | float):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
         return True, None
 
@@ -794,7 +794,7 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
             missing = required - set(value.keys())
             return False, f"'{field_name}'에 필수 키가 없습니다: {missing}"
         for k in ["r", "g", "b", "a"]:
-            if not isinstance(value.get(k), (int, float)):
+            if not isinstance(value.get(k), int | float):
                 return False, f"'{field_name}.{k}'는 숫자여야 합니다"
         return True, None
 
@@ -809,7 +809,7 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
         return True, None
 
     if field_type == FieldType.FLOAT:
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
+        if not isinstance(value, int | float) or isinstance(value, bool):
             return False, f"'{field_name}'은(는) 숫자여야 합니다"
         return True, None
 
@@ -2320,7 +2320,7 @@ def inspect_cmd(
                             click.echo(f"  {key}: (fileID: {file_id})")
                         else:
                             click.echo(f"  {key}: None")
-                    elif isinstance(value, (dict, list)):
+                    elif isinstance(value, dict | list):
                         # Complex value - show abbreviated
                         if isinstance(value, list):
                             click.echo(f"  {key}: [{len(value)} items]")

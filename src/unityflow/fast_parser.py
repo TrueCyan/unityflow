@@ -454,7 +454,7 @@ def _dump_list(data: list[Any], lines: list[str], indent: int) -> None:
                     first_val = item[first_key]
                     if isinstance(first_val, dict) and _is_flow_dict(first_val):
                         lines.append(f"{prefix}- {first_key}: {_to_flow(first_val)}")
-                    elif isinstance(first_val, (dict, list)) and first_val:
+                    elif isinstance(first_val, dict | list) and first_val:
                         lines.append(f"{prefix}- {first_key}:")
                         if isinstance(first_val, dict):
                             _dump_dict(first_val, lines, indent + 2)
@@ -512,10 +512,10 @@ def _is_flow_dict(d: dict) -> bool:
     if keys <= {"fileID", "guid", "type"}:
         return True
     # Flow style for simple vectors (x, y, z, w)
-    if keys <= {"x", "y", "z", "w"} and all(isinstance(v, (int, float)) for v in d.values()):
+    if keys <= {"x", "y", "z", "w"} and all(isinstance(v, int | float) for v in d.values()):
         return True
     # Flow style for colors (r, g, b, a)
-    if keys <= {"r", "g", "b", "a"} and all(isinstance(v, (int, float)) for v in d.values()):
+    if keys <= {"r", "g", "b", "a"} and all(isinstance(v, int | float) for v in d.values()):
         return True
     return False
 
@@ -631,7 +631,7 @@ def _iter_dump_list(data: list[Any], indent: int) -> Generator[str, None, None]:
                     first_val = item[first_key]
                     if isinstance(first_val, dict) and _is_flow_dict(first_val):
                         yield f"{prefix}- {first_key}: {_to_flow(first_val)}"
-                    elif isinstance(first_val, (dict, list)) and first_val:
+                    elif isinstance(first_val, dict | list) and first_val:
                         yield f"{prefix}- {first_key}:"
                         if isinstance(first_val, dict):
                             yield from _iter_dump_dict(first_val, indent + 2)
