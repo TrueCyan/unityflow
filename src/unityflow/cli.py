@@ -2390,15 +2390,40 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
 
     installed = []
     skipped = []
+    updated = []
+
+    # Check existing manifest for version comparison
+    manifest_file = target_dir / ".unityflow-manifest.json"
+    installed_version = None
+    if manifest_file.exists():
+        try:
+            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+            installed_version = manifest.get("version")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Determine if update is needed (new version > installed version)
+    needs_update = False
+    if installed_version and installed_version != __version__:
+        from packaging.version import Version
+
+        try:
+            needs_update = Version(__version__) > Version(installed_version)
+            if needs_update:
+                click.echo(f"Updating skills from {installed_version} to {__version__}...")
+        except Exception:
+            pass  # If version comparison fails, don't force update
 
     for skill_name in skill_names:
         skill_target = target_dir / skill_name
         skill_file = skill_target / "SKILL.md"
 
-        # Check if already exists
-        if skill_file.exists() and not force:
+        # Check if already exists (skip unless force or needs_update)
+        if skill_file.exists() and not force and not needs_update:
             skipped.append(skill_name)
             continue
+
+        is_update = skill_file.exists() and needs_update
 
         # Create directory
         skill_target.mkdir(parents=True, exist_ok=True)
@@ -2408,7 +2433,10 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
             source_file = skills_pkg.joinpath(skill_name, "SKILL.md")
             content = source_file.read_text(encoding="utf-8")
             skill_file.write_text(content, encoding="utf-8")
-            installed.append(skill_name)
+            if is_update:
+                updated.append(skill_name)
+            else:
+                installed.append(skill_name)
         except Exception as e:
             click.echo(f"Warning: Failed to install {skill_name}: {e}", err=True)
 
@@ -2505,6 +2533,11 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
         click.echo(f"Installed {len(installed)} skill(s) to {target_dir}:")
         for name in installed:
             click.echo(f"  - {name}")
+    if updated:
+        click.echo()
+        click.echo(f"Updated {len(updated)} skill(s):")
+        for name in updated:
+            click.echo(f"  - {name}")
     if skipped:
         click.echo()
         click.echo(f"Skipped {len(skipped)} existing skill(s) (use --force to overwrite):")
@@ -2513,7 +2546,7 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
     if hook_installed:
         click.echo()
         click.echo("SessionStart hook installed for automatic unityflow setup.")
-    if not installed and not skipped:
+    if not installed and not updated and not skipped:
         click.echo("No skills were installed.")
     else:
         click.echo()

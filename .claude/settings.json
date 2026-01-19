@@ -8,6 +8,14 @@
             "command": "bash .claude/scripts/ensure-unityflow.sh 2>&1 || true"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/ensure-dev-deps.sh 2>&1 || true"
+          }
+        ]
       }
     ]
   }
