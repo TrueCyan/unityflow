@@ -36,37 +36,58 @@ git show MERGE_HEAD:<filepath> > /tmp/theirs.yaml
 git show $(git merge-base HEAD MERGE_HEAD):<filepath> > /tmp/base.yaml
 ```
 
-**Perforce (Single Stream):**
-```bash
-# Check changelist descriptions
-p4 changes -l -m 5 <filepath>
+**Perforce:**
 
-# File history
+Follow this procedure in order:
+
+**Step 2-1: Check if using streams**
+```bash
+# Check current client's stream (empty = not using streams)
+p4 client -o | grep "^Stream:"
+
+# If using streams, identify current stream
+p4 info | grep "clientStream"
+```
+
+**Step 2-2: Get file history and changelist context**
+```bash
+# File history with integration info
 p4 filelog -m 10 <filepath>
 
-# Changelist details
+# Recent changelists affecting this file
+p4 changes -l -m 5 <filepath>
+
+# Get details of specific changelist
 p4 describe -s <changelist_number>
 ```
 
-**Perforce (Multi-Stream Context):**
+**Step 2-3: If streams detected, gather cross-stream context**
 ```bash
-# Check unmerged changes between streams
-p4 interchanges -S //depot/dev //depot/main
-
-# Stream integration status
-p4 istat //depot/dev/...
-
-# Get file version from another stream
-p4 print //depot/main/path/to/file.prefab#head > /tmp/main_version.yaml
-
-# Integration history (track origin stream)
-p4 integrated <filepath>
-
-# View stream hierarchy
+# View stream hierarchy to understand parent/child relationships
 p4 streams //depot/...
 
-# Find common ancestor across streams
-p4 interchanges -b -S //depot/dev //depot/main
+# Check integration history (where changes came from)
+p4 integrated <filepath>
+
+# Check unmerged changes between current stream and parent
+p4 interchanges -S <current_stream> <parent_stream>
+
+# Get integration status
+p4 istat <current_stream>/...
+```
+
+**Step 2-4: Extract file versions for 3-way merge**
+```bash
+# Base version (common ancestor)
+p4 print <filepath>#have > /tmp/base.yaml
+
+# Our version (current workspace)
+cp <filepath> /tmp/ours.yaml
+
+# Their version (from source stream or revision)
+p4 print <source_stream>/<filepath>#head > /tmp/theirs.yaml
+# Or specific revision:
+p4 print <filepath>#<revision> > /tmp/theirs.yaml
 ```
 
 ### Step 3: Perform Semantic Merge
