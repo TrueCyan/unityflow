@@ -1,157 +1,155 @@
 ---
 name: unity-yaml-workflow
-description: Unity YAML 파일(.prefab, .unity, .asset)을 편집합니다. 프리팹, 씬, ScriptableObject의 계층 구조 조회, Transform/컴포넌트 값 수정, 에셋 참조 연결 등의 작업을 수행합니다. UI 작업은 unity-ui-workflow를, 애니메이션 작업은 unity-animation-workflow를 사용하세요. 키워드: 프리팹, 씬, Transform, 컴포넌트, 값 수정, 에셋 연결, ScriptableObject
+description: Edits Unity YAML files (.prefab, .unity, .asset). Handles prefab, scene, and ScriptableObject hierarchy queries, Transform/component value modifications, asset reference linking, etc. Use unity-ui-workflow for UI tasks and unity-animation-workflow for animation tasks. Keywords: prefab, scene, Transform, component, value modification, asset linking, ScriptableObject
 ---
 
 # Unity YAML Workflow Skill
 
-Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 프로그래매틱하게 편집하기 위한 skill입니다.
+Edit Unity prefabs (.prefab), scenes (.unity), and ScriptableObject (.asset) files using `unityflow` CLI.
+
+## Mandatory Rule: Use unityflow
+
+### Prohibited Actions
+
+**Do not directly text-edit Unity YAML files (.prefab, .unity, .asset)!**
+
+- Do not use `Read` tool to read YAML then modify with `Edit`/`Write`
+- Do not parse/modify YAML files directly with Python
+- Do not use sed, awk, etc. for text substitution
+
+### Required Actions
+
+**All Unity file operations must be performed through the `unityflow` CLI:**
+
+- `unityflow hierarchy` - Query hierarchy structure
+- `unityflow inspect` - Query specific object/component details
+- `unityflow get` - Query value at specific path
+- `unityflow set` - Modify values (single value, batch modification)
+- `unityflow set --value "@assetpath"` - Link assets
+
+### Reason
+
+Unity YAML uses a special format:
+- Tag aliases (`--- !u!1 &12345`)
+- Deterministic field ordering
+- Special reference formats
+
+Direct editing may cause Unity to fail reading the file or result in data loss.
 
 ---
 
-## ⚠️ 필수 규칙: unityflow 사용 의무
+## CLI Command Reference
 
-### 절대 금지 사항
-
-**Unity YAML 파일(.prefab, .unity, .asset)을 직접 텍스트 편집하지 마세요!**
-
-- ❌ `Read` 도구로 YAML 직접 읽기 후 `Edit`/`Write`로 수정
-- ❌ Python으로 YAML 파일 직접 파싱/수정
-- ❌ sed, awk 등으로 텍스트 치환
-
-### 반드시 해야 할 것
-
-**모든 Unity 파일 조작은 `unityflow` CLI를 통해서만 수행합니다:**
-
-- ✅ `unityflow hierarchy` - 계층 구조 조회
-- ✅ `unityflow inspect` - 특정 오브젝트/컴포넌트 상세 조회
-- ✅ `unityflow get` - 특정 경로의 값 조회
-- ✅ `unityflow set` - 값 수정 (단일 값, 배치 수정)
-- ✅ `unityflow set --value "@에셋경로"` - 에셋 연결
-
-### 이유
-
-Unity YAML은 특수한 형식을 사용합니다:
-- 태그 별칭 (`--- !u!1 &12345`)
-- 결정론적 필드 순서
-- 특수 참조 형식
-
-직접 편집 시 Unity에서 파일을 읽지 못하거나 데이터가 손실될 수 있습니다.
-
----
-
-## CLI 명령어 레퍼런스
-
-### 계층 구조 조회 (hierarchy)
+### Querying Hierarchy Structure (hierarchy)
 
 ```bash
-# 기본 계층 구조 보기
+# View basic hierarchy structure
 unityflow hierarchy Player.prefab
 unityflow hierarchy MainScene.unity
 
-# 컴포넌트 포함하여 보기
+# View including components
 unityflow hierarchy Player.prefab --components
 
-# JSON 형식으로 출력
+# Output in JSON format
 unityflow hierarchy Player.prefab --format json
 
-# 특정 깊이까지만 표시
+# Display only up to specific depth
 unityflow hierarchy Scene.unity --depth 2
 ```
 
-### 오브젝트/컴포넌트 상세 조회 (inspect)
+### Querying Object/Component Details (inspect)
 
 ```bash
-# GameObject 상세 정보 보기 (경로로 지정)
+# View GameObject details (specify by path)
 unityflow inspect Player.prefab "Player"
 unityflow inspect Scene.unity "Canvas/Panel/Button"
 
-# 컴포넌트 상세 정보 보기
+# View component details
 unityflow inspect Player.prefab "Player/Transform"
 unityflow inspect Scene.unity "Player/SpriteRenderer"
 
-# JSON 형식으로 출력
+# Output in JSON format
 unityflow inspect Player.prefab "Player/Transform" --format json
 ```
 
-### 값 조회 (get)
+### Querying Values (get)
 
 ```bash
-# Transform 위치 조회
+# Query Transform position
 unityflow get Player.prefab "Player/Transform/m_LocalPosition"
 
-# SpriteRenderer 색상 조회
+# Query SpriteRenderer color
 unityflow get Player.prefab "Player/SpriteRenderer/m_Color"
 
-# GameObject 이름 조회
+# Query GameObject name
 unityflow get Player.prefab "Player/name"
 
-# 컴포넌트 전체 속성 조회
+# Query all component properties
 unityflow get Player.prefab "Player/Transform"
 
-# 여러 컴포넌트가 있을 때 인덱스로 지정
+# Specify by index when there are multiple components
 unityflow get Scene.unity "Canvas/Panel/Image[1]/m_Color"
 
-# 텍스트 형식으로 출력
+# Output in text format
 unityflow get Player.prefab "Player/Transform/m_LocalPosition" --format text
 ```
 
-### 값 수정 (set)
+### Modifying Values (set)
 
-`set` 명령어는 2가지 모드를 지원합니다 (상호 배타적):
-- `--value`: 단일 값 설정
-- `--batch`: 여러 필드 한번에 설정
+The `set` command supports 2 modes (mutually exclusive):
+- `--value`: Set single value
+- `--batch`: Set multiple fields at once
 
-**에셋 연결**: `@` 접두사로 에셋 경로를 지정합니다.
+**Asset Linking**: Specify asset path with `@` prefix.
 
 ```bash
-# Transform 위치 설정
+# Set Transform position
 unityflow set Player.prefab \
     --path "Player/Transform/m_LocalPosition" \
     --value '{"x": 0, "y": 5, "z": 0}'
 
-# SpriteRenderer 색상 설정
+# Set SpriteRenderer color
 unityflow set Player.prefab \
     --path "Player/SpriteRenderer/m_Color" \
     --value '{"r": 1, "g": 0, "b": 0, "a": 1}'
 
-# GameObject 이름 변경
+# Change GameObject name
 unityflow set Player.prefab \
     --path "Player/name" \
     --value '"NewName"'
 
-# 여러 컴포넌트가 있을 때 인덱스로 지정
+# Specify by index when there are multiple components
 unityflow set Scene.unity \
     --path "Canvas/Panel/Image[1]/m_Color" \
     --value '{"r": 0, "g": 1, "b": 0, "a": 1}'
 
-# 여러 필드 한번에 수정 (batch 모드)
+# Modify multiple fields at once (batch mode)
 unityflow set Scene.unity \
     --path "Player/MonoBehaviour" \
     --batch '{"speed": 5.0, "health": 100}'
 ```
 
-### 에셋 연결 (@ 접두사)
+### Asset Linking (@ prefix)
 
-`@` 접두사를 사용하여 에셋을 연결합니다.
+Use `@` prefix to link assets.
 
 ```bash
-# 스프라이트 연결 (Single 모드)
+# Link sprite (Single mode)
 unityflow set Player.prefab \
     --path "Player/SpriteRenderer/m_Sprite" \
     --value "@Assets/Sprites/player.png"
 
-# 스프라이트 연결 (Multiple 모드 - 서브 스프라이트)
+# Link sprite (Multiple mode - sub sprite)
 unityflow set Player.prefab \
     --path "Player/SpriteRenderer/m_Sprite" \
     --value "@Assets/Sprites/atlas.png:player_idle_0"
 
-# 프리팹 참조 연결 (MonoBehaviour 필드)
+# Link prefab reference (MonoBehaviour field)
 unityflow set Scene.unity \
     --path "Player/MonoBehaviour/enemyPrefab" \
     --value "@Assets/Prefabs/Enemy.prefab"
 
-# 여러 에셋 참조를 한번에 (batch 모드)
+# Multiple asset references at once (batch mode)
 unityflow set Scene.unity \
     --path "Player/MonoBehaviour" \
     --batch '{
@@ -161,10 +159,10 @@ unityflow set Scene.unity \
     }'
 ```
 
-**지원 에셋 타입:**
+**Supported Asset Types:**
 
-| 에셋 타입 | 예시 |
-|----------|------|
+| Asset Type | Example |
+|------------|---------|
 | Script | `@Assets/Scripts/Player.cs` |
 | Sprite (Single) | `@Assets/Sprites/icon.png` |
 | Sprite (Multiple) | `@Assets/Sprites/atlas.png:idle_0` |
@@ -174,45 +172,45 @@ unityflow set Scene.unity \
 | ScriptableObject | `@Assets/Data/Config.asset` |
 | Animation | `@Assets/Animations/walk.anim` |
 
-### 검증 및 정규화
+### Validation and Normalization
 
 ```bash
-# 파일 검증
+# Validate file
 unityflow validate Player.prefab
 unityflow validate MainScene.unity
 unityflow validate GameConfig.asset
 
-# 정규화 (Git 노이즈 제거) - 필드 정렬 기본 적용
+# Normalize (remove Git noise) - field sorting applied by default
 unityflow normalize Player.prefab
 unityflow normalize MainScene.unity
 ```
 
-### 파일 비교 및 병합
+### File Comparison and Merging
 
 ```bash
-# 두 파일 비교
+# Compare two files
 unityflow diff old.prefab new.prefab
 
-# 요약 형식으로 비교
+# Compare in summary format
 unityflow diff old.prefab new.prefab --format summary
 
-# 3-way 병합
+# 3-way merge
 unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 ```
 
 ---
 
-## 주의사항
+## Important Notes
 
-1. **항상 백업**: 원본 파일을 수정하기 전에 백업하거나 `-o` 옵션으로 새 파일에 저장
-2. **정규화 필수**: 편집 후 `unityflow normalize`로 정규화하여 Git 노이즈 방지
-3. **검증 권장**: 중요한 수정 후 `unityflow validate`로 무결성 확인
+1. **Always backup**: Backup original files or save to new file with `-o` option before modifying
+2. **Normalize after editing**: Run `unityflow normalize` to prevent Git noise
+3. **Validate after changes**: Check integrity with `unityflow validate` after important modifications
 
 ---
 
-## 문제 해결
+## Troubleshooting
 
-### 파싱 오류 발생 시
+### When Parsing Errors Occur
 
 ```bash
 unityflow validate problematic.prefab --format json
