@@ -20,6 +20,6 @@ fi
 log_info "Installing development dependencies..."
 
 # Install dev dependencies (pinned versions matching pyproject.toml)
-pip install --quiet "black~=26.1.0" "ruff~=0.9.0" "pytest~=9.0.0"
+pip install --quiet "black~=26.1.0" "ruff~=0.14.0" "pytest~=9.0.0"
 
-log_info "Development tools ready (black 26.1.x, ruff 0.9.x, pytest 9.0.x)"
+log_info "Development tools ready (black 26.1.x, ruff 0.14.x, pytest 9.0.x)"
