@@ -104,30 +104,26 @@ WRAPPER_EOF
     log_info "Wrapper script created at $WRAPPER_PATH"
 }
 
-# Create a symlink in a common path for easy access
+# Create a symlink in PATH for direct access
 setup_path() {
-    # Try to create symlink in ~/.local/bin (usually in PATH)
-    LOCAL_BIN="$HOME/.local/bin"
-    if [ ! -d "$LOCAL_BIN" ]; then
-        mkdir -p "$LOCAL_BIN"
+    # Try /usr/local/bin first (almost always in PATH)
+    if [ -w "/usr/local/bin" ]; then
+        ln -sf "$VENV_DIR/bin/unityflow" "/usr/local/bin/unityflow"
+        log_info "Symlink: /usr/local/bin/unityflow"
+        return
     fi
 
-    # Create symlink if it doesn't exist or is broken
-    if [ ! -L "$LOCAL_BIN/unityflow" ] || [ ! -e "$LOCAL_BIN/unityflow" ]; then
-        ln -sf "$VENV_DIR/bin/unityflow" "$LOCAL_BIN/unityflow"
-        log_info "Symlink created: $LOCAL_BIN/unityflow -> $VENV_DIR/bin/unityflow"
-    fi
+    # Fallback to ~/.local/bin
+    LOCAL_BIN="$HOME/.local/bin"
+    mkdir -p "$LOCAL_BIN"
+    ln -sf "$VENV_DIR/bin/unityflow" "$LOCAL_BIN/unityflow"
+    log_info "Symlink: $LOCAL_BIN/unityflow"
 }
 
-# Print usage instructions (for Claude to understand)
+# Print setup complete message
 print_instructions() {
     echo ""
-    echo "[UNITYFLOW SETUP COMPLETE]"
-    echo "Virtual environment: $VENV_DIR"
-    echo "Symlink: ~/.local/bin/unityflow"
-    echo ""
-    echo "You can now use 'unityflow' command directly if ~/.local/bin is in PATH."
-    echo "Otherwise use: $VENV_DIR/bin/unityflow <command>"
+    echo "[UNITYFLOW READY] unityflow command is now available."
     echo ""
 }
 

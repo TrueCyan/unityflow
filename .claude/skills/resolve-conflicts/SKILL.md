@@ -3,19 +3,6 @@ name: resolve-conflicts
 description: Unity YAML 파일의 머지 컨플릭트를 해결합니다. Git/Perforce 로그를 분석하여 수정 맥락을 파악하고, 자동 해결이 가능한 부분은 해결하고, 겹치는 부분은 사용자와 대화하여 결정합니다.
 ---
 
-## ⚠️ 필수: unityflow CLI 사용
-
-이 skill의 모든 `unityflow` 명령어는 가상환경에 설치된 CLI를 사용합니다.
-
-**명령어 실행 방법** (PATH에 없을 경우):
-```bash
-~/.unityflow-venv/bin/unityflow <command>
-```
-
-SessionStart hook이 자동으로 설치하므로, 일반적으로 `unityflow` 명령어가 바로 작동합니다.
-
----
-
 # Unity Merge Conflict Resolution Skill
 
 Unity 파일(.prefab, .unity, .asset)의 머지 컨플릭트를 **지능적으로** 해결하는 skill입니다.

@@ -3,19 +3,6 @@ name: unity-yaml-workflow
 description: Unity YAML 파일(.prefab, .unity, .asset)을 편집합니다. 프리팹, 씬, ScriptableObject의 계층 구조 조회, Transform/컴포넌트 값 수정, 에셋 참조 연결 등의 작업을 수행합니다. UI 작업은 unity-ui-workflow를, 애니메이션 작업은 unity-animation-workflow를 사용하세요. 키워드: 프리팹, 씬, Transform, 컴포넌트, 값 수정, 에셋 연결, ScriptableObject
 ---
 
-## ⚠️ 필수: unityflow CLI 사용
-
-이 skill의 모든 `unityflow` 명령어는 가상환경에 설치된 CLI를 사용합니다.
-
-**명령어 실행 방법** (PATH에 없을 경우):
-```bash
-~/.unityflow-venv/bin/unityflow <command>
-```
-
-SessionStart hook이 자동으로 설치하므로, 일반적으로 `unityflow` 명령어가 바로 작동합니다.
-
----
-
 # Unity YAML Workflow Skill
 
 Unity 프리팹(.prefab), 씬(.unity), ScriptableObject(.asset) 파일을 프로그래매틱하게 편집하기 위한 skill입니다.
