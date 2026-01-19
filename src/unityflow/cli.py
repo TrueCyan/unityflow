@@ -2382,7 +2382,7 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
 
     # List of skills to install
     skill_names = [
-        "resolve-conflicts",
+        "unity-yaml-resolve",
         "unity-animation-workflow",
         "unity-ui-workflow",
         "unity-yaml-workflow",

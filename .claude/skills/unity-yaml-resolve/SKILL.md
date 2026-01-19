@@ -1,5 +1,5 @@
 ---
-name: resolve-conflicts
+name: unity-yaml-resolve
 description: Resolves merge conflicts in Unity YAML files. Analyzes Git/Perforce logs to understand modification context, automatically resolves non-overlapping changes, and interactively resolves overlapping conflicts with user input.
 ---
 
@@ -36,7 +36,7 @@ git show MERGE_HEAD:<filepath> > /tmp/theirs.yaml
 git show $(git merge-base HEAD MERGE_HEAD):<filepath> > /tmp/base.yaml
 ```
 
-**Perforce:**
+**Perforce (Single Stream):**
 ```bash
 # Check changelist descriptions
 p4 changes -l -m 5 <filepath>
@@ -46,6 +46,27 @@ p4 filelog -m 10 <filepath>
 
 # Changelist details
 p4 describe -s <changelist_number>
+```
+
+**Perforce (Multi-Stream Context):**
+```bash
+# Check unmerged changes between streams
+p4 interchanges -S //depot/dev //depot/main
+
+# Stream integration status
+p4 istat //depot/dev/...
+
+# Get file version from another stream
+p4 print //depot/main/path/to/file.prefab#head > /tmp/main_version.yaml
+
+# Integration history (track origin stream)
+p4 integrated <filepath>
+
+# View stream hierarchy
+p4 streams //depot/...
+
+# Find common ancestor across streams
+p4 interchanges -b -S //depot/dev //depot/main
 ```
 
 ### Step 3: Perform Semantic Merge

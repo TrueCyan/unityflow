@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `unity-yaml-workflow`
   - `unity-ui-workflow`
   - `unity-animation-workflow`
-  - `resolve-conflicts`
+  - `unity-yaml-resolve`
 
 ---
 
@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unityflow init-skills --force
   ```
 
-- **`resolve-conflicts` skill**: AI 기반 Unity 머지 컨플릭트 해결
+- **`unity-yaml-resolve` skill**: AI 기반 Unity 머지 컨플릭트 해결
   - Git/Perforce VCS 지원
   - Commit/changelist 설명에서 수정 의도 분석
   - 자동 해결 가능한 변경은 자동 병합
