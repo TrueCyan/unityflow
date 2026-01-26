@@ -18,11 +18,14 @@ Do not directly text-edit Unity YAML files!
 ## Querying UI Hierarchy
 
 ```bash
-# View scene UI hierarchy
-unityflow hierarchy Scene.unity --components
+# View scene UI hierarchy (components shown by default)
+unityflow hierarchy Scene.unity
 
 # View UI prefab structure
-unityflow hierarchy MainMenu.prefab --components
+unityflow hierarchy MainMenu.prefab
+
+# Hide components for cleaner view
+unityflow hierarchy MainMenu.prefab --no-components
 
 # Output in JSON format
 unityflow hierarchy Scene.unity --format json
@@ -248,7 +251,11 @@ unityflow set Scene.unity \
 
 ---
 
-## Linking UI Sprites
+## Reference Types
+
+### External Asset Reference (@)
+
+Use `@` prefix to reference external assets by path.
 
 ```bash
 # Link sprite to UI Image
@@ -261,3 +268,26 @@ unityflow set Scene.unity \
     --path "Canvas/Panel/Image/m_FillCenter" \
     --value '1'
 ```
+
+### Internal Object Reference (#)
+
+Use `#` prefix to reference objects/components within the same file.
+
+```bash
+# Link to a Button component on another GameObject
+unityflow set Prefab.prefab \
+    --path "Root/MyScript/_button" \
+    --value "#Root/Panel/Button"
+
+# Link to a specific component type
+unityflow set Prefab.prefab \
+    --path "Root/MyScript/_image" \
+    --value "#Root/Panel/Image"
+
+# Link to a GameObject (without component type)
+unityflow set Prefab.prefab \
+    --path "Root/MyScript/_targetObject" \
+    --value "#Root/Panel"
+```
+
+**Note**: Internal references resolve to `fileID` automatically. You don't need to know the internal FileID - just use the object path.
