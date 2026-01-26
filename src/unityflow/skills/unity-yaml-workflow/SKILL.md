@@ -43,12 +43,12 @@ Direct editing may cause Unity to fail reading the file or result in data loss.
 ### Querying Hierarchy Structure (hierarchy)
 
 ```bash
-# View basic hierarchy structure
+# View hierarchy structure (components shown by default)
 unityflow hierarchy Player.prefab
 unityflow hierarchy MainScene.unity
 
-# View including components
-unityflow hierarchy Player.prefab --components
+# Hide components for cleaner view
+unityflow hierarchy Player.prefab --no-components
 
 # Output in JSON format
 unityflow hierarchy Player.prefab --format json
@@ -171,6 +171,34 @@ unityflow set Scene.unity \
 | Prefab | `@Assets/Prefabs/Enemy.prefab` |
 | ScriptableObject | `@Assets/Data/Config.asset` |
 | Animation | `@Assets/Animations/walk.anim` |
+
+### Internal Object Reference (# prefix)
+
+Use `#` prefix to reference objects/components within the same file.
+
+```bash
+# Link to a component on another GameObject
+unityflow set Player.prefab \
+    --path "Player/MyScript/_target" \
+    --value "#Player/Enemy/Transform"
+
+# Link to a GameObject (without component type)
+unityflow set Player.prefab \
+    --path "Player/MyScript/_spawnPoint" \
+    --value "#Player/SpawnPoint"
+```
+
+### Adding and Removing Components
+
+```bash
+# Add a component to a GameObject
+unityflow set Player.prefab --path "Player/Button" --create
+
+# Remove a component from a GameObject
+unityflow set Player.prefab --path "Player/OldComponent" --remove
+```
+
+**Note**: For custom MonoBehaviour scripts, use Unity Editor to add/remove them.
 
 ### Validation and Normalization
 
