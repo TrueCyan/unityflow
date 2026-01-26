@@ -7,11 +7,9 @@ description: Edits Unity UI (UGUI) components. Handles UI elements like Canvas, 
 
 Edit Unity UI (UGUI) components using `unityflow` CLI.
 
-## Mandatory Rule: Use unityflow
+## Rule: Use unityflow CLI
 
-**All Unity file operations must be performed through the `unityflow` CLI.**
-
-Do not directly text-edit Unity YAML files!
+All Unity UI file operations require the `unityflow` CLI to preserve Unity's special YAML format.
 
 ---
 
@@ -290,7 +288,7 @@ unityflow set Prefab.prefab \
     --value "#Root/Panel"
 ```
 
-**Note**: Internal references resolve to `fileID` automatically. You don't need to know the internal FileID - just use the object path.
+**Note**: Internal references resolve to `fileID` automatically from the object path.
 
 ---
 

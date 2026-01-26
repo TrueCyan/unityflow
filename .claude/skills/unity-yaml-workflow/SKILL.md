@@ -7,34 +7,16 @@ description: Edits Unity YAML files (.prefab, .unity, .asset). Handles prefab, s
 
 Edit Unity prefabs (.prefab), scenes (.unity), and ScriptableObject (.asset) files using `unityflow` CLI.
 
-## Mandatory Rule: Use unityflow
+## Rule: Use unityflow CLI
 
-### Prohibited Actions
+All Unity YAML file operations require the `unityflow` CLI to preserve Unity's special format (tag aliases, deterministic field ordering, reference formats).
 
-**Do not directly text-edit Unity YAML files (.prefab, .unity, .asset)!**
-
-- Do not use `Read` tool to read YAML then modify with `Edit`/`Write`
-- Do not parse/modify YAML files directly with Python
-- Do not use sed, awk, etc. for text substitution
-
-### Required Actions
-
-**All Unity file operations must be performed through the `unityflow` CLI:**
-
+Available commands:
 - `unityflow hierarchy` - Query hierarchy structure
 - `unityflow inspect` - Query specific object/component details
 - `unityflow get` - Query value at specific path
 - `unityflow set` - Modify values (single value, batch modification)
 - `unityflow set --value "@assetpath"` - Link assets
-
-### Reason
-
-Unity YAML uses a special format:
-- Tag aliases (`--- !u!1 &12345`)
-- Deterministic field ordering
-- Special reference formats
-
-Direct editing may cause Unity to fail reading the file or result in data loss.
 
 ---
 
