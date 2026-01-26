@@ -291,3 +291,31 @@ unityflow set Prefab.prefab \
 ```
 
 **Note**: Internal references resolve to `fileID` automatically. You don't need to know the internal FileID - just use the object path.
+
+---
+
+## Adding and Removing Components
+
+### Add Component (--create)
+
+```bash
+# Add a Button component to a GameObject
+unityflow set Prefab.prefab --path "Canvas/Panel/Button" --create
+
+# Add an Image component
+unityflow set Prefab.prefab --path "Canvas/Panel/Image" --create
+```
+
+Supported built-in component types: Button, Image, and other Unity built-in types.
+
+### Remove Component (--remove)
+
+```bash
+# Remove a Button component from a GameObject
+unityflow set Prefab.prefab --path "Canvas/Panel/Button" --remove
+
+# Remove an Image component
+unityflow set Prefab.prefab --path "Canvas/Panel/Image" --remove
+```
+
+**Note**: For custom MonoBehaviour scripts, use Unity Editor to add/remove them.

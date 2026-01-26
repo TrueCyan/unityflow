@@ -1402,21 +1402,201 @@ def set_value_cmd(
     output_path = output or file
     project_root = find_unity_project_root(file)
 
-    # Handle --create mode
+    # Handle --create mode (add component)
     if create:
-        click.echo(
-            "Error: --create is not yet implemented. " "Use Unity Editor to add components for now.",
-            err=True,
-        )
-        sys.exit(1)
+        from unityflow.formats import CLASS_NAME_TO_ID
+        from unityflow.guid_index import build_guid_index
+        from unityflow.hierarchy import Hierarchy
+        from unityflow.parser import CLASS_IDS
 
-    # Handle --remove mode
-    if remove:
-        click.echo(
-            "Error: --remove is not yet implemented. " "Use Unity Editor to remove components for now.",
-            err=True,
+        # Parse path: "Player/Child/Button" -> ("Player/Child", "Button")
+        parts = set_path.rsplit("/", 1)
+        if len(parts) != 2:
+            click.echo(f"Error: Invalid path format for --create: {set_path}", err=True)
+            click.echo("Expected format: 'GameObject/ComponentType'", err=True)
+            sys.exit(1)
+
+        go_path, comp_type = parts
+
+        # Build hierarchy to find the GameObject
+        guid_index = build_guid_index(project_root) if project_root else None
+        hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+        target_node = hier.find(go_path)
+        if target_node is None:
+            click.echo(f"Error: GameObject not found: {go_path}", err=True)
+            sys.exit(1)
+
+        # Check if component already exists
+        for comp in target_node.components:
+            comp_name = comp.script_name or comp.class_name
+            if comp_name.lower() == comp_type.lower():
+                click.echo(f"Error: Component '{comp_type}' already exists on '{go_path}'", err=True)
+                sys.exit(1)
+
+        # Determine class_id for the component
+        class_id = CLASS_NAME_TO_ID.get(comp_type)
+        if class_id is None:
+            # Try case-insensitive lookup
+            for name, cid in CLASS_NAME_TO_ID.items():
+                if name.lower() == comp_type.lower():
+                    class_id = cid
+                    comp_type = name  # Use canonical name
+                    break
+
+        if class_id is None:
+            # Unknown component type - assume it's a MonoBehaviour script
+            click.echo(
+                f"Error: Unknown component type '{comp_type}'. " "For custom scripts, add them in Unity Editor.",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Generate unique fileID
+        new_file_id = doc.generate_unique_file_id()
+
+        # Create component data
+        comp_data = {
+            "m_ObjectHideFlags": 0,
+            "m_CorrespondingSourceObject": {"fileID": 0},
+            "m_PrefabInstance": {"fileID": 0},
+            "m_PrefabAsset": {"fileID": 0},
+            "m_GameObject": {"fileID": target_node.file_id},
+            "m_Enabled": 1,
+        }
+
+        # Add component-specific default data
+        if comp_type == "Button":
+            comp_data.update(
+                {
+                    "m_Interactable": 1,
+                    "m_TargetGraphic": {"fileID": 0},
+                    "m_OnClick": {
+                        "m_PersistentCalls": {"m_Calls": []},
+                    },
+                    "m_Navigation": {
+                        "m_Mode": 3,
+                        "m_WrapAround": 0,
+                        "m_SelectOnUp": {"fileID": 0},
+                        "m_SelectOnDown": {"fileID": 0},
+                        "m_SelectOnLeft": {"fileID": 0},
+                        "m_SelectOnRight": {"fileID": 0},
+                    },
+                    "m_Colors": {
+                        "m_NormalColor": {"r": 1, "g": 1, "b": 1, "a": 1},
+                        "m_HighlightedColor": {"r": 0.9607843, "g": 0.9607843, "b": 0.9607843, "a": 1},
+                        "m_PressedColor": {"r": 0.7843137, "g": 0.7843137, "b": 0.7843137, "a": 1},
+                        "m_SelectedColor": {"r": 0.9607843, "g": 0.9607843, "b": 0.9607843, "a": 1},
+                        "m_DisabledColor": {"r": 0.7843137, "g": 0.7843137, "b": 0.7843137, "a": 0.5019608},
+                        "m_ColorMultiplier": 1,
+                        "m_FadeDuration": 0.1,
+                    },
+                }
+            )
+        elif comp_type == "Image":
+            comp_data.update(
+                {
+                    "m_Material": {"fileID": 0},
+                    "m_Color": {"r": 1, "g": 1, "b": 1, "a": 1},
+                    "m_RaycastTarget": 1,
+                    "m_RaycastPadding": {"x": 0, "y": 0, "z": 0, "w": 0},
+                    "m_Maskable": 1,
+                    "m_Sprite": {"fileID": 0},
+                    "m_Type": 0,
+                    "m_PreserveAspect": 0,
+                    "m_FillCenter": 1,
+                    "m_FillMethod": 4,
+                    "m_FillAmount": 1,
+                    "m_FillClockwise": 1,
+                    "m_FillOrigin": 0,
+                    "m_UseSpriteMesh": 0,
+                    "m_PixelsPerUnitMultiplier": 1,
+                }
+            )
+
+        # Create the component object
+        from unityflow.parser import UnityYAMLObject
+
+        new_obj = UnityYAMLObject(
+            class_id=class_id,
+            file_id=new_file_id,
+            stripped=False,
+            data={CLASS_IDS.get(class_id, comp_type): comp_data},
         )
-        sys.exit(1)
+
+        # Add to document
+        doc.add_object(new_obj)
+
+        # Update GameObject's m_Component array
+        go_obj = doc.get_by_file_id(target_node.file_id)
+        if go_obj:
+            go_content = go_obj.get_content()
+            if go_content:
+                components = go_content.get("m_Component", [])
+                components.append({"component": {"fileID": new_file_id}})
+                go_content["m_Component"] = components
+
+        doc.save(output_path)
+        click.echo(f"Added {comp_type} to {go_path}")
+        if output:
+            click.echo(f"Saved to: {output}")
+        return
+
+    # Handle --remove mode (remove component)
+    if remove:
+        from unityflow.guid_index import build_guid_index
+        from unityflow.hierarchy import Hierarchy
+
+        # Parse path: "Player/Child/Button" -> ("Player/Child", "Button")
+        parts = set_path.rsplit("/", 1)
+        if len(parts) != 2:
+            click.echo(f"Error: Invalid path format for --remove: {set_path}", err=True)
+            click.echo("Expected format: 'GameObject/ComponentType'", err=True)
+            sys.exit(1)
+
+        go_path, comp_type = parts
+
+        # Build hierarchy to find the GameObject and component
+        guid_index = build_guid_index(project_root) if project_root else None
+        hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+        target_node = hier.find(go_path)
+        if target_node is None:
+            click.echo(f"Error: GameObject not found: {go_path}", err=True)
+            sys.exit(1)
+
+        # Find the component
+        target_comp = None
+        for comp in target_node.components:
+            comp_name = comp.script_name or comp.class_name
+            if comp_name.lower() == comp_type.lower():
+                target_comp = comp
+                break
+
+        if target_comp is None:
+            click.echo(f"Error: Component '{comp_type}' not found on '{go_path}'", err=True)
+            sys.exit(1)
+
+        # Remove from document
+        if not doc.remove_object(target_comp.file_id):
+            click.echo("Error: Failed to remove component from document", err=True)
+            sys.exit(1)
+
+        # Update GameObject's m_Component array
+        go_obj = doc.get_by_file_id(target_node.file_id)
+        if go_obj:
+            go_content = go_obj.get_content()
+            if go_content:
+                components = go_content.get("m_Component", [])
+                # Filter out the removed component
+                new_components = [c for c in components if c.get("component", {}).get("fileID") != target_comp.file_id]
+                go_content["m_Component"] = new_components
+
+        doc.save(output_path)
+        click.echo(f"Removed {comp_type} from {go_path}")
+        if output:
+            click.echo(f"Saved to: {output}")
+        return
 
     # Resolve path (convert "Player/Transform/localPosition" to "components/12345/localPosition")
     original_path = set_path
