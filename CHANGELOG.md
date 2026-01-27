@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.12] - 2026-01-27
+
+### Changed
+
+- **Claude Code Plugin으로 전환**: `init-skills` 명령어를 Claude Code Plugin으로 대체
+  - [TrueCyan/claude-plugins](https://github.com/TrueCyan/claude-plugins)에서 설치 가능
+
+- **Cross-platform Hook 지원**: Bash 스크립트를 Node.js로 마이그레이션
+  - Windows/macOS/Linux 모든 플랫폼에서 동일하게 동작
+  - Bash 의존성 제거
+
+### Removed
+
+- **`init-skills` 명령어 제거**: Claude Code Plugin으로 대체됨
+- **legacy `.claude` 및 `hooks/skills` 디렉토리 제거**: Plugin 구조로 통합
+
+### Fixed
+
+- **dev settings 분리**: 개발용 설정과 배포용 설정 분리
+- **build_guid_index import 경로 수정**: cli.py에서 올바른 import 경로 사용
+
+---
+
 ## [0.3.11] - 2026-01-27
 
 ### Fixed

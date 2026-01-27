@@ -6,13 +6,55 @@
 
 Unity 워크플로우 자동화 도구입니다. Unity 에디터 없이 프리팹, 씬, 에셋을 편집하고, diff/merge하고, LLM과 통합할 수 있습니다.
 
-## 주요 기능
+## CLI 명령어
 
-- **정규화**: Unity YAML 파일을 결정적 형식으로 변환하여 불필요한 diff 제거
-- **검증**: 참조 유효성, 순환 참조, 중복 fileID 검사
-- **비교/병합**: 정규화된 diff 및 3-way 병합 지원
-- **에셋 추적**: 의존성 분석 및 역참조 검색
-- **Git 통합**: textconv, merge 드라이버, pre-commit 훅 지원
+```bash
+unityflow hierarchy    # 계층 구조 표시
+unityflow inspect      # GameObject/컴포넌트 상세 조회
+unityflow get          # 경로 기반 데이터 조회
+unityflow set          # 경로 기반 값 설정
+unityflow normalize    # Unity YAML 파일 정규화
+unityflow validate     # 구조적 무결성 검증
+unityflow diff         # 두 파일 비교 (semantic)
+unityflow merge        # 3-way 병합 (semantic)
+unityflow setup        # Git 통합 설정
+unityflow git-textconv # Git diff용 정규화 출력
+```
+
+전체 옵션은 `unityflow <command> --help`로 확인하세요.
+
+## Claude Code 통합
+
+[Claude Code](https://github.com/anthropics/claude-code)와 함께 사용하면 AI가 Unity 프로젝트를 더 효과적으로 이해하고 수정할 수 있습니다.
+
+### Plugin 설치
+
+[TrueCyan/claude-plugins](https://github.com/TrueCyan/claude-plugins)에서 unityflow plugin을 설치하세요.
+
+### 제공되는 Skills
+
+| Skill | 설명 |
+|-------|------|
+| `unity-yaml-workflow` | Unity YAML 파일 편집 가이드 (프리팹, 씬, 에셋) |
+| `unity-ui-workflow` | UI 프리팹 작업 가이드 (Canvas, RectTransform) |
+| `unity-animation-workflow` | 애니메이션 파일 작업 가이드 (.anim, .controller) |
+| `unity-yaml-resolve` | Unity YAML 머지 컨플릭트 AI 해결 (Git/Perforce 다중 스트림 지원) |
+
+### 사용 예시
+
+Claude Code에서 다음과 같이 요청할 수 있습니다:
+
+```
+Player.prefab에 머지 컨플릭트가 있어. 해결해줘.
+```
+
+```
+MainMenu.prefab의 계층 구조를 보여줘.
+```
+
+```
+Player의 Transform 위치를 (10, 0, 5)로 변경해줘.
+```
 
 ## 설치
 
@@ -51,6 +93,14 @@ pip install -e ".[dev]"
   - `unityparser>=4.0.0`
   - `rapidyaml>=0.10.0`
   - `click>=8.0.0`
+
+## 주요 기능
+
+- **정규화**: Unity YAML 파일을 결정적 형식으로 변환하여 불필요한 diff 제거
+- **검증**: 참조 유효성, 순환 참조, 중복 fileID 검사
+- **비교/병합**: 정규화된 diff 및 3-way 병합 지원
+- **에셋 추적**: 의존성 분석 및 역참조 검색
+- **Git 통합**: textconv, merge 드라이버, pre-commit 훅 지원
 
 ## 빠른 시작
 
@@ -95,19 +145,6 @@ unityflow diff Scene_v1.unity Scene_v2.unity
 
 # 정규화 없이 비교
 unityflow diff old.prefab new.prefab --no-normalize
-```
-
-### 에셋 의존성 분석
-
-```bash
-# 모든 의존성 표시
-unityflow deps Player.prefab
-
-# 바이너리 에셋만 (텍스처, 메시 등)
-unityflow deps Player.prefab --binary-only
-
-# 특정 에셋을 참조하는 파일 찾기
-unityflow find-refs Textures/player.png
 ```
 
 ## Git 통합 설정
@@ -222,67 +259,6 @@ doc.save("MyObject.prefab")  # 또는 .unity, .asset
 | Terrain | `.terrainlayer`, `.brush` |
 | Audio | `.mixer` |
 | UI/Editor | `.guiskin`, `.fontsettings`, `.preset`, `.giparams` |
-
-## CLI 명령어 요약
-
-```bash
-unityflow setup        # Git 통합 설정
-unityflow normalize    # Unity YAML 파일 정규화
-unityflow validate     # 구조적 무결성 검증
-unityflow diff         # 두 파일 비교 (semantic)
-unityflow merge        # 3-way 병합 (semantic)
-unityflow get          # 경로 기반 데이터 조회
-unityflow set          # 경로 기반 값 설정
-unityflow hierarchy    # 계층 구조 표시
-unityflow inspect      # GameObject/컴포넌트 상세 조회
-unityflow git-textconv # Git diff용 정규화 출력
-unityflow init-skills  # Claude Code skills 설치
-```
-
-전체 옵션은 `unityflow <command> --help`로 확인하세요.
-
-## Claude Code 통합
-
-[Claude Code](https://github.com/anthropics/claude-code)와 함께 사용하면 AI가 Unity 프로젝트를 더 효과적으로 이해하고 수정할 수 있습니다.
-
-### Skills 설치
-
-```bash
-# 현재 프로젝트에 skills 설치 (.claude/skills/)
-unityflow init-skills
-
-# 글로벌 설치 (모든 프로젝트에서 사용)
-unityflow init-skills --global
-```
-
-### 제공되는 Skills
-
-| Skill | 설명 |
-|-------|------|
-| `unity-yaml-workflow` | Unity YAML 파일 편집 가이드 (프리팹, 씬, 에셋) |
-| `unity-ui-workflow` | UI 프리팹 작업 가이드 (Canvas, RectTransform) |
-| `unity-animation-workflow` | 애니메이션 파일 작업 가이드 (.anim, .controller) |
-| `unity-yaml-resolve` | Unity YAML 머지 컨플릭트 AI 해결 (Git/Perforce 다중 스트림 지원) |
-
-### 사용 예시
-
-Claude Code에서 다음과 같이 요청할 수 있습니다:
-
-```
-Player.prefab에 머지 컨플릭트가 있어. 해결해줘.
-```
-
-```
-MainMenu.prefab의 계층 구조를 보여줘.
-```
-
-```
-Player의 Transform 위치를 (10, 0, 5)로 변경해줘.
-```
-
-## 향후 계획
-
-- **프로젝트 전체 통계**: `unityflow stats --recursive Assets/`
 
 ## 개발
 

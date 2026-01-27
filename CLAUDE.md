@@ -107,6 +107,13 @@ Do not add comments to code. Code should be self-explanatory.
 - If you feel a comment is needed, refactor the code to clarify intent
 - Remove existing comments when modifying code
 
+## Pull Request Guidelines
+
+PR 제목과 설명은 해당 브랜치에서 실제로 작업한 내용만 포함합니다.
+
+- `git log origin/main..HEAD`로 이 브랜치의 커밋 확인
+- Summary는 이 브랜치의 커밋 내용만 간결하게 나열
+
 ## Documentation Style
 
 Write documentation in positive, context-independent form.
