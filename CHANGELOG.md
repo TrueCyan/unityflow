@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.10] - 2026-01-27
+
+### Added
+
+- **`set --create` 옵션**: 컴포넌트 추가 기능
+  ```bash
+  unityflow set Prefab.prefab --path "Canvas/Panel/Button" --create
+  ```
+  - 커스텀 MonoBehaviour 스크립트 지원 (프로젝트 내 .cs 파일 자동 탐색)
+
+- **`set --remove` 옵션**: 컴포넌트 제거 기능
+  ```bash
+  unityflow set Prefab.prefab --path "Canvas/Panel/Button" --remove
+  ```
+
+- **내부 참조 지원 (`#` prefix)**: 같은 파일 내 오브젝트/컴포넌트 참조
+  ```bash
+  unityflow set Prefab.prefab --path "Root/MyScript/_target" --value "#Root/Panel/Button"
+  ```
+
+### Changed
+
+- **`inspect` 출력 개선**: FileID/GUID 숨김, 경로로 해석하여 표시
+  - Unity 내부 시스템 요소 노출 없이 CLI 사용 가능
+
+- **스킬 문서 구조 개선**: "Lost in the Middle" 연구 기반 재배치
+  - 핵심 지침을 문서 시작/끝에 배치
+  - 각 문서 끝에 Summary 섹션 추가
+  - fileID 등 내부 용어 참조 제거
+
+---
+
 ## [0.3.9] - 2026-01-19
 
 ### Added
