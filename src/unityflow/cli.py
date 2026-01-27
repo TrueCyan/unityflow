@@ -2779,7 +2779,7 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
             "hooks": [
                 {
                     "type": "command",
-                    "command": "bash .claude/scripts/ensure-unityflow.sh 2>&1 || true",
+                    "command": 'bash -c ".claude/scripts/ensure-unityflow.sh 2>&1 || true"',
                 }
             ]
         }
