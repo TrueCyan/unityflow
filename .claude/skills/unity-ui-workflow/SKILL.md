@@ -62,6 +62,37 @@ unityflow get Scene.unity "Canvas/Panel/RectTransform/m_AnchorMin"
 
 ---
 
+## Reference Types
+
+### External Asset Reference (@)
+
+Use `@` prefix to reference external assets by path.
+
+```bash
+# Link sprite to UI Image
+unityflow set Scene.unity \
+    --path "Canvas/Panel/Button/Image/m_Sprite" \
+    --value "@Assets/Sprites/button_normal.png"
+```
+
+### Internal Object Reference (#)
+
+Use `#` prefix to reference objects/components within the same file.
+
+```bash
+# Link to a Button component on another GameObject
+unityflow set Prefab.prefab \
+    --path "Root/MyScript/_button" \
+    --value "#Root/Panel/Button"
+
+# Link to a GameObject (without component type)
+unityflow set Prefab.prefab \
+    --path "Root/MyScript/_targetObject" \
+    --value "#Root/Panel"
+```
+
+---
+
 ## Modifying UI Properties
 
 ### Image Properties
@@ -247,47 +278,6 @@ unityflow set Scene.unity \
 
 ---
 
-## Reference Types
-
-### External Asset Reference (@)
-
-Use `@` prefix to reference external assets by path.
-
-```bash
-# Link sprite to UI Image
-unityflow set Scene.unity \
-    --path "Canvas/Panel/Button/Image/m_Sprite" \
-    --value "@Assets/Sprites/button_normal.png"
-
-# Set 9-slice border (in Sliced mode)
-unityflow set Scene.unity \
-    --path "Canvas/Panel/Image/m_FillCenter" \
-    --value '1'
-```
-
-### Internal Object Reference (#)
-
-Use `#` prefix to reference objects/components within the same file.
-
-```bash
-# Link to a Button component on another GameObject
-unityflow set Prefab.prefab \
-    --path "Root/MyScript/_button" \
-    --value "#Root/Panel/Button"
-
-# Link to a specific component type
-unityflow set Prefab.prefab \
-    --path "Root/MyScript/_image" \
-    --value "#Root/Panel/Image"
-
-# Link to a GameObject (without component type)
-unityflow set Prefab.prefab \
-    --path "Root/MyScript/_targetObject" \
-    --value "#Root/Panel"
-```
-
----
-
 ## Adding and Removing Components
 
 ### Add Component (--create)
@@ -311,3 +301,11 @@ unityflow set Prefab.prefab --path "Canvas/Panel/Button" --remove
 # Remove an Image component
 unityflow set Prefab.prefab --path "Canvas/Panel/Image" --remove
 ```
+
+---
+
+## Summary
+
+- Use `unityflow` CLI for all Unity UI file operations
+- References: `@` for external assets, `#` for internal objects
+- Components: `--create` to add, `--remove` to delete

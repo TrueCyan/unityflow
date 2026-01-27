@@ -223,3 +223,12 @@ unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 ```bash
 unityflow validate problematic.prefab --format json
 ```
+
+---
+
+## Summary
+
+- Use `unityflow` CLI for all Unity YAML operations
+- References: `@` for external assets, `#` for internal objects
+- Components: `--create` to add, `--remove` to delete
+- Workflow: edit → normalize → validate
