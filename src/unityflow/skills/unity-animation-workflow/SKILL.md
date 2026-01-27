@@ -192,4 +192,12 @@ unityflow ctrl states Player.controller --format json
 - Cannot visually preview animations (use Unity Editor for playback)
 - BlendTree editing has limited support
 - Complex PPtrCurve (sprite swap) editing may require manual verification
-- Adding new states/transitions to controllers requires careful fileID management
+- Adding new states/transitions to controllers has limited support
+
+---
+
+## Summary
+
+- Use `unityflow anim` for .anim files, `unityflow ctrl` for .controller files
+- Query structure first (`info`, `curves`, `states`), then modify
+- References: `@` prefix for asset paths

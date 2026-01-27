@@ -7,6 +7,32 @@ description: Resolves merge conflicts in Unity YAML files. Analyzes Git/Perforce
 
 Resolve merge conflicts in Unity files (.prefab, .unity, .asset) using VCS context analysis and semantic 3-way merge.
 
+## Resolution Guidelines
+
+### Auto-Resolvable Cases
+
+1. **Different objects modified**: One side modifies Player, other modifies Enemy
+2. **Different components modified**: One side modifies Transform, other modifies SpriteRenderer
+3. **Different properties modified**: One side modifies position, other modifies color
+
+### Cases Requiring User Confirmation
+
+1. **Same property modified differently**: Both modified position.x
+2. **One deleted, other modified**: Object deletion vs property change
+3. **Semantic conflict**: Both increased sorting order
+
+### Commit Message Hints
+
+| Keyword | Meaning | Priority |
+|---------|---------|----------|
+| fix, bug, crash | Bug fix | High |
+| position, layout, align | Layout change | Context check needed |
+| add, new, implement | New feature | Medium |
+| refactor, cleanup | Refactoring | Low |
+| revert | Rollback | Context check needed |
+
+---
+
 ## Workflow
 
 ### Step 1: Identify Conflict Files
@@ -222,32 +248,6 @@ p4 resolve -ae <filepath>
 
 ---
 
-## AI Analysis Guidelines
-
-### Finding Hints from Commit/Changelist Descriptions
-
-| Keyword | Meaning | Priority |
-|---------|---------|----------|
-| fix, bug, crash | Bug fix | High |
-| position, layout, align | Layout change | Context check needed |
-| add, new, implement | New feature | Medium |
-| refactor, cleanup | Refactoring | Low |
-| revert | Rollback | Context check needed |
-
-### Auto-Resolvable Cases
-
-1. **Different objects modified**: One side modifies Player, other modifies Enemy
-2. **Different components modified**: One side modifies Transform, other modifies SpriteRenderer
-3. **Different properties modified**: One side modifies position, other modifies color
-
-### Cases Requiring User Confirmation
-
-1. **Same property modified differently**: Both modified position.x
-2. **One deleted, other modified**: Object deletion vs property change
-3. **Semantic conflict**: Both increased sorting order
-
----
-
 ## Usage Examples
 
 ### User Request Example
@@ -287,12 +287,12 @@ Which value would you like to use?
 
 ---
 
-## Important Notes
+## Recommended Workflow
 
-1. **Always backup**: Recommended to backup original files before merging
-2. **Use unityflow**: Unity YAML must be processed with unityflow
-3. **Verify**: Check integrity with `unityflow validate` after merging
-4. **Test**: Recommended to verify actual behavior in Unity
+1. **Backup**: Save original files before merging
+2. **Merge**: Use `unityflow merge` to process Unity YAML format
+3. **Validate**: Run `unityflow validate` to check file integrity
+4. **Test**: Verify behavior in Unity Editor
 
 ---
 
@@ -315,3 +315,11 @@ unityflow diff old.prefab new.prefab
 # Verify result
 unityflow validate merged.prefab
 ```
+
+---
+
+## Summary
+
+- Auto-resolve: different objects/components/properties → safe to merge automatically
+- User confirmation: same property changed, deletion vs modification, semantic conflicts
+- Commit keywords guide priority: fix/bug (high) > add/new (medium) > refactor (low)

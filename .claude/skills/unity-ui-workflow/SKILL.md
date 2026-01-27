@@ -7,22 +7,23 @@ description: Edits Unity UI (UGUI) components. Handles UI elements like Canvas, 
 
 Edit Unity UI (UGUI) components using `unityflow` CLI.
 
-## Mandatory Rule: Use unityflow
+## Rule: Use unityflow CLI
 
-**All Unity file operations must be performed through the `unityflow` CLI.**
-
-Do not directly text-edit Unity YAML files!
+All Unity UI file operations require the `unityflow` CLI to preserve Unity's special YAML format.
 
 ---
 
 ## Querying UI Hierarchy
 
 ```bash
-# View scene UI hierarchy
-unityflow hierarchy Scene.unity --components
+# View scene UI hierarchy (components shown by default)
+unityflow hierarchy Scene.unity
 
 # View UI prefab structure
-unityflow hierarchy MainMenu.prefab --components
+unityflow hierarchy MainMenu.prefab
+
+# Hide components for cleaner view
+unityflow hierarchy MainMenu.prefab --no-components
 
 # Output in JSON format
 unityflow hierarchy Scene.unity --format json
@@ -57,6 +58,37 @@ unityflow get Scene.unity "Canvas/Panel/RectTransform"
 # Query specific property
 unityflow get Scene.unity "Canvas/Panel/Image/m_Color"
 unityflow get Scene.unity "Canvas/Panel/RectTransform/m_AnchorMin"
+```
+
+---
+
+## Reference Types
+
+### External Asset Reference (@)
+
+Use `@` prefix to reference external assets by path.
+
+```bash
+# Link sprite to UI Image
+unityflow set Scene.unity \
+    --path "Canvas/Panel/Button/Image/m_Sprite" \
+    --value "@Assets/Sprites/button_normal.png"
+```
+
+### Internal Object Reference (#)
+
+Use `#` prefix to reference objects/components within the same file.
+
+```bash
+# Link to a Button component on another GameObject
+unityflow set Prefab.prefab \
+    --path "Root/MyScript/_button" \
+    --value "#Root/Panel/Button"
+
+# Link to a GameObject (without component type)
+unityflow set Prefab.prefab \
+    --path "Root/MyScript/_targetObject" \
+    --value "#Root/Panel"
 ```
 
 ---
@@ -217,27 +249,25 @@ unityflow set Scene.unity \
 
 ---
 
-## Important Notes
+## Mask Component
 
-### 1. Mask and Image Alpha Value
-
-When using Mask component, masking won't work if Image alpha is 0.
+Mask component uses Image alpha for masking. Set alpha to 1 and use `m_ShowMaskGraphic` to control visibility.
 
 ```bash
-# Alpha must be 1 for mask to work
+# Set alpha to 1 for Mask
 unityflow set Scene.unity \
     --path "Canvas/ScrollView/Image/m_Color" \
     --value '{"r": 1, "g": 1, "b": 1, "a": 1}'
 
-# Use m_ShowMaskGraphic to hide the mask image
+# Hide the mask image visually
 unityflow set Scene.unity \
     --path "Canvas/ScrollView/Mask/m_ShowMaskGraphic" \
     --value '0'
 ```
 
-### 2. Using Index When Multiple Components Exist
+## Multiple Components of Same Type
 
-Use index to specify when there are multiple components of the same type.
+Use index to specify which component when multiple exist.
 
 ```bash
 # Modify second Image component
@@ -248,16 +278,34 @@ unityflow set Scene.unity \
 
 ---
 
-## Linking UI Sprites
+## Adding and Removing Components
+
+### Add Component (--create)
 
 ```bash
-# Link sprite to UI Image
-unityflow set Scene.unity \
-    --path "Canvas/Panel/Button/Image/m_Sprite" \
-    --value "@Assets/Sprites/button_normal.png"
+# Add a Button component to a GameObject
+unityflow set Prefab.prefab --path "Canvas/Panel/Button" --create
 
-# Set 9-slice border (in Sliced mode)
-unityflow set Scene.unity \
-    --path "Canvas/Panel/Image/m_FillCenter" \
-    --value '1'
+# Add an Image component
+unityflow set Prefab.prefab --path "Canvas/Panel/Image" --create
 ```
+
+Supported built-in component types: Button, Image, and other Unity built-in types.
+
+### Remove Component (--remove)
+
+```bash
+# Remove a Button component from a GameObject
+unityflow set Prefab.prefab --path "Canvas/Panel/Button" --remove
+
+# Remove an Image component
+unityflow set Prefab.prefab --path "Canvas/Panel/Image" --remove
+```
+
+---
+
+## Summary
+
+- Use `unityflow` CLI for all Unity UI file operations
+- References: `@` for external assets, `#` for internal objects
+- Components: `--create` to add, `--remove` to delete

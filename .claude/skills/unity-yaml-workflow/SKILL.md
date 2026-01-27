@@ -7,34 +7,16 @@ description: Edits Unity YAML files (.prefab, .unity, .asset). Handles prefab, s
 
 Edit Unity prefabs (.prefab), scenes (.unity), and ScriptableObject (.asset) files using `unityflow` CLI.
 
-## Mandatory Rule: Use unityflow
+## Rule: Use unityflow CLI
 
-### Prohibited Actions
+All Unity YAML file operations require the `unityflow` CLI to preserve Unity's special format (tag aliases, deterministic field ordering, reference formats).
 
-**Do not directly text-edit Unity YAML files (.prefab, .unity, .asset)!**
-
-- Do not use `Read` tool to read YAML then modify with `Edit`/`Write`
-- Do not parse/modify YAML files directly with Python
-- Do not use sed, awk, etc. for text substitution
-
-### Required Actions
-
-**All Unity file operations must be performed through the `unityflow` CLI:**
-
+Available commands:
 - `unityflow hierarchy` - Query hierarchy structure
 - `unityflow inspect` - Query specific object/component details
 - `unityflow get` - Query value at specific path
 - `unityflow set` - Modify values (single value, batch modification)
 - `unityflow set --value "@assetpath"` - Link assets
-
-### Reason
-
-Unity YAML uses a special format:
-- Tag aliases (`--- !u!1 &12345`)
-- Deterministic field ordering
-- Special reference formats
-
-Direct editing may cause Unity to fail reading the file or result in data loss.
 
 ---
 
@@ -43,12 +25,12 @@ Direct editing may cause Unity to fail reading the file or result in data loss.
 ### Querying Hierarchy Structure (hierarchy)
 
 ```bash
-# View basic hierarchy structure
+# View hierarchy structure (components shown by default)
 unityflow hierarchy Player.prefab
 unityflow hierarchy MainScene.unity
 
-# View including components
-unityflow hierarchy Player.prefab --components
+# Hide components for cleaner view
+unityflow hierarchy Player.prefab --no-components
 
 # Output in JSON format
 unityflow hierarchy Player.prefab --format json
@@ -172,6 +154,32 @@ unityflow set Scene.unity \
 | ScriptableObject | `@Assets/Data/Config.asset` |
 | Animation | `@Assets/Animations/walk.anim` |
 
+### Internal Object Reference (# prefix)
+
+Use `#` prefix to reference objects/components within the same file.
+
+```bash
+# Link to a component on another GameObject
+unityflow set Player.prefab \
+    --path "Player/MyScript/_target" \
+    --value "#Player/Enemy/Transform"
+
+# Link to a GameObject (without component type)
+unityflow set Player.prefab \
+    --path "Player/MyScript/_spawnPoint" \
+    --value "#Player/SpawnPoint"
+```
+
+### Adding and Removing Components
+
+```bash
+# Add a component to a GameObject
+unityflow set Player.prefab --path "Player/Button" --create
+
+# Remove a component from a GameObject
+unityflow set Player.prefab --path "Player/OldComponent" --remove
+```
+
 ### Validation and Normalization
 
 ```bash
@@ -200,11 +208,11 @@ unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 
 ---
 
-## Important Notes
+## Recommended Workflow
 
-1. **Always backup**: Backup original files or save to new file with `-o` option before modifying
-2. **Normalize after editing**: Run `unityflow normalize` to prevent Git noise
-3. **Validate after changes**: Check integrity with `unityflow validate` after important modifications
+1. **Backup**: Use `-o` option to save to a new file
+2. **Normalize**: Run `unityflow normalize` after editing to reduce Git noise
+3. **Validate**: Run `unityflow validate` to check file integrity
 
 ---
 
@@ -215,3 +223,12 @@ unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 ```bash
 unityflow validate problematic.prefab --format json
 ```
+
+---
+
+## Summary
+
+- Use `unityflow` CLI for all Unity YAML operations
+- References: `@` for external assets, `#` for internal objects
+- Components: `--create` to add, `--remove` to delete
+- Workflow: edit → normalize → validate

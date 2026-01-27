@@ -1292,12 +1292,24 @@ def get_value_cmd(
     type=click.Path(path_type=Path),
     help="Output file (default: modify in place)",
 )
+@click.option(
+    "--create",
+    is_flag=True,
+    help="Create a new component at the path (e.g., --path 'Player/Button' --create)",
+)
+@click.option(
+    "--remove",
+    is_flag=True,
+    help="Remove a component at the path (e.g., --path 'Player/Button' --remove)",
+)
 def set_value_cmd(
     file: Path,
     set_path: str,
     value: str | None,
     batch_values_json: str | None,
     output: Path | None,
+    create: bool,
+    remove: bool,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
@@ -1348,25 +1360,37 @@ def set_value_cmd(
     from unityflow.asset_resolver import (
         AssetTypeMismatchError,
         is_asset_reference,
+        is_internal_reference,
+        parse_internal_reference,
         resolve_value,
     )
+    from unityflow.hierarchy import Hierarchy
     from unityflow.parser import UnityYAMLDocument
     from unityflow.query import merge_values, set_value
 
-    # Count how many value modes are specified
-    value_modes = sum(
+    # Count how many operation modes are specified
+    operation_modes = sum(
         [
-            value is not None,
-            batch_values_json is not None,
+            value is not None or batch_values_json is not None,
+            create,
+            remove,
         ]
     )
 
     # Validate options
-    if value_modes == 0:
-        click.echo("Error: One of --value or --batch is required", err=True)
+    if operation_modes == 0:
+        click.echo("Error: One of --value, --batch, --create, or --remove is required", err=True)
         sys.exit(1)
-    if value_modes > 1:
-        click.echo("Error: Cannot use multiple value modes (--value, --batch)", err=True)
+    if operation_modes > 1:
+        click.echo(
+            "Error: Cannot use multiple operation modes (--value/--batch, --create, --remove)",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Validate --value and --batch mutual exclusivity
+    if value is not None and batch_values_json is not None:
+        click.echo("Error: Cannot use both --value and --batch", err=True)
         sys.exit(1)
 
     try:
@@ -1377,6 +1401,218 @@ def set_value_cmd(
 
     output_path = output or file
     project_root = find_unity_project_root(file)
+
+    # Handle --create mode (add component)
+    if create:
+        from unityflow.formats import CLASS_NAME_TO_ID
+        from unityflow.guid_index import build_guid_index
+        from unityflow.hierarchy import Hierarchy
+        from unityflow.parser import CLASS_IDS
+
+        # Parse path: "Player/Child/Button" -> ("Player/Child", "Button")
+        parts = set_path.rsplit("/", 1)
+        if len(parts) != 2:
+            click.echo(f"Error: Invalid path format for --create: {set_path}", err=True)
+            click.echo("Expected format: 'GameObject/ComponentType'", err=True)
+            sys.exit(1)
+
+        go_path, comp_type = parts
+
+        # Build hierarchy to find the GameObject
+        guid_index = build_guid_index(project_root) if project_root else None
+        hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+        target_node = hier.find(go_path)
+        if target_node is None:
+            click.echo(f"Error: GameObject not found: {go_path}", err=True)
+            sys.exit(1)
+
+        # Check if component already exists
+        for comp in target_node.components:
+            comp_name = comp.script_name or comp.class_name
+            if comp_name.lower() == comp_type.lower():
+                click.echo(f"Error: Component '{comp_type}' already exists on '{go_path}'", err=True)
+                sys.exit(1)
+
+        # Determine class_id for the component
+        class_id = CLASS_NAME_TO_ID.get(comp_type)
+        script_guid = None
+
+        if class_id is None:
+            # Try case-insensitive lookup
+            for name, cid in CLASS_NAME_TO_ID.items():
+                if name.lower() == comp_type.lower():
+                    class_id = cid
+                    comp_type = name  # Use canonical name
+                    break
+
+        if class_id is None:
+            # Try to find as a custom MonoBehaviour script
+            if guid_index:
+                for path, guid in guid_index.path_to_guid.items():
+                    if path.suffix == ".cs" and path.stem == comp_type:
+                        script_guid = guid
+                        break
+
+            if script_guid is None:
+                click.echo(f"Error: Component or script '{comp_type}' not found.", err=True)
+                if project_root:
+                    click.echo(f"Searched for {comp_type}.cs in project.", err=True)
+                sys.exit(1)
+
+            # Use MonoBehaviour class_id
+            class_id = 114
+
+        # Generate unique fileID
+        new_file_id = doc.generate_unique_file_id()
+
+        # Create component data
+        comp_data = {
+            "m_ObjectHideFlags": 0,
+            "m_CorrespondingSourceObject": {"fileID": 0},
+            "m_PrefabInstance": {"fileID": 0},
+            "m_PrefabAsset": {"fileID": 0},
+            "m_GameObject": {"fileID": target_node.file_id},
+            "m_Enabled": 1,
+        }
+
+        # Add component-specific default data
+        if comp_type == "Button":
+            comp_data.update(
+                {
+                    "m_Interactable": 1,
+                    "m_TargetGraphic": {"fileID": 0},
+                    "m_OnClick": {
+                        "m_PersistentCalls": {"m_Calls": []},
+                    },
+                    "m_Navigation": {
+                        "m_Mode": 3,
+                        "m_WrapAround": 0,
+                        "m_SelectOnUp": {"fileID": 0},
+                        "m_SelectOnDown": {"fileID": 0},
+                        "m_SelectOnLeft": {"fileID": 0},
+                        "m_SelectOnRight": {"fileID": 0},
+                    },
+                    "m_Colors": {
+                        "m_NormalColor": {"r": 1, "g": 1, "b": 1, "a": 1},
+                        "m_HighlightedColor": {"r": 0.9607843, "g": 0.9607843, "b": 0.9607843, "a": 1},
+                        "m_PressedColor": {"r": 0.7843137, "g": 0.7843137, "b": 0.7843137, "a": 1},
+                        "m_SelectedColor": {"r": 0.9607843, "g": 0.9607843, "b": 0.9607843, "a": 1},
+                        "m_DisabledColor": {"r": 0.7843137, "g": 0.7843137, "b": 0.7843137, "a": 0.5019608},
+                        "m_ColorMultiplier": 1,
+                        "m_FadeDuration": 0.1,
+                    },
+                }
+            )
+        elif comp_type == "Image":
+            comp_data.update(
+                {
+                    "m_Material": {"fileID": 0},
+                    "m_Color": {"r": 1, "g": 1, "b": 1, "a": 1},
+                    "m_RaycastTarget": 1,
+                    "m_RaycastPadding": {"x": 0, "y": 0, "z": 0, "w": 0},
+                    "m_Maskable": 1,
+                    "m_Sprite": {"fileID": 0},
+                    "m_Type": 0,
+                    "m_PreserveAspect": 0,
+                    "m_FillCenter": 1,
+                    "m_FillMethod": 4,
+                    "m_FillAmount": 1,
+                    "m_FillClockwise": 1,
+                    "m_FillOrigin": 0,
+                    "m_UseSpriteMesh": 0,
+                    "m_PixelsPerUnitMultiplier": 1,
+                }
+            )
+
+        # Add m_Script reference for MonoBehaviour (custom scripts)
+        if class_id == 114 and script_guid:
+            comp_data["m_Script"] = {"fileID": 11500000, "guid": script_guid, "type": 3}
+
+        # Create the component object
+        from unityflow.parser import UnityYAMLObject
+
+        root_key = CLASS_IDS.get(class_id, "MonoBehaviour") if class_id != 114 else "MonoBehaviour"
+        new_obj = UnityYAMLObject(
+            class_id=class_id,
+            file_id=new_file_id,
+            stripped=False,
+            data={root_key: comp_data},
+        )
+
+        # Add to document
+        doc.add_object(new_obj)
+
+        # Update GameObject's m_Component array
+        go_obj = doc.get_by_file_id(target_node.file_id)
+        if go_obj:
+            go_content = go_obj.get_content()
+            if go_content:
+                components = go_content.get("m_Component", [])
+                components.append({"component": {"fileID": new_file_id}})
+                go_content["m_Component"] = components
+
+        doc.save(output_path)
+        click.echo(f"Added {comp_type} to {go_path}")
+        if output:
+            click.echo(f"Saved to: {output}")
+        return
+
+    # Handle --remove mode (remove component)
+    if remove:
+        from unityflow.guid_index import build_guid_index
+        from unityflow.hierarchy import Hierarchy
+
+        # Parse path: "Player/Child/Button" -> ("Player/Child", "Button")
+        parts = set_path.rsplit("/", 1)
+        if len(parts) != 2:
+            click.echo(f"Error: Invalid path format for --remove: {set_path}", err=True)
+            click.echo("Expected format: 'GameObject/ComponentType'", err=True)
+            sys.exit(1)
+
+        go_path, comp_type = parts
+
+        # Build hierarchy to find the GameObject and component
+        guid_index = build_guid_index(project_root) if project_root else None
+        hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+        target_node = hier.find(go_path)
+        if target_node is None:
+            click.echo(f"Error: GameObject not found: {go_path}", err=True)
+            sys.exit(1)
+
+        # Find the component
+        target_comp = None
+        for comp in target_node.components:
+            comp_name = comp.script_name or comp.class_name
+            if comp_name.lower() == comp_type.lower():
+                target_comp = comp
+                break
+
+        if target_comp is None:
+            click.echo(f"Error: Component '{comp_type}' not found on '{go_path}'", err=True)
+            sys.exit(1)
+
+        # Remove from document
+        if not doc.remove_object(target_comp.file_id):
+            click.echo("Error: Failed to remove component from document", err=True)
+            sys.exit(1)
+
+        # Update GameObject's m_Component array
+        go_obj = doc.get_by_file_id(target_node.file_id)
+        if go_obj:
+            go_content = go_obj.get_content()
+            if go_content:
+                components = go_content.get("m_Component", [])
+                # Filter out the removed component
+                new_components = [c for c in components if c.get("component", {}).get("fileID") != target_comp.file_id]
+                go_content["m_Component"] = new_components
+
+        doc.save(output_path)
+        click.echo(f"Removed {comp_type} from {go_path}")
+        if output:
+            click.echo(f"Saved to: {output}")
+        return
 
     # Resolve path (convert "Player/Transform/localPosition" to "components/12345/localPosition")
     original_path = set_path
@@ -1436,28 +1672,70 @@ def set_value_cmd(
         except json.JSONDecodeError:
             parsed_value = value
 
-        # Validate field type
-        is_valid, error_msg = _validate_field_value(field_name, parsed_value)
-        if not is_valid:
-            click.echo(f"Error: {error_msg}", err=True)
-            sys.exit(1)
+        # Check for internal reference (# prefix)
+        is_internal_ref = is_internal_reference(value) if isinstance(value, str) else False
+        resolved_value = parsed_value
 
-        # Resolve asset references with field name for type validation
-        try:
-            resolved_value = resolve_value(parsed_value, project_root, field_name=field_name)
-        except AssetTypeMismatchError as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
-        except ValueError as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
+        if is_internal_ref:
+            # Resolve internal reference to fileID
+            ref_path, component_type = parse_internal_reference(value)
 
-        # Show resolved asset info if it was an asset reference
+            # Build hierarchy to resolve internal reference
+            from unityflow.guid_index import build_guid_index
+
+            guid_index = build_guid_index(project_root) if project_root else None
+            hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+            # Find the target node
+            target_node = hier.find(ref_path)
+            if target_node is None:
+                click.echo(f"Error: Internal reference not found: {ref_path}", err=True)
+                sys.exit(1)
+
+            # Resolve to fileID
+            if component_type:
+                # Find specific component
+                target_comp = None
+                for comp in target_node.components:
+                    comp_name = comp.script_name or comp.class_name
+                    if comp_name == component_type:
+                        target_comp = comp
+                        break
+                if target_comp is None:
+                    click.echo(
+                        f"Error: Component '{component_type}' not found on '{ref_path}'",
+                        err=True,
+                    )
+                    sys.exit(1)
+                resolved_value = {"fileID": target_comp.file_id}
+            else:
+                # Reference the GameObject itself
+                resolved_value = {"fileID": target_node.file_id}
+        else:
+            # Validate field type
+            is_valid, error_msg = _validate_field_value(field_name, parsed_value)
+            if not is_valid:
+                click.echo(f"Error: {error_msg}", err=True)
+                sys.exit(1)
+
+            # Resolve asset references with field name for type validation
+            try:
+                resolved_value = resolve_value(parsed_value, project_root, field_name=field_name)
+            except AssetTypeMismatchError as e:
+                click.echo(f"Error: {e}", err=True)
+                sys.exit(1)
+            except ValueError as e:
+                click.echo(f"Error: {e}", err=True)
+                sys.exit(1)
+
+        # Show resolved info
         is_asset_ref = is_asset_reference(value) if isinstance(value, str) else False
 
         if set_value(doc, set_path, resolved_value, create=True):
             doc.save(output_path)
-            if is_asset_ref:
+            if is_internal_ref:
+                click.echo(f"Set {original_path} = {value[1:]}")  # Remove # prefix for display
+            elif is_asset_ref:
                 click.echo(f"Set {original_path} = {value[1:]}")  # Remove @ prefix for display
             else:
                 click.echo(f"Set {original_path} = {value}")
@@ -2221,18 +2499,49 @@ def inspect_cmd(
 
         click.echo(json_module.dumps(result, indent=2, default=str))
     else:
+        # Helper function to resolve file_id to path
+        def resolve_reference(file_id: int, guid: str = "") -> str:
+            """Resolve a reference to a human-readable path."""
+            if file_id == 0 and not guid:
+                return "None"
+
+            # Try to resolve internal reference (same file)
+            if file_id and not guid:
+                ref_node = hier._nodes_by_file_id.get(file_id)
+                if ref_node:
+                    return ref_node.path
+
+                # Try to find component by file_id
+                for n in hier.iter_all():
+                    for c in n.components:
+                        if c.file_id == file_id:
+                            return f"{n.path}/{c.script_name or c.class_name}"
+
+                return f"(internal ref #{file_id})"
+
+            # External reference (different asset)
+            if guid and guid_index:
+                asset_path = guid_index.get_path(guid)
+                if asset_path:
+                    return f"@{asset_path}"
+
+            return "(external ref)"
+
         # Text output - Inspector-like format
         click.echo(f"GameObject: {node.name}")
         click.echo(f"Path: {node.path}")
-        click.echo(f"FileID: {node.file_id}")
         click.echo(f"Active: {is_active}")
         click.echo(f"Layer: {go_content.get('m_Layer', 0)}")
         click.echo(f"Tag: {go_content.get('m_TagString', 'Untagged')}")
 
         if node.is_prefab_instance:
             click.echo("Is Prefab Instance: Yes")
-            if node.source_guid:
-                click.echo(f"Source GUID: {node.source_guid}")
+            if node.source_guid and guid_index:
+                source_path = guid_index.get_path(node.source_guid)
+                if source_path:
+                    click.echo(f"Source Prefab: {source_path}")
+                else:
+                    click.echo("Source Prefab: (unknown)")
 
         click.echo()
 
@@ -2294,9 +2603,6 @@ def inspect_cmd(
             comp_type = comp.script_name or comp.class_name
             click.echo(f"[{comp_type}]")
 
-            if comp.script_guid:
-                click.echo(f"  script_guid: {comp.script_guid}")
-
             # Show key properties (excluding internal Unity fields)
             skip_keys = {
                 "m_ObjectHideFlags",
@@ -2311,15 +2617,11 @@ def inspect_cmd(
                 if key not in skip_keys:
                     # Format value for display
                     if isinstance(value, dict) and "fileID" in value:
-                        # Reference field
+                        # Reference field - resolve to path
                         file_id = value.get("fileID", 0)
                         guid = value.get("guid", "")
-                        if guid:
-                            click.echo(f"  {key}: (GUID: {guid}, fileID: {file_id})")
-                        elif file_id:
-                            click.echo(f"  {key}: (fileID: {file_id})")
-                        else:
-                            click.echo(f"  {key}: None")
+                        resolved = resolve_reference(file_id, guid)
+                        click.echo(f"  {key}: {resolved}")
                     elif isinstance(value, dict | list):
                         # Complex value - show abbreviated
                         if isinstance(value, list):

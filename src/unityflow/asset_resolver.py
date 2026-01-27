@@ -309,6 +309,91 @@ def is_asset_reference(value: str) -> bool:
     return isinstance(value, str) and value.startswith("@")
 
 
+def is_internal_reference(value: str) -> bool:
+    """Check if a value is an internal reference (starts with #).
+
+    Internal references point to objects/components within the same file.
+    Examples:
+        "#Player/Child/Button"  -> Button component on Player/Child
+        "#Canvas/Panel"         -> Panel GameObject under Canvas
+    """
+    return isinstance(value, str) and value.startswith("#")
+
+
+def parse_internal_reference(value: str) -> tuple[str, str | None]:
+    """Parse an internal reference into path and optional component type.
+
+    Args:
+        value: Internal reference string (e.g., "#Player/Child/Button")
+
+    Returns:
+        Tuple of (object_path, component_type or None)
+
+    Examples:
+        "#Player/Child/Button" -> ("Player/Child", "Button")
+        "#Canvas/Panel" -> ("Canvas/Panel", None)
+    """
+    if not value.startswith("#"):
+        return value, None
+
+    path = value[1:]  # Remove # prefix
+
+    # Check if path contains a component type at the end
+    # Component types are capitalized (e.g., Button, Image, Transform)
+    parts = path.rsplit("/", 1)
+    if len(parts) == 2:
+        parent, last = parts
+        # If last part looks like a component type (PascalCase)
+        # and not a typical GameObject name pattern
+        if last and last[0].isupper() and not last.startswith("_"):
+            # Check if it's a known Unity component type
+            known_components = {
+                "Transform",
+                "RectTransform",
+                "Button",
+                "Image",
+                "Text",
+                "TextMeshProUGUI",
+                "Canvas",
+                "CanvasGroup",
+                "CanvasRenderer",
+                "GraphicRaycaster",
+                "ScrollRect",
+                "Slider",
+                "Toggle",
+                "InputField",
+                "Dropdown",
+                "RawImage",
+                "Mask",
+                "LayoutGroup",
+                "HorizontalLayoutGroup",
+                "VerticalLayoutGroup",
+                "GridLayoutGroup",
+                "ContentSizeFitter",
+                "AspectRatioFitter",
+                "Animator",
+                "Animation",
+                "AudioSource",
+                "SpriteRenderer",
+                "BoxCollider",
+                "BoxCollider2D",
+                "Rigidbody",
+                "Rigidbody2D",
+                "Camera",
+                "Light",
+            }
+            if last in known_components:
+                return parent, last
+            # For MonoBehaviour scripts, they can have any PascalCase name
+            # Heuristic: if it ends with common script suffixes
+            if any(
+                last.endswith(suffix) for suffix in ["Controller", "Manager", "Handler", "View", "Model", "Component"]
+            ):
+                return parent, last
+
+    return path, None
+
+
 def parse_asset_reference(value: str) -> tuple[str, str | None]:
     """Parse an asset reference into path and optional sub-asset.
 
