@@ -286,8 +286,6 @@ unityflow set Prefab.prefab \
     --value "#Root/Panel"
 ```
 
-**Note**: Internal references resolve to `fileID` automatically from the object path.
-
 ---
 
 ## Adding and Removing Components
