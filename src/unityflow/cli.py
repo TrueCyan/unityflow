@@ -1404,8 +1404,8 @@ def set_value_cmd(
 
     # Handle --create mode (add component)
     if create:
+        from unityflow.asset_tracker import build_guid_index
         from unityflow.formats import CLASS_NAME_TO_ID
-        from unityflow.guid_index import build_guid_index
         from unityflow.hierarchy import Hierarchy
         from unityflow.parser import CLASS_IDS
 
@@ -1560,7 +1560,7 @@ def set_value_cmd(
 
     # Handle --remove mode (remove component)
     if remove:
-        from unityflow.guid_index import build_guid_index
+        from unityflow.asset_tracker import build_guid_index
         from unityflow.hierarchy import Hierarchy
 
         # Parse path: "Player/Child/Button" -> ("Player/Child", "Button")
@@ -1681,7 +1681,7 @@ def set_value_cmd(
             ref_path, component_type = parse_internal_reference(value)
 
             # Build hierarchy to resolve internal reference
-            from unityflow.guid_index import build_guid_index
+            from unityflow.asset_tracker import build_guid_index
 
             guid_index = build_guid_index(project_root) if project_root else None
             hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
