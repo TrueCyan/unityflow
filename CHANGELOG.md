@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.11] - 2026-01-27
+
+### Fixed
+
+- **Windows hook 호환성 수정**: hook 명령어를 `bash -c`로 래핑하여 Windows 환경에서 정상 동작
+  - SessionStart hook 스크립트 실행 시 Windows Git Bash 호환성 개선
+
+---
+
 ## [0.3.10] - 2026-01-27
 
 ### Added
