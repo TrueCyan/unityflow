@@ -1,0 +1,13 @@
+{
+  "name": "unityflow",
+  "version": "0.3.11",
+  "description": "Unity YAML tools for deterministic serialization, conflict resolution, and animation workflows",
+  "author": {
+    "name": "TrueCyan",
+    "url": "https://github.com/TrueCyan"
+  },
+  "homepage": "https://github.com/TrueCyan/unityflow",
+  "repository": "https://github.com/TrueCyan/unityflow",
+  "license": "MIT",
+  "keywords": ["unity", "yaml", "prefab", "animation", "merge", "conflict-resolution"]
+}
