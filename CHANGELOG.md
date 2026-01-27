@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Claude Code Plugin으로 전환**: `init-skills` 명령어를 Claude Code Plugin으로 대체
-  - [Claude Plugins Marketplace](https://github.com/TrueCyan/claude-plugins)에서 설치 가능
+  - [TrueCyan/claude-plugins](https://github.com/TrueCyan/claude-plugins)에서 설치 가능
 
 - **Cross-platform Hook 지원**: Bash 스크립트를 Node.js로 마이그레이션
   - Windows/macOS/Linux 모든 플랫폼에서 동일하게 동작

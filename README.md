@@ -29,7 +29,7 @@ unityflow git-textconv # Git diff용 정규화 출력
 
 ### Plugin 설치
 
-[Claude Plugins Marketplace](https://github.com/TrueCyan/claude-plugins)에서 unityflow plugin을 설치하세요.
+[TrueCyan/claude-plugins](https://github.com/TrueCyan/claude-plugins)에서 unityflow plugin을 설치하세요.
 
 ### 제공되는 Skills
 
