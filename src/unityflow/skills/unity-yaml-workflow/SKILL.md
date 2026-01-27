@@ -180,7 +180,7 @@ unityflow set Player.prefab --path "Player/Button" --create
 unityflow set Player.prefab --path "Player/OldComponent" --remove
 ```
 
-**Note**: For custom MonoBehaviour scripts, use Unity Editor to add/remove them.
+Custom MonoBehaviour scripts are supported if the project is indexed (script name must match the .cs filename).
 
 ### Validation and Normalization
 

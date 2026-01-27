@@ -1436,6 +1436,8 @@ def set_value_cmd(
 
         # Determine class_id for the component
         class_id = CLASS_NAME_TO_ID.get(comp_type)
+        script_guid = None
+
         if class_id is None:
             # Try case-insensitive lookup
             for name, cid in CLASS_NAME_TO_ID.items():
@@ -1445,12 +1447,21 @@ def set_value_cmd(
                     break
 
         if class_id is None:
-            # Unknown component type - assume it's a MonoBehaviour script
-            click.echo(
-                f"Error: Unknown component type '{comp_type}'. " "For custom scripts, add them in Unity Editor.",
-                err=True,
-            )
-            sys.exit(1)
+            # Try to find as a custom MonoBehaviour script
+            if guid_index:
+                for path, guid in guid_index.path_to_guid.items():
+                    if path.suffix == ".cs" and path.stem == comp_type:
+                        script_guid = guid
+                        break
+
+            if script_guid is None:
+                click.echo(f"Error: Component or script '{comp_type}' not found.", err=True)
+                if project_root:
+                    click.echo(f"Searched for {comp_type}.cs in project.", err=True)
+                sys.exit(1)
+
+            # Use MonoBehaviour class_id
+            class_id = 114
 
         # Generate unique fileID
         new_file_id = doc.generate_unique_file_id()
@@ -1514,14 +1525,19 @@ def set_value_cmd(
                 }
             )
 
+        # Add m_Script reference for MonoBehaviour (custom scripts)
+        if class_id == 114 and script_guid:
+            comp_data["m_Script"] = {"fileID": 11500000, "guid": script_guid, "type": 3}
+
         # Create the component object
         from unityflow.parser import UnityYAMLObject
 
+        root_key = CLASS_IDS.get(class_id, "MonoBehaviour") if class_id != 114 else "MonoBehaviour"
         new_obj = UnityYAMLObject(
             class_id=class_id,
             file_id=new_file_id,
             stripped=False,
-            data={CLASS_IDS.get(class_id, comp_type): comp_data},
+            data={root_key: comp_data},
         )
 
         # Add to document

@@ -316,4 +316,4 @@ unityflow set Prefab.prefab --path "Canvas/Panel/Button" --remove
 unityflow set Prefab.prefab --path "Canvas/Panel/Image" --remove
 ```
 
-**Note**: For custom MonoBehaviour scripts, use Unity Editor to add/remove them.
+Custom MonoBehaviour scripts are supported if the project is indexed (script name must match the .cs filename).
