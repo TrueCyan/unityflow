@@ -2759,6 +2759,7 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
 
     # Install hooks
     hook_installed = False
+    hook_migrated = False
     try:
         hooks_pkg = files("unityflow.hooks")
 
@@ -2766,49 +2767,59 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
         scripts_dir = claude_dir / "scripts"
         scripts_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy ensure-unityflow.sh
-        script_source = hooks_pkg.joinpath("scripts", "ensure-unityflow.sh")
-        script_target = scripts_dir / "ensure-unityflow.sh"
+        # Copy ensure-unityflow.js (cross-platform Node.js script)
+        script_source = hooks_pkg.joinpath("scripts", "ensure-unityflow.js")
+        script_target = scripts_dir / "ensure-unityflow.js"
         script_content = script_source.read_text(encoding="utf-8")
         script_target.write_text(script_content, encoding="utf-8")
-        script_target.chmod(0o755)
 
         # Merge settings.json (add SessionStart hook)
         settings_file = claude_dir / "settings.json"
-        hook_entry = {
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": 'bash -c ".claude/scripts/ensure-unityflow.sh 2>&1 || true"',
-                }
-            ]
-        }
+        hook_command = "node .claude/scripts/ensure-unityflow.js"
+        hook_entry = {"hooks": [{"type": "command", "command": hook_command}]}
+
+        # Legacy hook patterns to migrate from
+        legacy_patterns = [
+            "ensure-unityflow.sh",
+            "bash -c",
+            "bash .claude/scripts",
+        ]
+
+        def is_legacy_hook(h):
+            cmd = ""
+            if isinstance(h.get("hooks"), list) and h.get("hooks"):
+                cmd = h["hooks"][0].get("command", "")
+            return any(p in cmd for p in legacy_patterns)
+
+        def is_current_hook(h):
+            if isinstance(h.get("hooks"), list) and h.get("hooks"):
+                return h["hooks"][0].get("command") == hook_command
+            return False
 
         if settings_file.exists():
-            # Read existing settings
             try:
                 existing = json.loads(settings_file.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 existing = {}
 
-            # Ensure hooks structure exists
             if "hooks" not in existing:
                 existing["hooks"] = {}
             if "SessionStart" not in existing["hooks"]:
                 existing["hooks"]["SessionStart"] = []
 
-            # Check if our hook already exists
-            our_command = hook_entry["hooks"][0]["command"]
-            hook_exists = any(
-                (
-                    h.get("hooks", [{}])[0].get("command") == our_command
-                    if isinstance(h.get("hooks"), list) and h.get("hooks")
-                    else False
-                )
-                for h in existing["hooks"]["SessionStart"]
-            )
+            session_hooks = existing["hooks"]["SessionStart"]
+            legacy_hooks = [h for h in session_hooks if is_legacy_hook(h)]
+            current_exists = any(is_current_hook(h) for h in session_hooks)
 
-            if not hook_exists:
+            if legacy_hooks and not current_exists:
+                existing["hooks"]["SessionStart"] = [h for h in session_hooks if not is_legacy_hook(h)]
+                existing["hooks"]["SessionStart"].append(hook_entry)
+                settings_file.write_text(
+                    json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                hook_migrated = True
+            elif not current_exists:
                 existing["hooks"]["SessionStart"].append(hook_entry)
                 settings_file.write_text(
                     json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
@@ -2818,13 +2829,17 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
             else:
                 click.echo("SessionStart hook already configured.")
         else:
-            # Create new settings.json
             settings = {"hooks": {"SessionStart": [hook_entry]}}
             settings_file.write_text(
                 json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
             hook_installed = True
+
+        # Clean up legacy bash script if exists
+        legacy_script = scripts_dir / "ensure-unityflow.sh"
+        if legacy_script.exists():
+            legacy_script.unlink()
 
     except Exception as e:
         click.echo(f"Warning: Failed to install hooks: {e}", err=True)
@@ -2848,6 +2863,9 @@ def init_skills_cmd(global_install: bool, force: bool) -> None:
     if hook_installed:
         click.echo()
         click.echo("SessionStart hook installed for automatic unityflow setup.")
+    if hook_migrated:
+        click.echo()
+        click.echo("SessionStart hook migrated to cross-platform Node.js version.")
     if not installed and not updated and not skipped:
         click.echo("No skills were installed.")
     else:

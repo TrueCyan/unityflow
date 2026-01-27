@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c \".claude/scripts/ensure-unityflow.sh 2>&1 || true\""
+            "command": "node .claude/scripts/ensure-unityflow.js"
           }
         ]
       }
