@@ -287,12 +287,12 @@ Which value would you like to use?
 
 ---
 
-## Important Notes
+## Recommended Workflow
 
-1. **Always backup**: Recommended to backup original files before merging
-2. **Use unityflow**: Unity YAML must be processed with unityflow
-3. **Verify**: Check integrity with `unityflow validate` after merging
-4. **Test**: Recommended to verify actual behavior in Unity
+1. **Backup**: Save original files before merging
+2. **Merge**: Use `unityflow merge` to process Unity YAML format
+3. **Validate**: Run `unityflow validate` to check file integrity
+4. **Test**: Verify behavior in Unity Editor
 
 ---
 

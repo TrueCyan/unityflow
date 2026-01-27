@@ -180,8 +180,6 @@ unityflow set Player.prefab --path "Player/Button" --create
 unityflow set Player.prefab --path "Player/OldComponent" --remove
 ```
 
-Custom MonoBehaviour scripts are supported if the project is indexed (script name must match the .cs filename).
-
 ### Validation and Normalization
 
 ```bash
@@ -210,11 +208,11 @@ unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 
 ---
 
-## Important Notes
+## Recommended Workflow
 
-1. **Always backup**: Backup original files or save to new file with `-o` option before modifying
-2. **Normalize after editing**: Run `unityflow normalize` to prevent Git noise
-3. **Validate after changes**: Check integrity with `unityflow validate` after important modifications
+1. **Backup**: Use `-o` option to save to a new file
+2. **Normalize**: Run `unityflow normalize` after editing to reduce Git noise
+3. **Validate**: Run `unityflow validate` to check file integrity
 
 ---
 

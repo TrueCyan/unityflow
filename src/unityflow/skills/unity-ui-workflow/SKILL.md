@@ -218,27 +218,25 @@ unityflow set Scene.unity \
 
 ---
 
-## Important Notes
+## Mask Component
 
-### 1. Mask and Image Alpha Value
-
-When using Mask component, masking won't work if Image alpha is 0.
+Mask component uses Image alpha for masking. Set alpha to 1 and use `m_ShowMaskGraphic` to control visibility.
 
 ```bash
-# Alpha must be 1 for mask to work
+# Set alpha to 1 for Mask
 unityflow set Scene.unity \
     --path "Canvas/ScrollView/Image/m_Color" \
     --value '{"r": 1, "g": 1, "b": 1, "a": 1}'
 
-# Use m_ShowMaskGraphic to hide the mask image
+# Hide the mask image visually
 unityflow set Scene.unity \
     --path "Canvas/ScrollView/Mask/m_ShowMaskGraphic" \
     --value '0'
 ```
 
-### 2. Using Index When Multiple Components Exist
+## Multiple Components of Same Type
 
-Use index to specify when there are multiple components of the same type.
+Use index to specify which component when multiple exist.
 
 ```bash
 # Modify second Image component
@@ -315,5 +313,3 @@ unityflow set Prefab.prefab --path "Canvas/Panel/Button" --remove
 # Remove an Image component
 unityflow set Prefab.prefab --path "Canvas/Panel/Image" --remove
 ```
-
-Custom MonoBehaviour scripts are supported if the project is indexed (script name must match the .cs filename).
