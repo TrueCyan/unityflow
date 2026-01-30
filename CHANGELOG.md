@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.13] - 2026-01-30
+
+### Added
+
+- **`refs` CLI 명령어**: 특정 에셋을 참조하는 모든 파일을 GUID 기반으로 검색
+  ```bash
+  unityflow refs Assets/Scripts/Player.cs
+  unityflow refs Assets/Scripts/Player.cs --format json
+  unityflow refs Assets/Scripts/Player.cs --include-packages --progress
+  ```
+  - text/json 출력 형식 지원
+  - `--include-packages`로 패키지 캐시 포함 검색
+  - `--progress`로 진행률 표시
+
+- **`unity-asset-refs` 스킬**: 에셋 참조 검색 Claude Code Plugin 스킬 추가
+
+### Fixed
+
+- **Windows SQLite connection leak 수정**: `CachedGUIDIndex`의 DB 연결이 WAL 모드에서 제대로 닫히지 않아 임시 파일 삭제 실패하던 문제 수정
+  - `_get_db_connection`을 context manager로 변환하여 connection 자동 정리
+  - 테스트에서 `LazyGUIDIndex.close()` 명시적 호출 추가
+
+---
+
 ## [0.3.12] - 2026-01-27
 
 ### Changed
