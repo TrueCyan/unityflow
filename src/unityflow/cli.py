@@ -2634,6 +2634,167 @@ def inspect_cmd(
             click.echo()
 
 
+@main.command(name="refs")
+@click.argument("asset_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, path_type=Path),
+    help="Unity project root (auto-detected if not specified)",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+@click.option(
+    "--progress",
+    is_flag=True,
+    help="Show progress bar",
+)
+@click.option(
+    "--include-packages",
+    is_flag=True,
+    help="Include Library/PackageCache in search",
+)
+def refs_cmd(
+    asset_path: Path,
+    project_root: Path | None,
+    output_format: str,
+    progress: bool,
+    include_packages: bool,
+) -> None:
+    """Find all files that reference a specific asset.
+
+    Searches for references to the given asset by its GUID across all Unity
+    YAML files in the project.
+
+    Examples:
+
+        # List files referencing a script
+        unityflow refs Assets/Scripts/Player.cs
+
+        # JSON output
+        unityflow refs Assets/Scripts/Player.cs --format json
+
+        # Include package cache in search
+        unityflow refs Assets/Scripts/Player.cs --include-packages
+
+        # Show progress bar
+        unityflow refs Assets/Scripts/Player.cs --progress
+    """
+    import json as json_module
+
+    from unityflow.asset_tracker import (
+        find_references_to_asset,
+        find_unity_project_root,
+        get_cached_guid_index,
+    )
+
+    resolved_asset = Path(asset_path).resolve()
+
+    resolved_root = project_root
+    if resolved_root is None:
+        resolved_root = find_unity_project_root(resolved_asset)
+    if resolved_root is None:
+        click.echo("Error: Could not detect Unity project root. Use --project-root.", err=True)
+        sys.exit(1)
+
+    progress_cb = None
+    close_cb = None
+
+    try:
+        if progress:
+            update_cb, close_cb = create_progress_bar(0, label="Building GUID index")
+            guid_index = get_cached_guid_index(
+                resolved_root,
+                include_packages=include_packages,
+                progress_callback=update_cb,
+            )
+            close_cb()
+            close_cb = None
+        else:
+            guid_index = get_cached_guid_index(
+                resolved_root,
+                include_packages=include_packages,
+            )
+    except Exception as e:
+        if close_cb:
+            close_cb()
+        click.echo(f"Error: Failed to build GUID index: {e}", err=True)
+        sys.exit(1)
+
+    search_paths = [resolved_root / "Assets"]
+    if include_packages:
+        pkg_cache = resolved_root / "Library" / "PackageCache"
+        if pkg_cache.is_dir():
+            search_paths.append(pkg_cache)
+
+    if progress:
+        update_cb, close_cb = create_progress_bar(0, label="Searching references")
+        progress_cb = update_cb
+
+    try:
+        results = find_references_to_asset(
+            asset_path=resolved_asset,
+            search_paths=search_paths,
+            guid_index=guid_index,
+            progress_callback=progress_cb,
+        )
+    except Exception as e:
+        if close_cb:
+            close_cb()
+        click.echo(f"Error: Failed to search references: {e}", err=True)
+        sys.exit(1)
+
+    if close_cb:
+        close_cb()
+
+    target_guid = guid_index.get_guid(resolved_asset) or ""
+
+    try:
+        rel_asset = resolved_asset.relative_to(resolved_root)
+    except ValueError:
+        rel_asset = resolved_asset
+
+    if output_format == "json":
+        refs_list = []
+        total_refs = 0
+        for file_path, refs in results:
+            try:
+                rel_path = file_path.relative_to(resolved_root)
+            except ValueError:
+                rel_path = file_path
+            refs_list.append({"file": str(rel_path), "count": len(refs)})
+            total_refs += len(refs)
+
+        output = {
+            "asset": str(rel_asset),
+            "guid": target_guid,
+            "references": refs_list,
+            "total_files": len(results),
+            "total_refs": total_refs,
+        }
+        click.echo(json_module.dumps(output, indent=2, ensure_ascii=False))
+    else:
+        if not results:
+            click.echo(f"No references found for {rel_asset}")
+            return
+
+        total_refs = sum(len(refs) for _, refs in results)
+        click.echo(f"Found {len(results)} references to {rel_asset}:")
+        click.echo()
+        for file_path, refs in results:
+            try:
+                rel_path = file_path.relative_to(resolved_root)
+            except ValueError:
+                rel_path = file_path
+            count = len(refs)
+            suffix = "ref" if count == 1 else "refs"
+            click.echo(f"  {rel_path} ({count} {suffix})")
+
+
 # Register animation CLI commands
 main.add_command(anim_group)
 main.add_command(ctrl_group)

@@ -12,6 +12,7 @@ import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
@@ -858,13 +859,20 @@ class CachedGUIDIndex:
         if shm_file.exists():
             shm_file.unlink()
 
-    def _get_db_connection(self) -> sqlite3.Connection:
-        """Get a database connection with WAL mode enabled."""
+    @contextmanager
+    def _get_db_connection(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(str(self.cache_db), timeout=30.0)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA cache_size=-64000")  # 64MB cache
-        return conn
+        try:
+            yield conn
+        finally:
+            try:
+                conn.execute("PRAGMA journal_mode=DELETE")
+            except sqlite3.Error:
+                pass
+            conn.close()
 
     def _init_db(self, conn: sqlite3.Connection) -> None:
         """Initialize database schema."""
