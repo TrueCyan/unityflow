@@ -62,6 +62,8 @@ namespace UnityFlow.Bridge
             InspectorHandler.Register(_server);
             ScreenshotHandler.Register(_server);
             AnimationHandler.Register(_server);
+            PlayModeHandler.Register(_server);
+            CameraHandler.Register(_server);
 
             _server.Start(port);
             _initialized = true;

@@ -1,6 +1,17 @@
 # Changelog
 
-## [0.1.0] - 2025-02-03
+## [0.5.0] - 2026-02-03
+
+### Added
+- Play Mode control API (play/stop/pause/step)
+- Scene load API with Build Settings scene list
+- Scene View camera control (pivot, rotation, size, orthographic)
+- Frame object focus functionality
+- HTTP POST method support
+
+---
+
+## [0.1.0] - 2026-02-03
 
 ### Added
 - Initial release

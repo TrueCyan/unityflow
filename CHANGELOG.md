@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-03
+
+### Added
+
+- **Play Mode 제어 API**: Unity Editor의 Play/Pause/Stop 상태를 원격 제어
+  - `control_playmode(action)` MCP tool: play, stop, pause, step, state 액션 지원
+  - `/api/playmode/state`, `/api/playmode/play`, `/api/playmode/stop`, `/api/playmode/pause`, `/api/playmode/step` 엔드포인트
+
+- **씬 로드 API**: Build Settings에 등록된 씬 목록 조회 및 로드
+  - `load_scene(scene_path, additive)` MCP tool
+  - `list_scenes()` MCP tool
+  - `/api/scene/load`, `/api/scene/list` 엔드포인트
+
+- **Scene View 카메라 제어 API**: Scene View 카메라 위치/회전/줌 조작
+  - `get_scene_camera()` MCP tool: 현재 카메라 상태 조회
+  - `set_scene_camera(pivot, rotation, size, orthographic)` MCP tool: 카메라 이동/설정
+  - `frame_object(object_path, instance_id)` MCP tool: 특정 오브젝트에 포커스
+  - `/api/camera/scene_view`, `/api/camera/frame_object` 엔드포인트
+
+- **HTTP POST 메서드 지원**: 상태 변경 API에 POST 메서드 사용
+
+---
+
 ## [0.4.0] - 2026-02-03
 
 ### Added

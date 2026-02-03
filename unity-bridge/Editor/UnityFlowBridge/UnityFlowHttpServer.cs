@@ -121,7 +121,7 @@ namespace UnityFlow.Bridge
                 TotalRequests++;
 
                 response.AddHeader("Access-Control-Allow-Origin", "*");
-                response.AddHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+                response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
                 response.AddHeader("Access-Control-Allow-Headers", "Content-Type");
 
                 if (request.HttpMethod == "OPTIONS")

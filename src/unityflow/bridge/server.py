@@ -178,6 +178,145 @@ def get_animator_state(target: str) -> str:
         return _error_text(e)
 
 
+@mcp.tool()
+def control_playmode(action: str) -> str:
+    """Control Unity Editor play mode.
+
+    Args:
+        action: One of "play", "stop", "pause", "step", or "state"
+            - play: Enter play mode
+            - stop: Exit play mode and return to edit mode
+            - pause: Toggle pause state (only works in play mode)
+            - step: Advance one frame (only works when paused)
+            - state: Get current play mode state
+
+    Returns:
+        JSON with success status and current state
+    """
+    try:
+        if action == "state":
+            data = _client.playmode_state()
+        elif action == "play":
+            data = _client.playmode_play()
+        elif action == "stop":
+            data = _client.playmode_stop()
+        elif action == "pause":
+            data = _client.playmode_pause()
+        elif action == "step":
+            data = _client.playmode_step()
+        else:
+            return f"Error: Invalid action '{action}'. Use: play, stop, pause, step, or state"
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except UnityBridgeError as e:
+        return _error_text(e)
+
+
+@mcp.tool()
+def load_scene(scene_path: str, additive: bool = False) -> str:
+    """Load a scene in the Unity Editor (Edit Mode only).
+
+    Args:
+        scene_path: Asset path of the scene (e.g. "Assets/Scenes/MainMenu.unity")
+        additive: If True, load additively without closing current scene
+
+    Returns:
+        JSON with success status and loaded scene info
+    """
+    try:
+        data = _client.scene_load(path=scene_path, additive=additive)
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except UnityBridgeError as e:
+        return _error_text(e)
+
+
+@mcp.tool()
+def list_scenes() -> str:
+    """List all scenes in the Build Settings.
+
+    Returns:
+        JSON array of scenes with index, path, and name
+    """
+    try:
+        data = _client.scene_list()
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except UnityBridgeError as e:
+        return _error_text(e)
+
+
+@mcp.tool()
+def get_scene_camera() -> str:
+    """Get the current Scene View camera state.
+
+    Returns:
+        JSON with pivot position, rotation, size, orthographic mode, and 2D mode
+    """
+    try:
+        data = _client.scene_view_camera()
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except UnityBridgeError as e:
+        return _error_text(e)
+
+
+@mcp.tool()
+def set_scene_camera(
+    pivot_x: float | None = None,
+    pivot_y: float | None = None,
+    pivot_z: float | None = None,
+    rotation_x: float | None = None,
+    rotation_y: float | None = None,
+    rotation_z: float | None = None,
+    size: float | None = None,
+    orthographic: bool | None = None,
+) -> str:
+    """Set the Scene View camera position and settings.
+
+    Args:
+        pivot_x: Camera pivot X position
+        pivot_y: Camera pivot Y position
+        pivot_z: Camera pivot Z position
+        rotation_x: Camera rotation X (euler degrees)
+        rotation_y: Camera rotation Y (euler degrees)
+        rotation_z: Camera rotation Z (euler degrees)
+        size: Camera zoom/size (smaller = closer)
+        orthographic: True for orthographic, False for perspective
+
+    Returns:
+        JSON with the updated camera state
+    """
+    try:
+        data = _client.set_scene_view_camera(
+            pivot_x=pivot_x,
+            pivot_y=pivot_y,
+            pivot_z=pivot_z,
+            rotation_x=rotation_x,
+            rotation_y=rotation_y,
+            rotation_z=rotation_z,
+            size=size,
+            orthographic=orthographic,
+        )
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except UnityBridgeError as e:
+        return _error_text(e)
+
+
+@mcp.tool()
+def frame_object(object_path: str | None = None, instance_id: int | None = None) -> str:
+    """Focus the Scene View camera on a specific object.
+
+    Args:
+        object_path: Hierarchy path of the object (e.g. "/Player" or "/Canvas/Panel")
+        instance_id: Unity instance ID of the object
+
+    Returns:
+        JSON with success status and new camera pivot position
+    """
+    try:
+        data = _client.frame_object(path=object_path, instance_id=instance_id)
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except UnityBridgeError as e:
+        return _error_text(e)
+
+
 def main():
     mcp.run(transport="stdio")
 

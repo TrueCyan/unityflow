@@ -72,7 +72,7 @@ namespace UnityEngine
         public Bounds(Vector3 center, Vector3 size) { this.center = center; this.size = size; this.extents = size; }
         public void Encapsulate(Bounds b) {}
     }
-    public struct Quaternion { public static Quaternion identity; public static Quaternion Euler(float x, float y, float z) => identity; }
+    public struct Quaternion { public static Quaternion identity; public static Quaternion Euler(float x, float y, float z) => identity; public Vector3 eulerAngles; }
     public class Camera : Behaviour
     {
         public static Camera main;
@@ -194,6 +194,11 @@ namespace UnityEngine.SceneManagement
     {
         public static Scene GetSceneByPath(string p) => default;
         public static void MoveGameObjectToScene(GameObject go, Scene s) {}
+        public static int sceneCountInBuildSettings => 0;
+    }
+    public class SceneUtility
+    {
+        public static string GetScenePathByBuildIndex(int buildIndex) => "";
     }
 }
 
@@ -212,6 +217,7 @@ namespace UnityEditor
         public static bool isPaused;
         public static bool isCompiling;
         public static event System.Action delayCall;
+        public static void Step() {}
     }
     public class EditorPrefs
     {
@@ -237,8 +243,18 @@ namespace UnityEditor
     public class EditorGUIUtility { public static float singleLineHeight; }
     public class EditorStyles { public static UnityEngine.GUIStyle boldLabel; public static UnityEngine.GUIStyle miniLabel; }
     public class EditorUtility { public static UnityEngine.Object InstanceIDToObject(int id) => null; }
-    public class Selection { public static UnityEngine.GameObject[] gameObjects; }
-    public class SceneView { public static SceneView lastActiveSceneView; public UnityEngine.Camera camera; }
+    public class Selection { public static UnityEngine.GameObject[] gameObjects; public static UnityEngine.GameObject activeGameObject; }
+    public class SceneView : EditorWindow
+    {
+        public static SceneView lastActiveSceneView;
+        public UnityEngine.Camera camera;
+        public UnityEngine.Vector3 pivot;
+        public UnityEngine.Quaternion rotation;
+        public float size;
+        public bool orthographic;
+        public bool in2DMode;
+        public void FrameSelected() {}
+    }
     public class AssetDatabase
     {
         public static T LoadAssetAtPath<T>(string p) where T : class => null;
@@ -291,10 +307,13 @@ namespace UnityEditor
 
 namespace UnityEditor.SceneManagement
 {
+    public enum OpenSceneMode { Single, Additive, AdditiveWithoutLoading }
     public class EditorSceneManager
     {
         public static UnityEngine.SceneManagement.Scene GetActiveScene() => default;
         public static UnityEngine.SceneManagement.Scene NewPreviewScene() => default;
         public static void ClosePreviewScene(UnityEngine.SceneManagement.Scene s) {}
+        public static UnityEngine.SceneManagement.Scene OpenScene(string scenePath, OpenSceneMode mode = OpenSceneMode.Single) => default;
+        public static bool SaveCurrentModifiedScenesIfUserWantsTo() => true;
     }
 }
