@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "unityflow-bridge": {
+      "command": "unityflow-bridge",
+      "env": {
+        "UNITY_BRIDGE_HOST": "localhost",
+        "UNITY_BRIDGE_PORT": "29184"
+      }
+    }
+  }
+}

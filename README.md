@@ -40,6 +40,32 @@ unityflow git-textconv # Git diff용 정규화 출력
 | `unity-animation-workflow` | 애니메이션 파일 작업 가이드 (.anim, .controller) |
 | `unity-yaml-resolve` | Unity YAML 머지 컨플릭트 AI 해결 (Git/Perforce 다중 스트림 지원) |
 
+### Unity Editor Bridge (MCP)
+
+Unity Editor와 실시간 통신하여 스크린샷, 프리팹 프리뷰, 애니메이션 프레임 캡처 등 시각적 피드백을 제공합니다.
+
+**Unity 패키지 설치** (Package Manager → Add from git URL):
+```
+https://github.com/TrueCyan/unityflow.git?path=unity-bridge
+```
+
+**Python MCP 서버 설치**:
+```bash
+pip install unityflow[bridge]
+```
+
+**MCP Tools**:
+| Tool | 설명 |
+|------|------|
+| `capture_screenshot` | Scene/Game View 스크린샷 |
+| `capture_prefab_preview` | 프리팹 오프스크린 렌더링 |
+| `capture_animation_frames` | 애니메이션 멀티프레임 캡처 |
+| `get_animator_state` | Animator 런타임 상태 (Play Mode) |
+| `get_runtime_hierarchy` | 동적 오브젝트 포함 런타임 hierarchy |
+| `get_inspector` | 컴포넌트 Inspector 데이터 |
+| `get_console_logs` | 콘솔 로그/에러 |
+| `get_editor_state` | 에디터 상태 (Play mode, 씬, 선택) |
+
 ### 사용 예시
 
 Claude Code에서 다음과 같이 요청할 수 있습니다:
@@ -56,12 +82,23 @@ MainMenu.prefab의 계층 구조를 보여줘.
 Player의 Transform 위치를 (10, 0, 5)로 변경해줘.
 ```
 
+```
+현재 씬 스크린샷 찍어줘.
+```
+
+```
+Player 프리팹 렌더링해서 보여줘.
+```
+
 ## 설치
 
 ### PyPI에서 설치 (권장)
 
 ```bash
 pip install unityflow
+
+# Unity Editor Bridge MCP 포함
+pip install unityflow[bridge]
 ```
 
 ### GitHub에서 설치
@@ -93,6 +130,10 @@ pip install -e ".[dev]"
   - `unityparser>=4.0.0`
   - `rapidyaml>=0.10.0`
   - `click>=8.0.0`
+- Bridge 의존성 (선택):
+  - `mcp>=1.0.0`
+- Unity Editor Bridge:
+  - Unity 2021.3 이상
 
 ## 주요 기능
 

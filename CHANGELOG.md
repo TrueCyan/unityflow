@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-03
+
+### Added
+
+- **Unity Editor Bridge (MCP)**: Unity Editor와 실시간 통신하는 MCP 서버
+  - WSL/Windows 간 HTTP 통신으로 Unity Editor에서 시각적 피드백 제공
+  - Claude가 프리팹/씬의 렌더링 결과를 보고 피드백 루프 수행 가능
+
+- **Unity C# Plugin (UPM 패키지)**: `unity-bridge/`
+  - `Window > UnityFlow Bridge` EditorWindow UI
+  - HTTP 서버 (기본 포트 29184)
+  - 8개 API 엔드포인트:
+    - `/api/ping`, `/api/editor_state` — 연결 및 에디터 상태
+    - `/api/screenshot`, `/api/prefab_preview` — 스크린샷/프리팹 렌더링
+    - `/api/animation_frames`, `/api/animator_state` — 애니메이션 캡처/Animator 상태
+    - `/api/hierarchy`, `/api/inspector` — 런타임 hierarchy/Inspector 데이터
+    - `/api/console` — 콘솔 로그
+
+- **Python MCP Server**: `src/unityflow/bridge/`
+  - FastMCP 기반 8개 tool:
+    - `capture_screenshot` — Scene/Game View 스크린샷
+    - `capture_prefab_preview` — 프리팹 오프스크린 렌더링
+    - `capture_animation_frames` — 애니메이션 멀티프레임 캡처
+    - `get_animator_state` — Animator 런타임 상태 (Play Mode)
+    - `get_runtime_hierarchy` — 동적 오브젝트 포함 런타임 hierarchy
+    - `get_inspector` — 컴포넌트 Inspector 데이터
+    - `get_console_logs` — 콘솔 로그/에러
+    - `get_editor_state` — 에디터 상태
+
+- **`bridge` optional dependency**: `pip install unityflow[bridge]`
+- **`unityflow-bridge` CLI 명령어**: MCP 서버 실행
+
+### Installation
+
+**Unity Package** (Package Manager → Add from git URL):
+```
+https://github.com/TrueCyan/unityflow.git?path=unity-bridge
+```
+
+**Python**:
+```bash
+pip install unityflow[bridge]
+```
+
+---
+
 ## [0.3.13] - 2026-01-30
 
 ### Added

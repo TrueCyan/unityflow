@@ -1,0 +1,19 @@
+{
+  "name": "com.truecyan.unityflow-bridge",
+  "version": "0.1.0",
+  "displayName": "UnityFlow Bridge",
+  "description": "Unity Editor HTTP bridge for Claude Code visual feedback",
+  "unity": "2021.3",
+  "author": {
+    "name": "TrueCyan",
+    "url": "https://github.com/TrueCyan"
+  },
+  "type": "tool",
+  "keywords": [
+    "unityflow",
+    "bridge",
+    "claude",
+    "mcp",
+    "editor"
+  ]
+}

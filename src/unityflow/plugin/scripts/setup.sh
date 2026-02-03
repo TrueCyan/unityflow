@@ -70,8 +70,8 @@ install_unityflow() {
         return 0
     fi
 
-    log_info "Installing unityflow from PyPI..."
-    "$pip_cmd" install --quiet unityflow
+    log_info "Installing unityflow[bridge] from PyPI..."
+    "$pip_cmd" install --quiet "unityflow[bridge]"
 
     if "$pip_cmd" show unityflow >/dev/null 2>&1; then
         version=$("$pip_cmd" show unityflow | grep "^Version:" | cut -d' ' -f2)
@@ -84,15 +84,20 @@ install_unityflow() {
 
 setup_path() {
     unityflow_bin="$VENV_DIR/bin/unityflow"
+    unityflow_bridge_bin="$VENV_DIR/bin/unityflow-bridge"
 
     if [ -w "/usr/local/bin" ]; then
         ln -sf "$unityflow_bin" "/usr/local/bin/unityflow"
+        ln -sf "$unityflow_bridge_bin" "/usr/local/bin/unityflow-bridge"
         log_info "Symlink: /usr/local/bin/unityflow"
+        log_info "Symlink: /usr/local/bin/unityflow-bridge"
     else
         local_bin="$HOME/.local/bin"
         mkdir -p "$local_bin"
         ln -sf "$unityflow_bin" "$local_bin/unityflow"
+        ln -sf "$unityflow_bridge_bin" "$local_bin/unityflow-bridge"
         log_info "Symlink: $local_bin/unityflow"
+        log_info "Symlink: $local_bin/unityflow-bridge"
     fi
 }
 

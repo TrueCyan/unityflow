@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unityflow"
-version = "0.3.13"
+version = "0.4.0"
 description = "Unity workflow automation - edit, diff, and merge prefabs, scenes, and assets without the Unity Editor"
 readme = "README.md"
 license = {text = "MIT"}
@@ -31,18 +31,23 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+bridge = [
+    "mcp>=1.0.0",
+]
 dev = [
-    "pytest~=9.0.0",
-    "pytest-cov~=6.0.0",
-    "black~=26.1.0",
-    "ruff~=0.14.0",
+    "pytest==9.0.0",
+    "pytest-cov==6.0.0",
+    "black==26.1.0",
+    "ruff==0.14.14",
 ]
 all = [
     "unityflow[dev]",
+    "unityflow[bridge]",
 ]
 
 [project.scripts]
 unityflow = "unityflow.cli:main"
+unityflow-bridge = "unityflow.bridge.server:main"
 
 [project.urls]
 Homepage = "https://github.com/TrueCyan/unityflow"

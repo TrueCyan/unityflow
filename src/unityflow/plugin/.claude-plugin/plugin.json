@@ -1,7 +1,7 @@
 {
   "name": "unityflow",
-  "version": "0.3.11",
-  "description": "Unity YAML tools for deterministic serialization, conflict resolution, and animation workflows",
+  "version": "0.4.0",
+  "description": "Let Claude edit Unity prefabs, scenes, and animations directly. Visual feedback from Unity Editor via MCP.",
   "author": {
     "name": "TrueCyan",
     "url": "https://github.com/TrueCyan"
@@ -9,5 +9,5 @@
   "homepage": "https://github.com/TrueCyan/unityflow",
   "repository": "https://github.com/TrueCyan/unityflow",
   "license": "MIT",
-  "keywords": ["unity", "yaml", "prefab", "animation", "merge", "conflict-resolution"]
+  "keywords": ["unity", "prefab", "scene", "animation", "merge", "mcp", "visual-feedback"]
 }
