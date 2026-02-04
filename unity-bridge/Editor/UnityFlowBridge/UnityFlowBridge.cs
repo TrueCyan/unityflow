@@ -41,6 +41,7 @@ namespace UnityFlow.Bridge
         private bool _autoStart;
         private Vector2 _logScrollPos;
         private string _quickTestResult;
+        private volatile bool _testInProgress;
 
         [MenuItem("Window/UnityFlow Bridge")]
         public static void ShowWindow()
@@ -208,59 +209,84 @@ namespace UnityFlow.Bridge
             GUI.EndScrollView();
         }
 
+        private void RunQuickTestAsync(string url, System.Action<byte[], Exception> onComplete)
+        {
+            if (_testInProgress) return;
+            _testInProgress = true;
+            _quickTestResult = "Testing...";
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    using var client = new System.Net.WebClient();
+                    byte[] data = client.DownloadData(url);
+                    EditorApplication.delayCall += () =>
+                    {
+                        onComplete(data, null);
+                        _testInProgress = false;
+                    };
+                }
+                catch (Exception ex)
+                {
+                    EditorApplication.delayCall += () =>
+                    {
+                        onComplete(null, ex);
+                        _testInProgress = false;
+                    };
+                }
+            });
+        }
+
         private void DrawQuickTest(bool isRunning)
         {
             EditorGUILayout.LabelField("Quick Test", EditorStyles.boldLabel);
-            EditorGUI.BeginDisabledGroup(!isRunning);
+            EditorGUI.BeginDisabledGroup(!isRunning || _testInProgress);
 
             EditorGUILayout.BeginHorizontal();
 
             if (GUILayout.Button("Ping Self"))
             {
-                try
+                var url = $"http://localhost:{_server.Port}/api/ping";
+                RunQuickTestAsync(url, (data, ex) =>
                 {
-                    var url = $"http://localhost:{_server.Port}/api/ping";
-                    using var client = new System.Net.WebClient();
-                    _quickTestResult = client.DownloadString(url);
-                }
-                catch (Exception ex)
-                {
-                    _quickTestResult = $"Error: {ex.Message}";
-                }
+                    if (ex != null)
+                        _quickTestResult = $"Error: {ex.Message}";
+                    else
+                        _quickTestResult = System.Text.Encoding.UTF8.GetString(data);
+                });
             }
 
             if (GUILayout.Button("Capture Screenshot"))
             {
-                try
+                var url = $"http://localhost:{_server.Port}/api/screenshot?view=scene&width=512&height=384";
+                RunQuickTestAsync(url, (data, ex) =>
                 {
-                    var url = $"http://localhost:{_server.Port}/api/screenshot?view=scene&width=512&height=384";
-                    using var client = new System.Net.WebClient();
-                    byte[] data = client.DownloadData(url);
+                    if (ex != null)
+                    {
+                        _quickTestResult = $"Error: {ex.Message}";
+                        return;
+                    }
                     var tex = new Texture2D(2, 2);
                     tex.LoadImage(data);
                     ShowTexturePreview(tex);
                     _quickTestResult = $"Screenshot: {tex.width}x{tex.height}";
-                }
-                catch (Exception ex)
-                {
-                    _quickTestResult = $"Error: {ex.Message}";
-                }
+                });
             }
 
             if (GUILayout.Button("Show Hierarchy"))
             {
-                try
+                var url = $"http://localhost:{_server.Port}/api/hierarchy";
+                RunQuickTestAsync(url, (data, ex) =>
                 {
-                    var url = $"http://localhost:{_server.Port}/api/hierarchy";
-                    using var client = new System.Net.WebClient();
-                    _quickTestResult = client.DownloadString(url);
+                    if (ex != null)
+                    {
+                        _quickTestResult = $"Error: {ex.Message}";
+                        return;
+                    }
+                    _quickTestResult = System.Text.Encoding.UTF8.GetString(data);
                     if (_quickTestResult.Length > 500)
                         _quickTestResult = _quickTestResult.Substring(0, 500) + "...";
-                }
-                catch (Exception ex)
-                {
-                    _quickTestResult = $"Error: {ex.Message}";
-                }
+                });
             }
 
             EditorGUILayout.EndHorizontal();
