@@ -1,7 +1,8 @@
 {
   "mcpServers": {
     "unityflow-bridge": {
-      "command": "unityflow-bridge",
+      "command": "uvx",
+      "args": ["--from", "unityflow[bridge]", "unityflow-bridge"],
       "env": {
         "UNITY_BRIDGE_HOST": "localhost",
         "UNITY_BRIDGE_PORT": "29184"
