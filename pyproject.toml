@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unityflow"
-version = "0.5.4"
+version = "0.5.5"
 description = "Unity workflow automation - edit, diff, and merge prefabs, scenes, and assets without the Unity Editor"
 readme = "README.md"
 license = {text = "MIT"}
@@ -32,7 +32,7 @@ dependencies = [
 
 [project.optional-dependencies]
 bridge = [
-    "mcp>=1.0.0",
+    "mcp>=1.8.0",
 ]
 dev = [
     "pytest==9.0.0",
