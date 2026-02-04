@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-02-04
+
+### Fixed
+
+- Quick Test 버튼(Ping/Screenshot/Hierarchy) 클릭 시 데드락 발생하던 문제 수정
+  - Main Thread에서 동기 HTTP 요청 → `ExecuteOnMainThread` 대기 순환으로 인한 데드락
+  - HTTP 요청을 ThreadPool에서 비동기 실행하도록 변경
+
+---
+
 ## [0.5.1] - 2026-02-04
 
 ### Fixed
