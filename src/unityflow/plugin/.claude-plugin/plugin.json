@@ -9,5 +9,11 @@
   "homepage": "https://github.com/TrueCyan/unityflow",
   "repository": "https://github.com/TrueCyan/unityflow",
   "license": "MIT",
-  "keywords": ["unity", "prefab", "scene", "animation", "merge", "mcp", "visual-feedback"]
+  "keywords": ["unity", "prefab", "scene", "animation", "merge", "mcp", "visual-feedback"],
+  "mcpServers": {
+    "unityflow-bridge": {
+      "command": "uvx",
+      "args": ["--from", "unityflow[bridge]", "unityflow-bridge"]
+    }
+  }
 }
