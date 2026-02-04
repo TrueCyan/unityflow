@@ -19,7 +19,7 @@ def _error_text(e):
 
 
 @mcp.tool()
-def capture_screenshot(view: str = "scene", width: int = 1024, height: int = 768) -> Image | str:
+def capture_screenshot(view: str = "scene", width: int = 1024, height: int = 768) -> Image:
     """Capture a screenshot from the Unity Editor.
 
     Args:
@@ -30,15 +30,12 @@ def capture_screenshot(view: str = "scene", width: int = 1024, height: int = 768
     Returns:
         PNG image of the current view
     """
-    try:
-        png_data = _client.screenshot(view=view, width=width, height=height)
-        return Image(data=base64.b64encode(png_data).decode(), media_type="image/png")
-    except UnityBridgeError as e:
-        return _error_text(e)
+    png_data = _client.screenshot(view=view, width=width, height=height)
+    return Image(data=png_data, format="png")
 
 
 @mcp.tool()
-def capture_prefab_preview(prefab_path: str, width: int = 512, height: int = 512, mode: str = "render") -> Image | str:
+def capture_prefab_preview(prefab_path: str, width: int = 512, height: int = 512, mode: str = "render") -> Image:
     """Render a preview of a Unity prefab.
 
     Args:
@@ -50,11 +47,8 @@ def capture_prefab_preview(prefab_path: str, width: int = 512, height: int = 512
     Returns:
         PNG image of the prefab
     """
-    try:
-        png_data = _client.prefab_preview(path=prefab_path, width=width, height=height, mode=mode)
-        return Image(data=base64.b64encode(png_data).decode(), media_type="image/png")
-    except UnityBridgeError as e:
-        return _error_text(e)
+    png_data = _client.prefab_preview(path=prefab_path, width=width, height=height, mode=mode)
+    return Image(data=png_data, format="png")
 
 
 @mcp.tool()
@@ -131,7 +125,7 @@ def capture_animation_frames(
     frame_count: int = 8,
     width: int = 512,
     height: int = 512,
-) -> list[Image | str] | str:
+):
     """Capture multiple frames of an animation clip for visual review.
 
     Samples the animation at evenly-spaced times and renders each frame.
@@ -147,18 +141,13 @@ def capture_animation_frames(
     Returns:
         List of PNG images, one per sampled frame
     """
-    try:
-        data = _client.animation_frames(target=target, clip=clip, frame_count=frame_count, width=width, height=height)
-        results = []
-        for frame in data.get("frames", []):
-            img_b64 = frame.get("image", "")
-            if img_b64:
-                results.append(Image(data=img_b64, media_type="image/png"))
-        if not results:
-            return f"No frames captured. Clip: {data.get('clip', 'unknown')}, Duration: {data.get('duration', 0)}s"
-        return results
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.animation_frames(target=target, clip=clip, frame_count=frame_count, width=width, height=height)
+    results = []
+    for frame in data.get("frames", []):
+        img_b64 = frame.get("image", "")
+        if img_b64:
+            results.append(Image(data=base64.b64decode(img_b64), format="png"))
+    return results
 
 
 @mcp.tool()
