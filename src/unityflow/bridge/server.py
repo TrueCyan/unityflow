@@ -8,7 +8,7 @@ from unityflow.bridge.unity_client import UnityBridgeError, UnityClient
 
 mcp = FastMCP(
     "unityflow-bridge",
-    description="Unity Editor Bridge - visual feedback and runtime data from the Unity Editor",
+    instructions="Unity Editor Bridge - visual feedback and runtime data from the Unity Editor",
 )
 
 _client = UnityClient()
