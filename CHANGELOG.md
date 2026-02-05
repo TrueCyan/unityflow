@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-02-05
+
+### Fixed
+
+- Unity Editor에 포커스가 없을 때 MCP 브릿지 요청이 타임아웃되던 문제 수정
+  - `EditorApplication.delayCall`은 에디터 포커스 없이 실행되지 않음
+  - `EditorApplication.update` 기반 큐 디스패치로 교체하여 백그라운드에서도 동작
+
+### Changed
+
+- 플러그인 디렉토리를 `src/unityflow/plugin/`에서 리포 루트로 이동
+  - marketplace에서 `path` 필드 없이 MCP 서버가 정상 로딩되도록 구조 변경
+
+---
+
 ## [0.5.2] - 2026-02-04
 
 ### Fixed

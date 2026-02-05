@@ -15,6 +15,8 @@ namespace UnityFlow.Bridge
         private Thread _listenerThread;
         private volatile bool _isRunning;
         private int _port;
+        private readonly Queue<Action> _mainThreadQueue = new();
+        private readonly object _queueLock = new();
 
         public bool IsRunning => _isRunning;
         public int Port => _port;
@@ -57,6 +59,7 @@ namespace UnityFlow.Bridge
                 _listenerThread = new Thread(ListenLoop) { IsBackground = true, Name = "UnityFlowBridge" };
                 _listenerThread.Start();
 
+                EditorApplication.update += ProcessMainThreadQueue;
                 Debug.Log($"[UnityFlow Bridge] Listening on port {port}");
             }
             catch (Exception ex)
@@ -71,6 +74,7 @@ namespace UnityFlow.Bridge
             if (!_isRunning) return;
 
             _isRunning = false;
+            EditorApplication.update -= ProcessMainThreadQueue;
             try
             {
                 _listener?.Stop();
@@ -193,6 +197,20 @@ namespace UnityFlow.Bridge
             }
         }
 
+        private void ProcessMainThreadQueue()
+        {
+            Action[] pending;
+            lock (_queueLock)
+            {
+                if (_mainThreadQueue.Count == 0) return;
+                pending = _mainThreadQueue.ToArray();
+                _mainThreadQueue.Clear();
+            }
+
+            foreach (var action in pending)
+                action();
+        }
+
         private T ExecuteOnMainThread<T>(Func<T> action)
         {
             if (Thread.CurrentThread.ManagedThreadId == 1)
@@ -202,21 +220,24 @@ namespace UnityFlow.Bridge
             Exception exception = null;
             var resetEvent = new ManualResetEventSlim(false);
 
-            EditorApplication.delayCall += () =>
+            lock (_queueLock)
             {
-                try
+                _mainThreadQueue.Enqueue(() =>
                 {
-                    result = action();
-                }
-                catch (Exception ex)
-                {
-                    exception = ex;
-                }
-                finally
-                {
-                    resetEvent.Set();
-                }
-            };
+                    try
+                    {
+                        result = action();
+                    }
+                    catch (Exception ex)
+                    {
+                        exception = ex;
+                    }
+                    finally
+                    {
+                        resetEvent.Set();
+                    }
+                });
+            }
 
             if (!resetEvent.Wait(TimeSpan.FromSeconds(30)))
                 throw new TimeoutException("Main thread dispatch timed out after 30 seconds");
