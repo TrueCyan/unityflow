@@ -104,6 +104,10 @@ namespace UnityFlow.Bridge
                 {
                     break;
                 }
+                catch (ThreadAbortException)
+                {
+                    break;
+                }
                 catch (Exception ex)
                 {
                     if (_isRunning)
