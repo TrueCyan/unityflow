@@ -111,7 +111,17 @@ class UnityClient:
     def scene_view_camera(self):
         return self.get_json("/api/camera/scene_view")
 
-    def set_scene_view_camera(self, pivot_x=None, pivot_y=None, pivot_z=None, rotation_x=None, rotation_y=None, rotation_z=None, size=None, orthographic=None):
+    def set_scene_view_camera(
+        self,
+        pivot_x=None,
+        pivot_y=None,
+        pivot_z=None,
+        rotation_x=None,
+        rotation_y=None,
+        rotation_z=None,
+        size=None,
+        orthographic=None,
+    ):
         params = {}
         if pivot_x is not None:
             params["pivotX"] = pivot_x

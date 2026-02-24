@@ -217,6 +217,7 @@ namespace UnityEditor
         public static bool isPaused;
         public static bool isCompiling;
         public static event System.Action delayCall;
+        public static event System.Action update;
         public static void Step() {}
     }
     public class EditorPrefs
