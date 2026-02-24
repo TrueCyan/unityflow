@@ -2,6 +2,7 @@
 
 from unityflow.script_parser import (
     SerializedField,
+    extract_element_type,
     parse_script,
     reorder_fields,
 )
@@ -515,3 +516,153 @@ public class Attributed : MonoBehaviour
         assert info.fields[0].name == "value"
         assert info.fields[0].has_serialize_field is True
         assert info.fields[1].name == "playerName"
+
+
+class TestExtractElementType:
+
+    def test_list_type(self):
+        assert extract_element_type("List<UISocketData>") == "UISocketData"
+
+    def test_array_type(self):
+        assert extract_element_type("UISocketData[]") == "UISocketData"
+
+    def test_plain_type(self):
+        assert extract_element_type("int") is None
+
+    def test_list_primitive(self):
+        assert extract_element_type("List<int>") == "int"
+
+
+class TestNestedTypeParsing:
+
+    def test_parse_serializable_struct(self):
+        script = """
+using UnityEngine;
+using System;
+
+[System.Serializable]
+public struct UISocketData
+{
+    public string Name;
+    public Vector3 PositionOffset;
+}
+
+public class UIPanel : MonoBehaviour
+{
+    [SerializeField]
+    private List<UISocketData> socketDataList;
+}
+"""
+        info = parse_script(script)
+        assert info is not None
+        assert "UISocketData" in info.nested_types
+
+        nested = info.nested_types["UISocketData"]
+        field_names = [f.unity_name for f in nested.fields]
+        assert "Name" in field_names
+        assert "PositionOffset" in field_names
+
+    def test_nested_field_no_m_prefix(self):
+        script = """
+using UnityEngine;
+using System;
+
+[Serializable]
+public struct ItemData
+{
+    public string itemName;
+    public int count;
+}
+
+public class Inventory : MonoBehaviour
+{
+    public ItemData mainItem;
+}
+"""
+        info = parse_script(script)
+        assert info is not None
+        assert "ItemData" in info.nested_types
+
+        nested = info.nested_types["ItemData"]
+        assert nested.fields[0].unity_name == "itemName"
+        assert nested.fields[1].unity_name == "count"
+
+    def test_no_nested_types_when_not_referenced(self):
+        script = """
+using UnityEngine;
+using System;
+
+[System.Serializable]
+public struct UnusedData
+{
+    public int value;
+}
+
+public class Simple : MonoBehaviour
+{
+    public float speed;
+}
+"""
+        info = parse_script(script)
+        assert info is not None
+        assert len(info.nested_types) == 0
+
+    def test_recursive_nested_types(self):
+        script = """
+using UnityEngine;
+using System;
+
+[Serializable]
+public struct Inner
+{
+    public int value;
+}
+
+[Serializable]
+public struct Outer
+{
+    public string label;
+    public Inner inner;
+}
+
+public class Controller : MonoBehaviour
+{
+    public Outer data;
+}
+"""
+        info = parse_script(script)
+        assert info is not None
+        assert "Outer" in info.nested_types
+        outer = info.nested_types["Outer"]
+        assert "Inner" in outer.nested_types
+
+    def test_list_element_type_nested(self):
+        script = """
+using UnityEngine;
+using System;
+using System.Collections.Generic;
+
+[Serializable]
+public struct WaveData
+{
+    public int enemyCount;
+    public float delay;
+}
+
+public class WaveManager : MonoBehaviour
+{
+    [SerializeField]
+    private List<WaveData> waves;
+}
+"""
+        info = parse_script(script)
+        assert info is not None
+        assert "WaveData" in info.nested_types
+        nested = info.nested_types["WaveData"]
+        assert len(nested.fields) == 2
+
+    def test_from_nested_field_name(self):
+        field = SerializedField.from_nested_field_name("PositionOffset", "Vector3")
+        assert field.name == "PositionOffset"
+        assert field.unity_name == "PositionOffset"
+        assert field.field_type == "Vector3"

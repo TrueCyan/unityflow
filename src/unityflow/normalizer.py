@@ -237,9 +237,70 @@ class UnityPrefabNormalizer:
         missing_fields = script_info.get_missing_fields(existing_names)
 
         for field in missing_fields:
-            # Only add if we have a valid default value
             if field.default_value is not None:
                 content[field.unity_name] = field.default_value
+
+        if script_info.nested_types:
+            self._sync_nested_fields(content, script_info, script_info.nested_types)
+
+    def _sync_nested_fields(
+        self,
+        content: dict[str, Any],
+        type_info: Any,
+        nested_types: dict[str, Any],
+    ) -> None:
+        from unityflow.script_parser import extract_element_type
+
+        for f in type_info.fields:
+            value = content.get(f.unity_name)
+            if value is None:
+                continue
+
+            element_type = extract_element_type(f.field_type)
+            direct_type = f.field_type.strip()
+
+            matched_type = None
+            if element_type and element_type in nested_types:
+                matched_type = element_type
+            elif direct_type in nested_types:
+                matched_type = direct_type
+
+            if matched_type is None:
+                continue
+
+            nested_info = nested_types[matched_type]
+
+            if isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        self._sync_struct_fields(item, nested_info, nested_types)
+            elif isinstance(value, dict):
+                self._sync_struct_fields(value, nested_info, nested_types)
+
+    def _sync_struct_fields(
+        self,
+        data: dict[str, Any],
+        nested_info: Any,
+        nested_types: dict[str, Any],
+    ) -> None:
+        valid_names = nested_info.get_valid_field_names()
+        rename_mapping = nested_info.get_rename_mapping()
+
+        for old_name, new_name in rename_mapping.items():
+            if old_name in data and new_name not in data:
+                data[new_name] = data[old_name]
+
+        fields_to_remove = [name for name in data if name not in valid_names]
+        for name in fields_to_remove:
+            del data[name]
+
+        existing_names = set(data.keys())
+        for f in nested_info.get_missing_fields(existing_names):
+            if f.default_value is not None:
+                data[f.unity_name] = f.default_value
+
+        if nested_info.nested_types:
+            self._sync_nested_fields(data, nested_info, nested_info.nested_types)
 
     def _get_script_info(self, script_guid: str):
         """Get script info for a script by GUID (with caching).
@@ -259,9 +320,9 @@ class UnityPrefabNormalizer:
 
         # Lazy initialize GUID index
         if self._guid_index is None:
-            from unityflow.asset_tracker import build_guid_index
+            from unityflow.asset_tracker import get_lazy_guid_index
 
-            self._guid_index = build_guid_index(self.project_root)
+            self._guid_index = get_lazy_guid_index(self.project_root)
 
         # Find script path
         script_path = self._guid_index.get_path(script_guid)
@@ -299,12 +360,12 @@ class UnityPrefabNormalizer:
 
         # Lazy initialize cache
         if self._script_cache is None:
-            from unityflow.asset_tracker import build_guid_index
+            from unityflow.asset_tracker import get_lazy_guid_index
             from unityflow.script_parser import ScriptFieldCache
 
-            # Build GUID index if not already done
+            # Lazy initialize GUID index
             if self._guid_index is None:
-                self._guid_index = build_guid_index(self.project_root)
+                self._guid_index = get_lazy_guid_index(self.project_root)
 
             self._script_cache = ScriptFieldCache(
                 guid_index=self._guid_index,

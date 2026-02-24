@@ -5,6 +5,7 @@ from pathlib import Path
 
 from unityflow.normalizer import UnityPrefabNormalizer, normalize_prefab
 from unityflow.parser import UnityYAMLDocument
+from unityflow.script_parser import ScriptInfo, SerializedField
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -265,3 +266,143 @@ class TestConvenienceFunction:
         )
 
         assert content.startswith("%YAML 1.1")
+
+
+class TestNestedFieldSync:
+
+    def _make_nested_info(self, fields):
+        info = ScriptInfo(class_name="TestStruct")
+        for name, ftype, default in fields:
+            info.fields.append(
+                SerializedField.from_nested_field_name(name=name, field_type=ftype, default_value=default)
+            )
+        return info
+
+    def test_sync_adds_missing_struct_field(self):
+        normalizer = UnityPrefabNormalizer()
+        nested_info = self._make_nested_info(
+            [
+                ("Name", "string", ""),
+                ("PositionOffset", "Vector3", {"x": 0, "y": 0, "z": 0}),
+                ("NewField", "int", 0),
+            ]
+        )
+
+        script_info = ScriptInfo(class_name="UIPanel")
+        script_info.fields.append(SerializedField.from_field_name("socketDataList", "List<TestStruct>"))
+        script_info.nested_types["TestStruct"] = nested_info
+
+        content = {
+            "m_Script": {"fileID": 11500000, "guid": "abc"},
+            "m_SocketDataList": [
+                {"Name": "socket1", "PositionOffset": {"x": 1, "y": 2, "z": 3}},
+                {"Name": "socket2", "PositionOffset": {"x": 0, "y": 0, "z": 0}},
+            ],
+        }
+
+        normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
+
+        for item in content["m_SocketDataList"]:
+            assert "NewField" in item
+            assert item["NewField"] == 0
+
+    def test_sync_removes_obsolete_struct_field(self):
+        normalizer = UnityPrefabNormalizer()
+        nested_info = self._make_nested_info(
+            [
+                ("Name", "string", ""),
+            ]
+        )
+
+        script_info = ScriptInfo(class_name="UIPanel")
+        script_info.fields.append(SerializedField.from_field_name("data", "TestStruct"))
+        script_info.nested_types["TestStruct"] = nested_info
+
+        content = {
+            "m_Script": {"fileID": 11500000, "guid": "abc"},
+            "m_Data": {"Name": "test", "ObsoleteField": 42},
+        }
+
+        normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
+
+        assert "ObsoleteField" not in content["m_Data"]
+        assert content["m_Data"]["Name"] == "test"
+
+    def test_sync_renames_struct_field(self):
+        normalizer = UnityPrefabNormalizer()
+        nested_info = ScriptInfo(class_name="TestStruct")
+        nested_info.fields.append(
+            SerializedField.from_nested_field_name(
+                name="Label",
+                field_type="string",
+                default_value="",
+                former_names=["Name"],
+            )
+        )
+
+        script_info = ScriptInfo(class_name="Controller")
+        script_info.fields.append(SerializedField.from_field_name("item", "TestStruct"))
+        script_info.nested_types["TestStruct"] = nested_info
+
+        content = {
+            "m_Script": {"fileID": 11500000, "guid": "abc"},
+            "m_Item": {"Name": "old_value"},
+        }
+
+        normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
+
+        assert "Name" not in content["m_Item"]
+        assert content["m_Item"]["Label"] == "old_value"
+
+    def test_sync_recursive_nested(self):
+        normalizer = UnityPrefabNormalizer()
+
+        inner_info = self._make_nested_info(
+            [
+                ("value", "int", 0),
+                ("newInnerField", "float", 0.0),
+            ]
+        )
+
+        outer_info = self._make_nested_info(
+            [
+                ("label", "string", ""),
+                ("inner", "InnerStruct", None),
+            ]
+        )
+        outer_info.nested_types["InnerStruct"] = inner_info
+
+        script_info = ScriptInfo(class_name="Controller")
+        script_info.fields.append(SerializedField.from_field_name("data", "OuterStruct"))
+        script_info.nested_types["OuterStruct"] = outer_info
+
+        content = {
+            "m_Script": {"fileID": 11500000, "guid": "abc"},
+            "m_Data": {
+                "label": "test",
+                "inner": {"value": 5},
+            },
+        }
+
+        normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
+
+        assert content["m_Data"]["inner"]["newInnerField"] == 0.0
+        assert content["m_Data"]["inner"]["value"] == 5
+
+    def test_sync_skips_non_dict_list_values(self):
+        normalizer = UnityPrefabNormalizer()
+        nested_info = self._make_nested_info(
+            [
+                ("Name", "string", ""),
+            ]
+        )
+
+        script_info = ScriptInfo(class_name="Test")
+        script_info.fields.append(SerializedField.from_field_name("items", "List<TestStruct>"))
+        script_info.nested_types["TestStruct"] = nested_info
+
+        content = {
+            "m_Items": [42, "not_a_dict"],
+        }
+
+        normalizer._sync_nested_fields(content, script_info, script_info.nested_types)

@@ -48,6 +48,25 @@ class SerializedField:
             **kwargs,
         )
 
+    @classmethod
+    def from_nested_field_name(
+        cls,
+        name: str,
+        field_type: str = "",
+        former_names: list[str] | None = None,
+        default_value: any = None,
+        **kwargs,
+    ) -> SerializedField:
+        """Create a SerializedField for nested struct fields (no m_ prefix)."""
+        return cls(
+            name=name,
+            unity_name=name,
+            field_type=field_type,
+            former_names=former_names or [],
+            default_value=default_value,
+            **kwargs,
+        )
+
 
 @dataclass
 class ScriptInfo:
@@ -57,6 +76,7 @@ class ScriptInfo:
     namespace: str | None = None
     base_class: str | None = None
     fields: list[SerializedField] = field(default_factory=list)
+    nested_types: dict[str, ScriptInfo] = field(default_factory=dict)
     path: Path | None = None
     guid: str | None = None
 
@@ -373,6 +393,23 @@ def _get_type_default(field_type: str) -> any:
     return None
 
 
+def extract_element_type(field_type: str) -> str | None:
+    """Extract element type from collection types.
+
+    Examples:
+        "List<UISocketData>" -> "UISocketData"
+        "UISocketData[]" -> "UISocketData"
+        "int" -> None
+    """
+    field_type = field_type.strip()
+    list_match = re.match(r"List<(\w+)>", field_type)
+    if list_match:
+        return list_match.group(1)
+    if field_type.endswith("[]"):
+        return field_type[:-2].strip()
+    return None
+
+
 def _is_reference_type(type_name: str) -> bool:
     """Check if a type is a Unity reference type."""
     reference_types = {
@@ -439,8 +476,6 @@ def parse_script(content: str, path: Path | None = None) -> ScriptInfo | None:
     )
 
     if not is_unity_class:
-        # Not a Unity serializable class, but we can still try to extract fields
-        # for [System.Serializable] classes used as nested types
         pass
 
     # Find class body
@@ -495,6 +530,9 @@ def parse_script(content: str, path: Path | None = None) -> ScriptInfo | None:
                     line_number=line_num,
                 )
             )
+
+    serializable_types = _parse_serializable_types(content)
+    _resolve_nested_types(info, serializable_types)
 
     return info
 
@@ -677,6 +715,73 @@ def _is_unity_serializable_class(base_class: str | None, content: str) -> bool:
         return True
 
     return base_class is not None  # Assume any class with base could be Unity class
+
+
+SERIALIZABLE_TYPE_PATTERN = re.compile(
+    r"\[\s*(?:System\.)?Serializable\s*\]\s*" r"(?:public\s+)?(?:struct|class)\s+(\w+)\s*\{",
+    re.MULTILINE,
+)
+
+
+def _parse_serializable_types(content: str) -> dict[str, ScriptInfo]:
+    """Parse all [System.Serializable] struct/class types in a script."""
+    result: dict[str, ScriptInfo] = {}
+
+    for match in SERIALIZABLE_TYPE_PATTERN.finditer(content):
+        type_name = match.group(1)
+        body_start = match.end()
+        body = _extract_class_body(content, body_start)
+        if body is None:
+            continue
+
+        info = ScriptInfo(class_name=type_name)
+
+        for field_match in FIELD_PATTERN.finditer(body):
+            attrs = field_match.group("attrs") or ""
+            access = field_match.group("access") or "private"
+            modifiers = field_match.group("modifiers") or ""
+            field_type = field_match.group("type").strip()
+            field_name = field_match.group("name")
+            default_str = field_match.group("default")
+
+            if any(mod in modifiers.lower() for mod in ["static", "const", "readonly"]):
+                continue
+
+            if NON_SERIALIZED_ATTR.search(attrs):
+                continue
+
+            is_public = access == "public"
+            has_serialize_field = bool(SERIALIZE_FIELD_ATTR.search(attrs))
+
+            if is_public or has_serialize_field:
+                former_names = FORMERLY_SERIALIZED_AS_ATTR.findall(attrs)
+                default_value = _parse_default_value(default_str, field_type)
+
+                info.fields.append(
+                    SerializedField.from_nested_field_name(
+                        name=field_name,
+                        field_type=field_type,
+                        former_names=former_names,
+                        default_value=default_value,
+                        is_public=is_public,
+                        has_serialize_field=has_serialize_field,
+                    )
+                )
+
+        if info.fields:
+            result[type_name] = info
+
+    return result
+
+
+def _resolve_nested_types(info: ScriptInfo, all_serializable: dict[str, ScriptInfo]) -> None:
+    """Recursively attach nested_types referenced by fields."""
+    for f in info.fields:
+        for type_name in [f.field_type.strip(), extract_element_type(f.field_type)]:
+            if type_name and type_name in all_serializable and type_name not in info.nested_types:
+                nested = all_serializable[type_name]
+                info.nested_types[type_name] = nested
+                _resolve_nested_types(nested, all_serializable)
 
 
 @dataclass

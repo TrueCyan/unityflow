@@ -105,6 +105,7 @@ from unityflow.script_parser import (
     ScriptFieldCache,
     ScriptInfo,
     SerializedField,
+    extract_element_type,
     get_script_field_order,
     parse_script,
     parse_script_file,
@@ -151,6 +152,7 @@ __all__ = [
     "parse_script_file",
     "get_script_field_order",
     "reorder_fields",
+    "extract_element_type",
     # Extension sets
     "UNITY_EXTENSIONS",
     "UNITY_CORE_EXTENSIONS",
