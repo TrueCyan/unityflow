@@ -1187,6 +1187,394 @@ def _resolve_component_path(
     return f"gameObjects/{go_id}/{property_name}", None
 
 
+def _handle_add_component(
+    doc: UnityYAMLDocument,
+    go_path: str,
+    comp_type: str,
+    output_path: Path,
+    output: Path | None,
+    project_root: Path | None,
+) -> None:
+    from unityflow.asset_tracker import build_guid_index
+    from unityflow.formats import CLASS_NAME_TO_ID
+    from unityflow.hierarchy import Hierarchy
+    from unityflow.parser import CLASS_IDS, UnityYAMLObject
+
+    guid_index = build_guid_index(project_root) if project_root else None
+    hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+    target_node = hier.find(go_path)
+    if target_node is None:
+        click.echo(f"Error: GameObject not found: {go_path}", err=True)
+        sys.exit(1)
+
+    # Check hierarchy components (excludes Transform/RectTransform)
+    for comp in target_node.components:
+        comp_name = comp.script_name or comp.class_name
+        if comp_name.lower() == comp_type.lower():
+            click.echo(f"Error: Component '{comp_type}' already exists on '{go_path}'", err=True)
+            sys.exit(1)
+
+    # Also check Transform/RectTransform (excluded from hierarchy components)
+    transform_obj = doc.get_by_file_id(target_node.transform_id)
+    if transform_obj and transform_obj.class_name.lower() == comp_type.lower():
+        click.echo(f"Error: Component '{comp_type}' already exists on '{go_path}'", err=True)
+        sys.exit(1)
+
+    class_id = CLASS_NAME_TO_ID.get(comp_type)
+    script_guid = None
+
+    if class_id is None:
+        for name, cid in CLASS_NAME_TO_ID.items():
+            if name.lower() == comp_type.lower():
+                class_id = cid
+                comp_type = name
+                break
+
+    if class_id is None:
+        if guid_index:
+            for path, guid in guid_index.path_to_guid.items():
+                if path.suffix == ".cs" and path.stem == comp_type:
+                    script_guid = guid
+                    break
+
+        if script_guid is None:
+            click.echo(f"Error: Component or script '{comp_type}' not found.", err=True)
+            if project_root:
+                click.echo(f"Searched for {comp_type}.cs in project.", err=True)
+            sys.exit(1)
+
+        class_id = 114
+
+    new_file_id = doc.generate_unique_file_id()
+
+    comp_data = {
+        "m_ObjectHideFlags": 0,
+        "m_CorrespondingSourceObject": {"fileID": 0},
+        "m_PrefabInstance": {"fileID": 0},
+        "m_PrefabAsset": {"fileID": 0},
+        "m_GameObject": {"fileID": target_node.file_id},
+        "m_Enabled": 1,
+    }
+
+    if comp_type == "Button":
+        comp_data.update(
+            {
+                "m_Interactable": 1,
+                "m_TargetGraphic": {"fileID": 0},
+                "m_OnClick": {
+                    "m_PersistentCalls": {"m_Calls": []},
+                },
+                "m_Navigation": {
+                    "m_Mode": 3,
+                    "m_WrapAround": 0,
+                    "m_SelectOnUp": {"fileID": 0},
+                    "m_SelectOnDown": {"fileID": 0},
+                    "m_SelectOnLeft": {"fileID": 0},
+                    "m_SelectOnRight": {"fileID": 0},
+                },
+                "m_Colors": {
+                    "m_NormalColor": {"r": 1, "g": 1, "b": 1, "a": 1},
+                    "m_HighlightedColor": {"r": 0.9607843, "g": 0.9607843, "b": 0.9607843, "a": 1},
+                    "m_PressedColor": {"r": 0.7843137, "g": 0.7843137, "b": 0.7843137, "a": 1},
+                    "m_SelectedColor": {"r": 0.9607843, "g": 0.9607843, "b": 0.9607843, "a": 1},
+                    "m_DisabledColor": {"r": 0.7843137, "g": 0.7843137, "b": 0.7843137, "a": 0.5019608},
+                    "m_ColorMultiplier": 1,
+                    "m_FadeDuration": 0.1,
+                },
+            }
+        )
+    elif comp_type == "Image":
+        comp_data.update(
+            {
+                "m_Material": {"fileID": 0},
+                "m_Color": {"r": 1, "g": 1, "b": 1, "a": 1},
+                "m_RaycastTarget": 1,
+                "m_RaycastPadding": {"x": 0, "y": 0, "z": 0, "w": 0},
+                "m_Maskable": 1,
+                "m_Sprite": {"fileID": 0},
+                "m_Type": 0,
+                "m_PreserveAspect": 0,
+                "m_FillCenter": 1,
+                "m_FillMethod": 4,
+                "m_FillAmount": 1,
+                "m_FillClockwise": 1,
+                "m_FillOrigin": 0,
+                "m_UseSpriteMesh": 0,
+                "m_PixelsPerUnitMultiplier": 1,
+            }
+        )
+
+    if class_id == 114 and script_guid:
+        comp_data["m_Script"] = {"fileID": 11500000, "guid": script_guid, "type": 3}
+
+    root_key = CLASS_IDS.get(class_id, "MonoBehaviour") if class_id != 114 else "MonoBehaviour"
+    new_obj = UnityYAMLObject(
+        class_id=class_id,
+        file_id=new_file_id,
+        stripped=False,
+        data={root_key: comp_data},
+    )
+
+    doc.add_object(new_obj)
+
+    go_obj = doc.get_by_file_id(target_node.file_id)
+    if go_obj:
+        go_content = go_obj.get_content()
+        if go_content:
+            components = go_content.get("m_Component", [])
+            components.append({"component": {"fileID": new_file_id}})
+            go_content["m_Component"] = components
+
+    doc.save(output_path)
+    click.echo(f"Added {comp_type} to {go_path}")
+    if output:
+        click.echo(f"Saved to: {output}")
+
+
+def _handle_remove_component(
+    doc: UnityYAMLDocument,
+    go_path: str,
+    comp_type: str,
+    output_path: Path,
+    output: Path | None,
+    project_root: Path | None,
+) -> None:
+    from unityflow.asset_tracker import build_guid_index
+    from unityflow.hierarchy import Hierarchy
+
+    guid_index = build_guid_index(project_root) if project_root else None
+    hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+    target_node = hier.find(go_path)
+    if target_node is None:
+        click.echo(f"Error: GameObject not found: {go_path}", err=True)
+        sys.exit(1)
+
+    target_comp = None
+    for comp in target_node.components:
+        comp_name = comp.script_name or comp.class_name
+        if comp_name.lower() == comp_type.lower():
+            target_comp = comp
+            break
+
+    if target_comp is None:
+        click.echo(f"Error: Component '{comp_type}' not found on '{go_path}'", err=True)
+        sys.exit(1)
+
+    if not doc.remove_object(target_comp.file_id):
+        click.echo("Error: Failed to remove component from document", err=True)
+        sys.exit(1)
+
+    go_obj = doc.get_by_file_id(target_node.file_id)
+    if go_obj:
+        go_content = go_obj.get_content()
+        if go_content:
+            components = go_content.get("m_Component", [])
+            new_components = [c for c in components if c.get("component", {}).get("fileID") != target_comp.file_id]
+            go_content["m_Component"] = new_components
+
+    doc.save(output_path)
+    click.echo(f"Removed {comp_type} from {go_path}")
+    if output:
+        click.echo(f"Saved to: {output}")
+
+
+def _handle_add_object(
+    doc: UnityYAMLDocument,
+    parent_path: str,
+    child_name: str,
+    object_type: str,
+    output_path: Path,
+    output: Path | None,
+    project_root: Path | None,
+) -> None:
+    from unityflow.parser import (
+        create_game_object,
+        create_rect_transform,
+        create_transform,
+    )
+
+    parent_go_id, error = _resolve_gameobject_by_path(doc, parent_path)
+    if error:
+        click.echo(f"Error: {error}", err=True)
+        sys.exit(1)
+
+    parent_transform_id = _find_transform_for_gameobject(doc, parent_go_id)
+    if parent_transform_id is None:
+        click.echo(f"Error: Transform not found for '{parent_path}'", err=True)
+        sys.exit(1)
+
+    existing_ids = doc.get_all_file_ids()
+    child_go_id = doc.generate_unique_file_id()
+    existing_ids.add(child_go_id)
+    child_transform_id = doc.generate_unique_file_id()
+
+    child_go = create_game_object(
+        name=child_name,
+        file_id=child_go_id,
+        components=[child_transform_id],
+    )
+
+    if object_type == "rect-transform":
+        child_transform = create_rect_transform(
+            game_object_id=child_go_id,
+            file_id=child_transform_id,
+            parent_id=parent_transform_id,
+        )
+    else:
+        child_transform = create_transform(
+            game_object_id=child_go_id,
+            file_id=child_transform_id,
+            parent_id=parent_transform_id,
+        )
+
+    doc.add_object(child_go)
+    doc.add_object(child_transform)
+
+    parent_transform = doc.get_by_file_id(parent_transform_id)
+    if parent_transform:
+        t_content = parent_transform.get_content()
+        if t_content:
+            children = t_content.get("m_Children", [])
+            children.append({"fileID": child_transform_id})
+            t_content["m_Children"] = children
+
+    doc.save(output_path)
+    click.echo(f"Added '{child_name}' under '{parent_path}'")
+    if output:
+        click.echo(f"Saved to: {output}")
+
+
+def _handle_remove_object(
+    doc: UnityYAMLDocument,
+    parent_path: str,
+    child_name: str,
+    output_path: Path,
+    output: Path | None,
+    project_root: Path | None,
+) -> None:
+    parent_go_id, error = _resolve_gameobject_by_path(doc, parent_path)
+    if error:
+        click.echo(f"Error: {error}", err=True)
+        sys.exit(1)
+
+    parent_transform_id = _find_transform_for_gameobject(doc, parent_go_id)
+    if parent_transform_id is None:
+        click.echo(f"Error: Transform not found for '{parent_path}'", err=True)
+        sys.exit(1)
+
+    parent_transform = doc.get_by_file_id(parent_transform_id)
+    if not parent_transform:
+        click.echo(f"Error: Transform not found for '{parent_path}'", err=True)
+        sys.exit(1)
+
+    t_content = parent_transform.get_content()
+    if not t_content:
+        click.echo(f"Error: Invalid Transform for '{parent_path}'", err=True)
+        sys.exit(1)
+
+    children_refs = t_content.get("m_Children", [])
+    child_transform_id = None
+    child_go_id = None
+
+    for child_ref in children_refs:
+        c_transform_id = child_ref.get("fileID", 0) if isinstance(child_ref, dict) else 0
+        if c_transform_id == 0:
+            continue
+        c_transform = doc.get_by_file_id(c_transform_id)
+        if not c_transform:
+            continue
+        c_content = c_transform.get_content()
+        if not c_content:
+            continue
+        c_go_ref = c_content.get("m_GameObject", {})
+        c_go_id = c_go_ref.get("fileID", 0) if isinstance(c_go_ref, dict) else 0
+        c_go = doc.get_by_file_id(c_go_id)
+        if not c_go:
+            continue
+        c_go_content = c_go.get_content()
+        if c_go_content and c_go_content.get("m_Name") == child_name:
+            child_transform_id = c_transform_id
+            child_go_id = c_go_id
+            break
+
+    if child_go_id is None:
+        click.echo(f"Error: Child '{child_name}' not found under '{parent_path}'", err=True)
+        sys.exit(1)
+
+    ids_to_remove = _collect_descendant_ids(doc, child_transform_id)
+    ids_to_remove.add(child_go_id)
+    ids_to_remove.add(child_transform_id)
+
+    child_go_obj = doc.get_by_file_id(child_go_id)
+    if child_go_obj:
+        child_go_content = child_go_obj.get_content()
+        if child_go_content:
+            for comp_ref in child_go_content.get("m_Component", []):
+                comp_id = comp_ref.get("component", {}).get("fileID", 0)
+                if comp_id:
+                    ids_to_remove.add(comp_id)
+
+    for fid in ids_to_remove:
+        doc.remove_object(fid)
+
+    new_children = [c for c in children_refs if c.get("fileID", 0) != child_transform_id]
+    t_content["m_Children"] = new_children
+
+    doc.save(output_path)
+    click.echo(f"Removed '{child_name}' from '{parent_path}'")
+    if output:
+        click.echo(f"Saved to: {output}")
+
+
+def _find_transform_for_gameobject(doc: UnityYAMLDocument, go_id: int) -> int | None:
+    for obj in doc.objects:
+        if obj.class_id in (4, 224):
+            content = obj.get_content()
+            if content:
+                go_ref = content.get("m_GameObject", {})
+                ref_id = go_ref.get("fileID", 0) if isinstance(go_ref, dict) else 0
+                if ref_id == go_id:
+                    return obj.file_id
+    return None
+
+
+def _collect_descendant_ids(doc: UnityYAMLDocument, transform_id: int) -> set[int]:
+    result: set[int] = set()
+    transform = doc.get_by_file_id(transform_id)
+    if not transform:
+        return result
+    content = transform.get_content()
+    if not content:
+        return result
+
+    for child_ref in content.get("m_Children", []):
+        c_id = child_ref.get("fileID", 0) if isinstance(child_ref, dict) else 0
+        if c_id == 0:
+            continue
+        result.add(c_id)
+        c_transform = doc.get_by_file_id(c_id)
+        if c_transform:
+            c_content = c_transform.get_content()
+            if c_content:
+                c_go_ref = c_content.get("m_GameObject", {})
+                c_go_id = c_go_ref.get("fileID", 0) if isinstance(c_go_ref, dict) else 0
+                if c_go_id:
+                    result.add(c_go_id)
+                    c_go = doc.get_by_file_id(c_go_id)
+                    if c_go:
+                        c_go_content = c_go.get_content()
+                        if c_go_content:
+                            for comp_ref in c_go_content.get("m_Component", []):
+                                comp_id = comp_ref.get("component", {}).get("fileID", 0)
+                                if comp_id:
+                                    result.add(comp_id)
+        result.update(_collect_descendant_ids(doc, c_id))
+
+    return result
+
+
 @main.command(name="get")
 @click.argument("file", type=click.Path(exists=True, path_type=Path))
 @click.argument("path_spec", type=str)
@@ -1297,12 +1685,45 @@ def get_value_cmd(
 @click.option(
     "--create",
     is_flag=True,
-    help="Create a new component at the path (e.g., --path 'Player/Button' --create)",
+    hidden=True,
+    help="[Deprecated: use --add-component] Create a new component",
 )
 @click.option(
     "--remove",
     is_flag=True,
-    help="Remove a component at the path (e.g., --path 'Player/Button' --remove)",
+    hidden=True,
+    help="[Deprecated: use --remove-component] Remove a component",
+)
+@click.option(
+    "--add-component",
+    "add_component",
+    default=None,
+    help="Add a component to the GameObject at --path (e.g., --add-component 'Button')",
+)
+@click.option(
+    "--remove-component",
+    "remove_component",
+    default=None,
+    help="Remove a component from the GameObject at --path (e.g., --remove-component 'Button')",
+)
+@click.option(
+    "--add-object",
+    "add_object",
+    default=None,
+    help="Add a child GameObject under the GameObject at --path (e.g., --add-object 'Child')",
+)
+@click.option(
+    "--remove-object",
+    "remove_object",
+    default=None,
+    help="Remove a child GameObject from the GameObject at --path (e.g., --remove-object 'Child')",
+)
+@click.option(
+    "--type",
+    "object_type",
+    type=click.Choice(["transform", "rect-transform"]),
+    default="transform",
+    help="Transform type for --add-object (default: transform)",
 )
 def set_value_cmd(
     file: Path,
@@ -1312,6 +1733,11 @@ def set_value_cmd(
     output: Path | None,
     create: bool,
     remove: bool,
+    add_component: str | None,
+    remove_component: str | None,
+    add_object: str | None,
+    remove_object: str | None,
+    object_type: str,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
@@ -1326,25 +1752,17 @@ def set_value_cmd(
             --path "Player/Transform/localPosition" \\
             --value '{"x": 0, "y": 5, "z": 0}'
 
-        # Set SpriteRenderer color
-        unityflow set Player.prefab \\
-            --path "Player/SpriteRenderer/m_Color" \\
-            --value '{"r": 1, "g": 0, "b": 0, "a": 1}'
+        # Add a component
+        unityflow set file.prefab --path "Root" --add-component "Button"
 
-        # Set Image sprite (with asset reference)
-        unityflow set Scene.unity \\
-            --path "Canvas/Panel/Button/Image/m_Sprite" \\
-            --value "@Assets/Sprites/icon.png"
+        # Remove a component
+        unityflow set file.prefab --path "Root" --remove-component "Button"
 
-        # Set GameObject name
-        unityflow set Player.prefab \\
-            --path "Player/name" \\
-            --value '"NewName"'
+        # Add a child GameObject
+        unityflow set file.prefab --path "Root" --add-object "Child" --type rect-transform
 
-        # When multiple components of same type exist, use index
-        unityflow set Scene.unity \\
-            --path "Canvas/Panel/Image[1]/m_Color" \\
-            --value '{"r": 0, "g": 1, "b": 0, "a": 1}'
+        # Remove a child GameObject
+        unityflow set file.prefab --path "Root" --remove-object "Child"
 
         # Set multiple fields at once (batch mode)
         unityflow set Scene.unity \\
@@ -1370,22 +1788,48 @@ def set_value_cmd(
     from unityflow.parser import UnityYAMLDocument
     from unityflow.query import merge_values, set_value
 
+    # Map deprecated --create/--remove to new options
+    if create:
+        parts = set_path.rsplit("/", 1)
+        if len(parts) == 2:
+            set_path = parts[0]
+            add_component = parts[1]
+        else:
+            click.echo(f"Error: Invalid path format for --create: {set_path}", err=True)
+            click.echo("Expected format: 'GameObject/ComponentType'", err=True)
+            sys.exit(1)
+    if remove:
+        parts = set_path.rsplit("/", 1)
+        if len(parts) == 2:
+            set_path = parts[0]
+            remove_component = parts[1]
+        else:
+            click.echo(f"Error: Invalid path format for --remove: {set_path}", err=True)
+            click.echo("Expected format: 'GameObject/ComponentType'", err=True)
+            sys.exit(1)
+
     # Count how many operation modes are specified
     operation_modes = sum(
         [
             value is not None or batch_values_json is not None,
-            create,
-            remove,
+            add_component is not None,
+            remove_component is not None,
+            add_object is not None,
+            remove_object is not None,
         ]
     )
 
     # Validate options
     if operation_modes == 0:
-        click.echo("Error: One of --value, --batch, --create, or --remove is required", err=True)
+        click.echo(
+            "Error: One of --value, --batch, --add-component, --remove-component,"
+            " --add-object, or --remove-object is required",
+            err=True,
+        )
         sys.exit(1)
     if operation_modes > 1:
         click.echo(
-            "Error: Cannot use multiple operation modes (--value/--batch, --create, --remove)",
+            "Error: Only one operation mode can be used at a time",
             err=True,
         )
         sys.exit(1)
@@ -1404,216 +1848,24 @@ def set_value_cmd(
     output_path = output or file
     project_root = find_unity_project_root(file)
 
-    # Handle --create mode (add component)
-    if create:
-        from unityflow.asset_tracker import build_guid_index
-        from unityflow.formats import CLASS_NAME_TO_ID
-        from unityflow.hierarchy import Hierarchy
-        from unityflow.parser import CLASS_IDS
-
-        # Parse path: "Player/Child/Button" -> ("Player/Child", "Button")
-        parts = set_path.rsplit("/", 1)
-        if len(parts) != 2:
-            click.echo(f"Error: Invalid path format for --create: {set_path}", err=True)
-            click.echo("Expected format: 'GameObject/ComponentType'", err=True)
-            sys.exit(1)
-
-        go_path, comp_type = parts
-
-        # Build hierarchy to find the GameObject
-        guid_index = build_guid_index(project_root) if project_root else None
-        hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
-
-        target_node = hier.find(go_path)
-        if target_node is None:
-            click.echo(f"Error: GameObject not found: {go_path}", err=True)
-            sys.exit(1)
-
-        # Check if component already exists
-        for comp in target_node.components:
-            comp_name = comp.script_name or comp.class_name
-            if comp_name.lower() == comp_type.lower():
-                click.echo(f"Error: Component '{comp_type}' already exists on '{go_path}'", err=True)
-                sys.exit(1)
-
-        # Determine class_id for the component
-        class_id = CLASS_NAME_TO_ID.get(comp_type)
-        script_guid = None
-
-        if class_id is None:
-            # Try case-insensitive lookup
-            for name, cid in CLASS_NAME_TO_ID.items():
-                if name.lower() == comp_type.lower():
-                    class_id = cid
-                    comp_type = name  # Use canonical name
-                    break
-
-        if class_id is None:
-            # Try to find as a custom MonoBehaviour script
-            if guid_index:
-                for path, guid in guid_index.path_to_guid.items():
-                    if path.suffix == ".cs" and path.stem == comp_type:
-                        script_guid = guid
-                        break
-
-            if script_guid is None:
-                click.echo(f"Error: Component or script '{comp_type}' not found.", err=True)
-                if project_root:
-                    click.echo(f"Searched for {comp_type}.cs in project.", err=True)
-                sys.exit(1)
-
-            # Use MonoBehaviour class_id
-            class_id = 114
-
-        # Generate unique fileID
-        new_file_id = doc.generate_unique_file_id()
-
-        # Create component data
-        comp_data = {
-            "m_ObjectHideFlags": 0,
-            "m_CorrespondingSourceObject": {"fileID": 0},
-            "m_PrefabInstance": {"fileID": 0},
-            "m_PrefabAsset": {"fileID": 0},
-            "m_GameObject": {"fileID": target_node.file_id},
-            "m_Enabled": 1,
-        }
-
-        # Add component-specific default data
-        if comp_type == "Button":
-            comp_data.update(
-                {
-                    "m_Interactable": 1,
-                    "m_TargetGraphic": {"fileID": 0},
-                    "m_OnClick": {
-                        "m_PersistentCalls": {"m_Calls": []},
-                    },
-                    "m_Navigation": {
-                        "m_Mode": 3,
-                        "m_WrapAround": 0,
-                        "m_SelectOnUp": {"fileID": 0},
-                        "m_SelectOnDown": {"fileID": 0},
-                        "m_SelectOnLeft": {"fileID": 0},
-                        "m_SelectOnRight": {"fileID": 0},
-                    },
-                    "m_Colors": {
-                        "m_NormalColor": {"r": 1, "g": 1, "b": 1, "a": 1},
-                        "m_HighlightedColor": {"r": 0.9607843, "g": 0.9607843, "b": 0.9607843, "a": 1},
-                        "m_PressedColor": {"r": 0.7843137, "g": 0.7843137, "b": 0.7843137, "a": 1},
-                        "m_SelectedColor": {"r": 0.9607843, "g": 0.9607843, "b": 0.9607843, "a": 1},
-                        "m_DisabledColor": {"r": 0.7843137, "g": 0.7843137, "b": 0.7843137, "a": 0.5019608},
-                        "m_ColorMultiplier": 1,
-                        "m_FadeDuration": 0.1,
-                    },
-                }
-            )
-        elif comp_type == "Image":
-            comp_data.update(
-                {
-                    "m_Material": {"fileID": 0},
-                    "m_Color": {"r": 1, "g": 1, "b": 1, "a": 1},
-                    "m_RaycastTarget": 1,
-                    "m_RaycastPadding": {"x": 0, "y": 0, "z": 0, "w": 0},
-                    "m_Maskable": 1,
-                    "m_Sprite": {"fileID": 0},
-                    "m_Type": 0,
-                    "m_PreserveAspect": 0,
-                    "m_FillCenter": 1,
-                    "m_FillMethod": 4,
-                    "m_FillAmount": 1,
-                    "m_FillClockwise": 1,
-                    "m_FillOrigin": 0,
-                    "m_UseSpriteMesh": 0,
-                    "m_PixelsPerUnitMultiplier": 1,
-                }
-            )
-
-        # Add m_Script reference for MonoBehaviour (custom scripts)
-        if class_id == 114 and script_guid:
-            comp_data["m_Script"] = {"fileID": 11500000, "guid": script_guid, "type": 3}
-
-        # Create the component object
-        from unityflow.parser import UnityYAMLObject
-
-        root_key = CLASS_IDS.get(class_id, "MonoBehaviour") if class_id != 114 else "MonoBehaviour"
-        new_obj = UnityYAMLObject(
-            class_id=class_id,
-            file_id=new_file_id,
-            stripped=False,
-            data={root_key: comp_data},
-        )
-
-        # Add to document
-        doc.add_object(new_obj)
-
-        # Update GameObject's m_Component array
-        go_obj = doc.get_by_file_id(target_node.file_id)
-        if go_obj:
-            go_content = go_obj.get_content()
-            if go_content:
-                components = go_content.get("m_Component", [])
-                components.append({"component": {"fileID": new_file_id}})
-                go_content["m_Component"] = components
-
-        doc.save(output_path)
-        click.echo(f"Added {comp_type} to {go_path}")
-        if output:
-            click.echo(f"Saved to: {output}")
+    # Handle --add-component
+    if add_component is not None:
+        _handle_add_component(doc, set_path, add_component, output_path, output, project_root)
         return
 
-    # Handle --remove mode (remove component)
-    if remove:
-        from unityflow.asset_tracker import build_guid_index
-        from unityflow.hierarchy import Hierarchy
+    # Handle --remove-component
+    if remove_component is not None:
+        _handle_remove_component(doc, set_path, remove_component, output_path, output, project_root)
+        return
 
-        # Parse path: "Player/Child/Button" -> ("Player/Child", "Button")
-        parts = set_path.rsplit("/", 1)
-        if len(parts) != 2:
-            click.echo(f"Error: Invalid path format for --remove: {set_path}", err=True)
-            click.echo("Expected format: 'GameObject/ComponentType'", err=True)
-            sys.exit(1)
+    # Handle --add-object
+    if add_object is not None:
+        _handle_add_object(doc, set_path, add_object, object_type, output_path, output, project_root)
+        return
 
-        go_path, comp_type = parts
-
-        # Build hierarchy to find the GameObject and component
-        guid_index = build_guid_index(project_root) if project_root else None
-        hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
-
-        target_node = hier.find(go_path)
-        if target_node is None:
-            click.echo(f"Error: GameObject not found: {go_path}", err=True)
-            sys.exit(1)
-
-        # Find the component
-        target_comp = None
-        for comp in target_node.components:
-            comp_name = comp.script_name or comp.class_name
-            if comp_name.lower() == comp_type.lower():
-                target_comp = comp
-                break
-
-        if target_comp is None:
-            click.echo(f"Error: Component '{comp_type}' not found on '{go_path}'", err=True)
-            sys.exit(1)
-
-        # Remove from document
-        if not doc.remove_object(target_comp.file_id):
-            click.echo("Error: Failed to remove component from document", err=True)
-            sys.exit(1)
-
-        # Update GameObject's m_Component array
-        go_obj = doc.get_by_file_id(target_node.file_id)
-        if go_obj:
-            go_content = go_obj.get_content()
-            if go_content:
-                components = go_content.get("m_Component", [])
-                # Filter out the removed component
-                new_components = [c for c in components if c.get("component", {}).get("fileID") != target_comp.file_id]
-                go_content["m_Component"] = new_components
-
-        doc.save(output_path)
-        click.echo(f"Removed {comp_type} from {go_path}")
-        if output:
-            click.echo(f"Saved to: {output}")
+    # Handle --remove-object
+    if remove_object is not None:
+        _handle_remove_object(doc, set_path, remove_object, output_path, output, project_root)
         return
 
     # Resolve path (convert "Player/Transform/localPosition" to "components/12345/localPosition")
@@ -2796,6 +3048,89 @@ def refs_cmd(
             count = len(refs)
             suffix = "ref" if count == 1 else "refs"
             click.echo(f"  {rel_path} ({count} {suffix})")
+
+
+@main.command(name="create")
+@click.argument("file", type=click.Path(path_type=Path))
+@click.option(
+    "--name",
+    "-n",
+    "root_name",
+    default=None,
+    help="Root GameObject name (default: filename without extension)",
+)
+@click.option(
+    "--type",
+    "-t",
+    "transform_type",
+    type=click.Choice(["transform", "rect-transform"]),
+    default="transform",
+    help="Transform type for root object (default: transform)",
+)
+def create_cmd(
+    file: Path,
+    root_name: str | None,
+    transform_type: str,
+) -> None:
+    """Create a new Unity YAML file with an empty root GameObject.
+
+    FILE is the path to the new .prefab, .unity, or .asset file.
+
+    Examples:
+
+        # Create with default name (from filename)
+        unityflow create MyPrefab.prefab
+
+        # Create with custom root name
+        unityflow create Enemy.prefab --name "Enemy"
+
+        # Create with RectTransform (for UI prefabs)
+        unityflow create MyUI.prefab --name "MyRoot" --type rect-transform
+    """
+    from unityflow.parser import (
+        UnityYAMLDocument,
+        create_game_object,
+        create_rect_transform,
+        create_transform,
+        generate_file_id,
+    )
+
+    if file.exists():
+        click.echo(f"Error: File already exists: {file}", err=True)
+        sys.exit(1)
+
+    if root_name is None:
+        root_name = file.stem
+
+    existing_ids: set[int] = set()
+
+    go_file_id = generate_file_id(existing_ids)
+    existing_ids.add(go_file_id)
+    transform_file_id = generate_file_id(existing_ids)
+    existing_ids.add(transform_file_id)
+
+    go_obj = create_game_object(
+        name=root_name,
+        file_id=go_file_id,
+        components=[transform_file_id],
+    )
+
+    if transform_type == "rect-transform":
+        transform_obj = create_rect_transform(
+            game_object_id=go_file_id,
+            file_id=transform_file_id,
+        )
+    else:
+        transform_obj = create_transform(
+            game_object_id=go_file_id,
+            file_id=transform_file_id,
+        )
+
+    doc = UnityYAMLDocument(objects=[go_obj, transform_obj], source_path=file)
+
+    file.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(file)
+    click.echo(f"Created {file} with root GameObject '{root_name}'")
 
 
 # Register animation CLI commands

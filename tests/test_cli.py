@@ -489,3 +489,555 @@ class TestSetCommand:
         assert t_content["m_LocalPosition"]["x"] == 5
         assert t_content["m_LocalPosition"]["y"] == 10
         assert t_content["m_LocalPosition"]["z"] == 15
+
+
+class TestCreateCommand:
+
+    def test_create_basic_prefab(self, runner, tmp_path):
+        output_file = tmp_path / "NewPrefab.prefab"
+
+        result = runner.invoke(
+            main,
+            ["create", str(output_file)],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert output_file.exists()
+        assert "Created" in result.output
+        assert "NewPrefab" in result.output
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(output_file)
+        assert len(doc.get_game_objects()) == 1
+        assert len(doc.get_transforms()) == 1
+
+        go = doc.get_game_objects()[0]
+        go_content = go.get_content()
+        assert go_content["m_Name"] == "NewPrefab"
+
+    def test_create_with_custom_name(self, runner, tmp_path):
+        output_file = tmp_path / "Enemy.prefab"
+
+        result = runner.invoke(
+            main,
+            ["create", str(output_file), "--name", "EnemyRoot"],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(output_file)
+        go = doc.get_game_objects()[0]
+        assert go.get_content()["m_Name"] == "EnemyRoot"
+
+    def test_create_with_rect_transform(self, runner, tmp_path):
+        output_file = tmp_path / "MyUI.prefab"
+
+        result = runner.invoke(
+            main,
+            ["create", str(output_file), "--name", "MyRoot", "--type", "rect-transform"],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(output_file)
+        assert len(doc.get_rect_transforms()) == 1
+        assert len(doc.get_transforms()) == 0
+
+        rt = doc.get_rect_transforms()[0]
+        rt_content = rt.get_content()
+        assert "m_AnchorMin" in rt_content
+        assert "m_SizeDelta" in rt_content
+
+    def test_create_file_already_exists(self, runner, tmp_path):
+        output_file = tmp_path / "Existing.prefab"
+        output_file.write_text("dummy")
+
+        result = runner.invoke(
+            main,
+            ["create", str(output_file)],
+        )
+
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+
+    def test_create_valid_yaml_roundtrip(self, runner, tmp_path):
+        output_file = tmp_path / "Roundtrip.prefab"
+
+        result = runner.invoke(
+            main,
+            ["create", str(output_file), "--name", "Root"],
+        )
+        assert result.exit_code == 0
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(output_file)
+        content = output_file.read_text(encoding="utf-8")
+        assert content.startswith("%YAML 1.1")
+        assert "--- !u!1 &" in content
+        assert "--- !u!4 &" in content
+
+        go = doc.get_game_objects()[0]
+        go_content = go.get_content()
+        transform_id = go_content["m_Component"][0]["component"]["fileID"]
+        transform = doc.get_by_file_id(transform_id)
+        assert transform is not None
+        assert transform.get_content()["m_GameObject"]["fileID"] == go.file_id
+
+
+class TestSetAddComponent:
+
+    def test_add_component(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-component",
+                "CanvasRenderer",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Added CanvasRenderer to BasicPrefab" in result.output
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(test_file)
+        go = doc.get_game_objects()[0]
+        go_content = go.get_content()
+        assert len(go_content["m_Component"]) == 2
+
+    def test_add_component_duplicate(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-component",
+                "Transform",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+
+    def test_remove_component(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-component",
+                "CanvasRenderer",
+            ],
+        )
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--remove-component",
+                "CanvasRenderer",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Removed CanvasRenderer from BasicPrefab" in result.output
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(test_file)
+        go = doc.get_game_objects()[0]
+        go_content = go.get_content()
+        assert len(go_content["m_Component"]) == 1
+
+    def test_remove_nonexistent_component(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--remove-component",
+                "Button",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_deprecated_create_still_works(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab/CanvasRenderer",
+                "--create",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Added CanvasRenderer to BasicPrefab" in result.output
+
+    def test_deprecated_remove_still_works(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab/CanvasRenderer",
+                "--create",
+            ],
+        )
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab/CanvasRenderer",
+                "--remove",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Removed CanvasRenderer from BasicPrefab" in result.output
+
+
+class TestSetAddRemoveObject:
+
+    def test_add_object(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-object",
+                "Child",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Added 'Child' under 'BasicPrefab'" in result.output
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(test_file)
+        assert len(doc.get_game_objects()) == 2
+
+        child_go = None
+        for go in doc.get_game_objects():
+            if go.get_content()["m_Name"] == "Child":
+                child_go = go
+                break
+        assert child_go is not None
+
+        child_transform_id = child_go.get_content()["m_Component"][0]["component"]["fileID"]
+        child_transform = doc.get_by_file_id(child_transform_id)
+        assert child_transform is not None
+        assert child_transform.class_id == 4
+
+    def test_add_object_with_rect_transform(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-object",
+                "UIChild",
+                "--type",
+                "rect-transform",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(test_file)
+        assert len(doc.get_rect_transforms()) == 1
+
+        child_go = None
+        for go in doc.get_game_objects():
+            if go.get_content()["m_Name"] == "UIChild":
+                child_go = go
+                break
+        assert child_go is not None
+
+    def test_add_object_parent_child_link(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-object",
+                "MyChild",
+            ],
+        )
+        assert result.exit_code == 0
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(test_file)
+
+        parent_go = None
+        child_go = None
+        for go in doc.get_game_objects():
+            name = go.get_content()["m_Name"]
+            if name == "BasicPrefab":
+                parent_go = go
+            elif name == "MyChild":
+                child_go = go
+
+        assert parent_go is not None
+        assert child_go is not None
+
+        parent_transform_id = parent_go.get_content()["m_Component"][0]["component"]["fileID"]
+        parent_transform = doc.get_by_file_id(parent_transform_id)
+        parent_t_content = parent_transform.get_content()
+        child_transform_id = child_go.get_content()["m_Component"][0]["component"]["fileID"]
+
+        child_refs = [c["fileID"] for c in parent_t_content["m_Children"]]
+        assert child_transform_id in child_refs
+
+        child_transform = doc.get_by_file_id(child_transform_id)
+        child_t_content = child_transform.get_content()
+        assert child_t_content["m_Father"]["fileID"] == parent_transform_id
+
+    def test_remove_object(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-object",
+                "ToRemove",
+            ],
+        )
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc_before = UnityYAMLDocument.load(test_file)
+        assert len(doc_before.get_game_objects()) == 2
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--remove-object",
+                "ToRemove",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Removed 'ToRemove' from 'BasicPrefab'" in result.output
+
+        doc_after = UnityYAMLDocument.load(test_file)
+        assert len(doc_after.get_game_objects()) == 1
+        assert doc_after.get_game_objects()[0].get_content()["m_Name"] == "BasicPrefab"
+
+        parent_go = doc_after.get_game_objects()[0]
+        parent_transform_id = parent_go.get_content()["m_Component"][0]["component"]["fileID"]
+        parent_transform = doc_after.get_by_file_id(parent_transform_id)
+        assert parent_transform.get_content()["m_Children"] == []
+
+    def test_remove_nonexistent_object(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--remove-object",
+                "NoSuchChild",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_full_workflow(self, runner, tmp_path):
+        prefab_file = tmp_path / "Board.prefab"
+
+        result = runner.invoke(
+            main,
+            ["create", str(prefab_file), "--name", "Root", "--type", "rect-transform"],
+        )
+        assert result.exit_code == 0
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(prefab_file),
+                "--path",
+                "Root",
+                "--add-object",
+                "board_base",
+                "--type",
+                "rect-transform",
+            ],
+        )
+        assert result.exit_code == 0
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(prefab_file),
+                "--path",
+                "Root",
+                "--add-component",
+                "CanvasRenderer",
+            ],
+        )
+        assert result.exit_code == 0
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(prefab_file)
+        assert len(doc.get_game_objects()) == 2
+        assert len(doc.get_rect_transforms()) == 2
+
+        root_go = None
+        child_go = None
+        for go in doc.get_game_objects():
+            name = go.get_content()["m_Name"]
+            if name == "Root":
+                root_go = go
+            elif name == "board_base":
+                child_go = go
+
+        assert root_go is not None
+        assert child_go is not None
+        assert len(root_go.get_content()["m_Component"]) == 2
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(prefab_file),
+                "--path",
+                "Root/board_base/RectTransform",
+                "--batch",
+                '{"m_SizeDelta": {"x": 200, "y": 300}}',
+            ],
+        )
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(prefab_file),
+                "--path",
+                "Root",
+                "--remove-component",
+                "CanvasRenderer",
+            ],
+        )
+        assert result.exit_code == 0
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(prefab_file),
+                "--path",
+                "Root",
+                "--remove-object",
+                "board_base",
+            ],
+        )
+        assert result.exit_code == 0
+
+        doc = UnityYAMLDocument.load(prefab_file)
+        assert len(doc.get_game_objects()) == 1
+        assert doc.get_game_objects()[0].get_content()["m_Name"] == "Root"
