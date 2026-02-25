@@ -1195,12 +1195,12 @@ def _handle_add_component(
     output: Path | None,
     project_root: Path | None,
 ) -> None:
-    from unityflow.asset_tracker import build_guid_index
+    from unityflow.asset_tracker import get_cached_guid_index
     from unityflow.formats import CLASS_NAME_TO_ID
     from unityflow.hierarchy import Hierarchy
     from unityflow.parser import CLASS_IDS, UnityYAMLObject
 
-    guid_index = build_guid_index(project_root, include_packages=True) if project_root else None
+    guid_index = get_cached_guid_index(project_root, include_packages=True) if project_root else None
     hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
     target_node = hier.find(go_path)
@@ -1352,10 +1352,10 @@ def _handle_remove_component(
     output: Path | None,
     project_root: Path | None,
 ) -> None:
-    from unityflow.asset_tracker import build_guid_index
+    from unityflow.asset_tracker import get_cached_guid_index
     from unityflow.hierarchy import Hierarchy
 
-    guid_index = build_guid_index(project_root) if project_root else None
+    guid_index = get_cached_guid_index(project_root) if project_root else None
     hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
     target_node = hier.find(go_path)
@@ -1947,9 +1947,9 @@ def set_value_cmd(
             ref_path, component_type = parse_internal_reference(value)
 
             # Build hierarchy to resolve internal reference
-            from unityflow.asset_tracker import build_guid_index
+            from unityflow.asset_tracker import get_cached_guid_index
 
-            guid_index = build_guid_index(project_root) if project_root else None
+            guid_index = get_cached_guid_index(project_root) if project_root else None
             hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
             # Find the target node
