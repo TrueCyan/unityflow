@@ -49,6 +49,10 @@ FLOAT_PROPERTIES_HEX = {
 # - Both may be intentionally ordered by developers for readability
 ORDER_INDEPENDENT_ARRAYS: set[str] = set()  # Empty - preserve all array orders
 
+_ROOT_GO_PROPERTY_PATHS = frozenset(
+    {"m_IsActive", "m_Layer", "m_TagString", "m_StaticEditorFlags", "m_Icon", "m_NavMeshLayer"}
+)
+
 
 class UnityPrefabNormalizer:
     """Normalizes Unity prefab files for deterministic serialization."""
@@ -119,7 +123,9 @@ class UnityPrefabNormalizer:
             return
 
         if "m_Modification" in content:
-            self._sort_modifications(content["m_Modification"], source_path=source_path)
+            if source_path is not None:
+                self._normalize_m_name_override(content, source_path)
+            self._sort_modifications(content["m_Modification"])
 
         # Process MonoBehaviour fields (requires project_root for script parsing)
         if obj.class_id == 114 and self.project_root:  # MonoBehaviour
@@ -371,17 +377,50 @@ class UnityPrefabNormalizer:
 
         return self._script_cache.get_field_order(script_guid)
 
-    def _sort_modifications(self, modification: dict[str, Any], source_path: Path | None = None) -> None:
+    def _normalize_m_name_override(self, content: dict[str, Any], source_path: Path) -> None:
+        modification = content.get("m_Modification")
+        if not isinstance(modification, dict):
+            return
+
+        mods = modification.get("m_Modifications")
+        if not isinstance(mods, list):
+            return
+
+        file_stem = source_path.stem
+
+        for mod in mods:
+            if mod.get("propertyPath") == "m_Name":
+                mod["value"] = file_stem
+                return
+
+        source_prefab = content.get("m_SourcePrefab")
+        if not isinstance(source_prefab, dict):
+            return
+        source_guid = source_prefab.get("guid")
+        if not source_guid:
+            return
+
+        for mod in mods:
+            if mod.get("propertyPath") in _ROOT_GO_PROPERTY_PATHS:
+                target = mod.get("target")
+                if isinstance(target, dict) and target.get("guid") == source_guid:
+                    mods.append(
+                        {
+                            "target": dict(target),
+                            "propertyPath": "m_Name",
+                            "value": file_stem,
+                            "objectReference": {"fileID": 0},
+                        }
+                    )
+                    return
+
+    def _sort_modifications(self, modification: dict[str, Any]) -> None:
         """Sort m_Modifications array for deterministic order."""
         if not isinstance(modification, dict):
             return
 
         mods = modification.get("m_Modifications")
         if isinstance(mods, list) and mods:
-            if source_path is not None:
-                file_stem = source_path.stem
-                mods[:] = [m for m in mods if not (m.get("propertyPath") == "m_Name" and m.get("value") == file_stem)]
-
             sorted_mods = self._sort_modification_list(list(mods))
             mods.clear()
             mods.extend(sorted_mods)

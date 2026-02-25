@@ -268,9 +268,9 @@ class TestConvenienceFunction:
         assert content.startswith("%YAML 1.1")
 
 
-class TestModificationNameFiltering:
+class TestModificationNameNormalization:
 
-    def test_m_name_override_matching_filename_is_removed(self):
+    def test_m_name_value_normalized_to_filename(self):
         normalizer = UnityPrefabNormalizer()
         doc = UnityYAMLDocument()
         from unityflow.parser import UnityYAMLObject
@@ -283,9 +283,9 @@ class TestModificationNameFiltering:
                     "m_Modification": {
                         "m_Modifications": [
                             {
-                                "target": {"fileID": 400000, "guid": "abc"},
+                                "target": {"fileID": 100000, "guid": "abc"},
                                 "propertyPath": "m_Name",
-                                "value": "MyPrefab",
+                                "value": "OldName",
                                 "objectReference": {"fileID": 0},
                             },
                             {
@@ -296,7 +296,8 @@ class TestModificationNameFiltering:
                             },
                         ],
                         "m_RemovedComponents": [],
-                    }
+                    },
+                    "m_SourcePrefab": {"fileID": 100100000, "guid": "abc", "type": 3},
                 }
             },
         )
@@ -307,10 +308,11 @@ class TestModificationNameFiltering:
 
         content = doc.get_by_file_id(100000).get_content()
         mods = content["m_Modification"]["m_Modifications"]
-        assert len(mods) == 1
-        assert mods[0]["propertyPath"] == "m_LocalPosition.x"
+        m_name_mod = next(m for m in mods if m["propertyPath"] == "m_Name")
+        assert m_name_mod["value"] == "MyPrefab"
+        assert len(mods) == 2
 
-    def test_m_name_override_not_matching_filename_is_preserved(self):
+    def test_m_name_already_matching_filename_unchanged(self):
         normalizer = UnityPrefabNormalizer()
         doc = UnityYAMLDocument()
         from unityflow.parser import UnityYAMLObject
@@ -323,14 +325,15 @@ class TestModificationNameFiltering:
                     "m_Modification": {
                         "m_Modifications": [
                             {
-                                "target": {"fileID": 400000, "guid": "abc"},
+                                "target": {"fileID": 100000, "guid": "abc"},
                                 "propertyPath": "m_Name",
-                                "value": "CustomName",
+                                "value": "MyPrefab",
                                 "objectReference": {"fileID": 0},
                             },
                         ],
                         "m_RemovedComponents": [],
-                    }
+                    },
+                    "m_SourcePrefab": {"fileID": 100100000, "guid": "abc", "type": 3},
                 }
             },
         )
@@ -342,8 +345,79 @@ class TestModificationNameFiltering:
         content = doc.get_by_file_id(100000).get_content()
         mods = content["m_Modification"]["m_Modifications"]
         assert len(mods) == 1
-        assert mods[0]["propertyPath"] == "m_Name"
-        assert mods[0]["value"] == "CustomName"
+        assert mods[0]["value"] == "MyPrefab"
+
+    def test_m_name_added_when_missing(self):
+        normalizer = UnityPrefabNormalizer()
+        doc = UnityYAMLDocument()
+        from unityflow.parser import UnityYAMLObject
+
+        obj = UnityYAMLObject(
+            class_id=1001,
+            file_id=100000,
+            data={
+                "PrefabInstance": {
+                    "m_Modification": {
+                        "m_Modifications": [
+                            {
+                                "target": {"fileID": 100000, "guid": "abc", "type": 3},
+                                "propertyPath": "m_IsActive",
+                                "value": "1",
+                                "objectReference": {"fileID": 0},
+                            },
+                        ],
+                        "m_RemovedComponents": [],
+                    },
+                    "m_SourcePrefab": {"fileID": 100100000, "guid": "abc", "type": 3},
+                }
+            },
+        )
+        doc.add_object(obj)
+        doc.source_path = Path("/project/Assets/MyPrefab.prefab")
+
+        normalizer.normalize_document(doc)
+
+        content = doc.get_by_file_id(100000).get_content()
+        mods = content["m_Modification"]["m_Modifications"]
+        m_name_mods = [m for m in mods if m["propertyPath"] == "m_Name"]
+        assert len(m_name_mods) == 1
+        assert m_name_mods[0]["value"] == "MyPrefab"
+        assert m_name_mods[0]["target"]["fileID"] == 100000
+        assert m_name_mods[0]["target"]["guid"] == "abc"
+
+    def test_m_name_not_added_when_no_go_property_target(self):
+        normalizer = UnityPrefabNormalizer()
+        doc = UnityYAMLDocument()
+        from unityflow.parser import UnityYAMLObject
+
+        obj = UnityYAMLObject(
+            class_id=1001,
+            file_id=100000,
+            data={
+                "PrefabInstance": {
+                    "m_Modification": {
+                        "m_Modifications": [
+                            {
+                                "target": {"fileID": 400000, "guid": "abc", "type": 3},
+                                "propertyPath": "m_LocalPosition.x",
+                                "value": "5",
+                                "objectReference": {"fileID": 0},
+                            },
+                        ],
+                        "m_RemovedComponents": [],
+                    },
+                    "m_SourcePrefab": {"fileID": 100100000, "guid": "abc", "type": 3},
+                }
+            },
+        )
+        doc.add_object(obj)
+        doc.source_path = Path("/project/Assets/MyPrefab.prefab")
+
+        normalizer.normalize_document(doc)
+
+        content = doc.get_by_file_id(100000).get_content()
+        mods = content["m_Modification"]["m_Modifications"]
+        assert not any(m["propertyPath"] == "m_Name" for m in mods)
 
     def test_no_source_path_preserves_all_mods(self):
         normalizer = UnityPrefabNormalizer()
@@ -358,14 +432,15 @@ class TestModificationNameFiltering:
                     "m_Modification": {
                         "m_Modifications": [
                             {
-                                "target": {"fileID": 400000, "guid": "abc"},
+                                "target": {"fileID": 100000, "guid": "abc"},
                                 "propertyPath": "m_Name",
-                                "value": "MyPrefab",
+                                "value": "SomeOtherName",
                                 "objectReference": {"fileID": 0},
                             },
                         ],
                         "m_RemovedComponents": [],
-                    }
+                    },
+                    "m_SourcePrefab": {"fileID": 100100000, "guid": "abc", "type": 3},
                 }
             },
         )
@@ -376,6 +451,7 @@ class TestModificationNameFiltering:
         content = doc.get_by_file_id(100000).get_content()
         mods = content["m_Modification"]["m_Modifications"]
         assert len(mods) == 1
+        assert mods[0]["value"] == "SomeOtherName"
 
 
 class TestNestedFieldSync:
