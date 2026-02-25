@@ -753,6 +753,128 @@ class TestSetAddComponent:
         assert result.exit_code == 0, f"Command failed: {result.output}"
         assert "Removed CanvasRenderer from BasicPrefab" in result.output
 
+    def test_add_package_component_via_guid_fallback(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-component",
+                "GraphicRaycaster",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Added GraphicRaycaster to BasicPrefab" in result.output
+
+        content = test_file.read_text()
+        assert "dc42784cf147c0c48a680349fa168899" in content
+
+    def test_add_package_component_via_meta(self, runner, tmp_path):
+        import shutil
+
+        project_root = tmp_path / "project"
+        (project_root / "Assets").mkdir(parents=True)
+        (project_root / "ProjectSettings").mkdir()
+
+        pkg_dir = project_root / "Library" / "PackageCache" / "com.unity.ugui" / "Runtime" / "UI"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "CustomPkgComp.cs").write_text("public class CustomPkgComp : MonoBehaviour {}")
+        (pkg_dir / "CustomPkgComp.cs.meta").write_text("fileFormatVersion: 2\nguid: aabbccdd11223344aabbccdd11223344\n")
+
+        prefab_dir = project_root / "Assets"
+        test_file = prefab_dir / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-component",
+                "CustomPkgComp",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Added CustomPkgComp to BasicPrefab" in result.output
+
+        content = test_file.read_text()
+        assert "aabbccdd11223344aabbccdd11223344" in content
+
+    def test_add_component_duplicate_scripts_warns(self, runner, tmp_path):
+        import shutil
+
+        project_root = tmp_path / "project"
+        (project_root / "Assets" / "Scripts").mkdir(parents=True)
+        (project_root / "ProjectSettings").mkdir()
+
+        assets_dir = project_root / "Assets" / "Scripts"
+        (assets_dir / "DupComp.cs").write_text("public class DupComp : MonoBehaviour {}")
+        (assets_dir / "DupComp.cs.meta").write_text("fileFormatVersion: 2\nguid: aaaa000011112222aaaa000011112222\n")
+
+        pkg_dir = project_root / "Library" / "PackageCache" / "com.example" / "Runtime"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "DupComp.cs").write_text("public class DupComp : MonoBehaviour {}")
+        (pkg_dir / "DupComp.cs.meta").write_text("fileFormatVersion: 2\nguid: bbbb000011112222bbbb000011112222\n")
+
+        prefab_dir = project_root / "Assets"
+        test_file = prefab_dir / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-component",
+                "DupComp",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Warning: Multiple scripts" in result.output
+
+        content = test_file.read_text()
+        assert "aaaa000011112222aaaa000011112222" in content
+
+    def test_add_component_not_found_shows_search_paths(self, runner, tmp_path):
+        import shutil
+
+        project_root = tmp_path / "project"
+        (project_root / "Assets").mkdir(parents=True)
+        (project_root / "ProjectSettings").mkdir()
+
+        test_file = project_root / "Assets" / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-component",
+                "NonExistentComponent",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "not found" in result.output
+        assert "Library/PackageCache/" in result.output
+
 
 class TestSetAddRemoveObject:
 

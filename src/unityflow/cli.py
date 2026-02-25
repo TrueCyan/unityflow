@@ -1200,7 +1200,7 @@ def _handle_add_component(
     from unityflow.hierarchy import Hierarchy
     from unityflow.parser import CLASS_IDS, UnityYAMLObject
 
-    guid_index = build_guid_index(project_root) if project_root else None
+    guid_index = build_guid_index(project_root, include_packages=True) if project_root else None
     hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
     target_node = hier.find(go_path)
@@ -1233,15 +1233,35 @@ def _handle_add_component(
 
     if class_id is None:
         if guid_index:
-            for path, guid in guid_index.path_to_guid.items():
-                if path.suffix == ".cs" and path.stem == comp_type:
+            matched = [
+                (path, guid)
+                for path, guid in guid_index.path_to_guid.items()
+                if path.suffix == ".cs" and path.stem == comp_type
+            ]
+            if matched:
+                script_guid = matched[0][1]
+                if len(matched) > 1:
+                    candidate_list = "\n".join(f"  {p}" for p, _ in matched)
+                    click.echo(
+                        f"Warning: Multiple scripts named '{comp_type}.cs' found. "
+                        f"Using highest-priority match:\n{candidate_list}",
+                        err=True,
+                    )
+
+        if script_guid is None:
+            for name, guid in PACKAGE_COMPONENT_GUIDS.items():
+                if name.lower() == comp_type.lower():
                     script_guid = guid
+                    comp_type = name
                     break
 
         if script_guid is None:
             click.echo(f"Error: Component or script '{comp_type}' not found.", err=True)
             if project_root:
-                click.echo(f"Searched for {comp_type}.cs in project.", err=True)
+                click.echo(
+                    f"Searched for {comp_type}.cs in Assets/, Packages/, and Library/PackageCache/.",
+                    err=True,
+                )
             sys.exit(1)
 
         class_id = 114
