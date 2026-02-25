@@ -1208,14 +1208,6 @@ def _handle_add_component(
         click.echo(f"Error: GameObject not found: {go_path}", err=True)
         sys.exit(1)
 
-    # Check hierarchy components (excludes Transform/RectTransform)
-    for comp in target_node.components:
-        comp_name = comp.script_name or comp.class_name
-        if comp_name.lower() == comp_type.lower():
-            click.echo(f"Error: Component '{comp_type}' already exists on '{go_path}'", err=True)
-            sys.exit(1)
-
-    # Also check Transform/RectTransform (excluded from hierarchy components)
     transform_obj = doc.get_by_file_id(target_node.transform_id)
     if transform_obj and transform_obj.class_name.lower() == comp_type.lower():
         click.echo(f"Error: Component '{comp_type}' already exists on '{go_path}'", err=True)

@@ -620,7 +620,7 @@ class TestSetAddComponent:
         go_content = go.get_content()
         assert len(go_content["m_Component"]) == 2
 
-    def test_add_component_duplicate(self, runner, tmp_path):
+    def test_add_component_duplicate_transform_blocked(self, runner, tmp_path):
         import shutil
 
         test_file = tmp_path / "basic.prefab"
@@ -640,6 +640,30 @@ class TestSetAddComponent:
 
         assert result.exit_code != 0
         assert "already exists" in result.output
+
+    def test_add_component_duplicate_allowed(self, runner, tmp_path):
+        import shutil
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        runner.invoke(
+            main,
+            ["set", str(test_file), "--path", "BasicPrefab", "--add-component", "CanvasRenderer"],
+        )
+        result = runner.invoke(
+            main,
+            ["set", str(test_file), "--path", "BasicPrefab", "--add-component", "CanvasRenderer"],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        from unityflow.parser import UnityYAMLDocument
+
+        doc = UnityYAMLDocument.load(test_file)
+        go = doc.get_game_objects()[0]
+        go_content = go.get_content()
+        assert len(go_content["m_Component"]) == 3
 
     def test_remove_component(self, runner, tmp_path):
         import shutil
