@@ -107,22 +107,19 @@ class UnityPrefabNormalizer:
         Args:
             doc: The document to normalize
         """
-        # Normalize each object's data
         for obj in doc.objects:
-            self._normalize_object(obj)
+            self._normalize_object(obj, source_path=doc.source_path)
 
-        # Sort documents by fileID
         doc.objects.sort(key=lambda o: o.file_id)
 
-    def _normalize_object(self, obj: UnityYAMLObject) -> None:
+    def _normalize_object(self, obj: UnityYAMLObject, source_path: Path | None = None) -> None:
         """Normalize a single Unity YAML object."""
         content = obj.get_content()
         if content is None:
             return
 
-        # Sort m_Modifications if present
         if "m_Modification" in content:
-            self._sort_modifications(content["m_Modification"])
+            self._sort_modifications(content["m_Modification"], source_path=source_path)
 
         # Process MonoBehaviour fields (requires project_root for script parsing)
         if obj.class_id == 114 and self.project_root:  # MonoBehaviour
@@ -374,16 +371,18 @@ class UnityPrefabNormalizer:
 
         return self._script_cache.get_field_order(script_guid)
 
-    def _sort_modifications(self, modification: dict[str, Any]) -> None:
+    def _sort_modifications(self, modification: dict[str, Any], source_path: Path | None = None) -> None:
         """Sort m_Modifications array for deterministic order."""
         if not isinstance(modification, dict):
             return
 
-        # Sort m_Modifications array
         mods = modification.get("m_Modifications")
         if isinstance(mods, list) and mods:
+            if source_path is not None:
+                file_stem = source_path.stem
+                mods[:] = [m for m in mods if not (m.get("propertyPath") == "m_Name" and m.get("value") == file_stem)]
+
             sorted_mods = self._sort_modification_list(list(mods))
-            # Replace contents in place
             mods.clear()
             mods.extend(sorted_mods)
 

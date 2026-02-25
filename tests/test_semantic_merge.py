@@ -500,3 +500,118 @@ class TestSemanticMergeResult:
         )
 
         assert result.conflict_count == 2
+
+
+def _create_prefab_instance(file_id: int, modifications: list) -> UnityYAMLObject:
+    return UnityYAMLObject(
+        class_id=1001,
+        file_id=file_id,
+        data={
+            "PrefabInstance": {
+                "m_Modification": {
+                    "m_Modifications": modifications,
+                    "m_RemovedComponents": [],
+                }
+            }
+        },
+    )
+
+
+class TestModificationListMerge:
+
+    def test_ours_adds_modification(self):
+        base_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+        ]
+        ours_mods = list(base_mods) + [
+            {"target": {"fileID": 200}, "propertyPath": "m_Enabled", "value": "1", "objectReference": {"fileID": 0}},
+        ]
+
+        base = UnityYAMLDocument()
+        base.add_object(_create_prefab_instance(1000, list(base_mods)))
+        ours = UnityYAMLDocument()
+        ours.add_object(_create_prefab_instance(1000, ours_mods))
+        theirs = UnityYAMLDocument()
+        theirs.add_object(_create_prefab_instance(1000, list(base_mods)))
+
+        result = semantic_three_way_merge(base, ours, theirs)
+        assert not result.has_conflicts
+
+        merged_obj = result.merged_document.get_by_file_id(1000)
+        merged_mods = merged_obj.get_content()["m_Modification"]["m_Modifications"]
+        keys = {(m["target"]["fileID"], m["propertyPath"]) for m in merged_mods}
+        assert (200, "m_Enabled") in keys
+
+    def test_both_add_different_modifications(self):
+        base_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+        ]
+        ours_mods = list(base_mods) + [
+            {"target": {"fileID": 200}, "propertyPath": "m_Enabled", "value": "1", "objectReference": {"fileID": 0}},
+        ]
+        theirs_mods = list(base_mods) + [
+            {"target": {"fileID": 300}, "propertyPath": "m_IsActive", "value": "0", "objectReference": {"fileID": 0}},
+        ]
+
+        base = UnityYAMLDocument()
+        base.add_object(_create_prefab_instance(1000, list(base_mods)))
+        ours = UnityYAMLDocument()
+        ours.add_object(_create_prefab_instance(1000, ours_mods))
+        theirs = UnityYAMLDocument()
+        theirs.add_object(_create_prefab_instance(1000, theirs_mods))
+
+        result = semantic_three_way_merge(base, ours, theirs)
+        assert not result.has_conflicts
+
+        merged_obj = result.merged_document.get_by_file_id(1000)
+        merged_mods = merged_obj.get_content()["m_Modification"]["m_Modifications"]
+        keys = {(m["target"]["fileID"], m["propertyPath"]) for m in merged_mods}
+        assert (100, "m_Name") in keys
+        assert (200, "m_Enabled") in keys
+        assert (300, "m_IsActive") in keys
+
+    def test_conflict_on_same_modification_key(self):
+        base_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+        ]
+        ours_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "B", "objectReference": {"fileID": 0}},
+        ]
+        theirs_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "C", "objectReference": {"fileID": 0}},
+        ]
+
+        base = UnityYAMLDocument()
+        base.add_object(_create_prefab_instance(1000, base_mods))
+        ours = UnityYAMLDocument()
+        ours.add_object(_create_prefab_instance(1000, ours_mods))
+        theirs = UnityYAMLDocument()
+        theirs.add_object(_create_prefab_instance(1000, theirs_mods))
+
+        result = semantic_three_way_merge(base, ours, theirs)
+        assert result.has_conflicts
+
+    def test_theirs_removes_modification(self):
+        base_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+            {"target": {"fileID": 200}, "propertyPath": "m_Enabled", "value": "1", "objectReference": {"fileID": 0}},
+        ]
+        theirs_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+        ]
+
+        base = UnityYAMLDocument()
+        base.add_object(_create_prefab_instance(1000, list(base_mods)))
+        ours = UnityYAMLDocument()
+        ours.add_object(_create_prefab_instance(1000, list(base_mods)))
+        theirs = UnityYAMLDocument()
+        theirs.add_object(_create_prefab_instance(1000, theirs_mods))
+
+        result = semantic_three_way_merge(base, ours, theirs)
+        assert not result.has_conflicts
+
+        merged_obj = result.merged_document.get_by_file_id(1000)
+        merged_mods = merged_obj.get_content()["m_Modification"]["m_Modifications"]
+        keys = {(m["target"]["fileID"], m["propertyPath"]) for m in merged_mods}
+        assert (200, "m_Enabled") not in keys
+        assert (100, "m_Name") in keys

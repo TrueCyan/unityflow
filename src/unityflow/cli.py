@@ -424,6 +424,7 @@ def diff(
         # Exit with status code (for scripts)
         unityflow diff old.prefab new.prefab --exit-code
     """
+    from unityflow.asset_tracker import find_unity_project_root
     from unityflow.semantic_diff import ChangeType, semantic_diff
 
     try:
@@ -433,7 +434,8 @@ def diff(
         click.echo(f"Error: Failed to load files: {e}", err=True)
         sys.exit(1)
 
-    result = semantic_diff(left_doc, right_doc)
+    project_root = find_unity_project_root(old_file)
+    result = semantic_diff(left_doc, right_doc, project_root=project_root)
 
     if result.has_changes:
         # Format semantic diff output
@@ -1827,6 +1829,7 @@ def merge_files(
         *.unity merge=unity
         *.asset merge=unity
     """
+    from unityflow.asset_tracker import find_unity_project_root
     from unityflow.semantic_merge import semantic_three_way_merge
 
     try:
@@ -1837,8 +1840,8 @@ def merge_files(
         click.echo(f"Error: Failed to load files: {e}", err=True)
         sys.exit(1)
 
-    # Perform semantic 3-way merge
-    result = semantic_three_way_merge(base_doc, ours_doc, theirs_doc)
+    project_root = find_unity_project_root(base)
+    result = semantic_three_way_merge(base_doc, ours_doc, theirs_doc, project_root=project_root)
 
     output_path = output or ours
     result.merged_document.save(output_path)

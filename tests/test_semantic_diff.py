@@ -278,3 +278,98 @@ class TestSemanticDiffResult:
         assert result.removed_count == 1
         assert result.modified_count == 1
         assert result.has_changes
+
+
+def _create_prefab_instance(file_id: int, modifications: list) -> UnityYAMLObject:
+    return UnityYAMLObject(
+        class_id=1001,
+        file_id=file_id,
+        data={
+            "PrefabInstance": {
+                "m_Modification": {
+                    "m_Modifications": modifications,
+                    "m_RemovedComponents": [],
+                }
+            }
+        },
+    )
+
+
+class TestModificationListDiff:
+
+    def test_identical_modifications_no_changes(self):
+        mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+        ]
+        left_doc = UnityYAMLDocument()
+        left_doc.add_object(_create_prefab_instance(1000, list(mods)))
+        right_doc = UnityYAMLDocument()
+        right_doc.add_object(_create_prefab_instance(1000, list(mods)))
+
+        result = semantic_diff(left_doc, right_doc)
+        assert not result.has_changes
+
+    def test_modification_added(self):
+        base_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+        ]
+        new_mods = list(base_mods) + [
+            {"target": {"fileID": 200}, "propertyPath": "m_Enabled", "value": "1", "objectReference": {"fileID": 0}},
+        ]
+        left_doc = UnityYAMLDocument()
+        left_doc.add_object(_create_prefab_instance(1000, base_mods))
+        right_doc = UnityYAMLDocument()
+        right_doc.add_object(_create_prefab_instance(1000, new_mods))
+
+        result = semantic_diff(left_doc, right_doc)
+        assert result.has_changes
+        added = [c for c in result.property_changes if c.change_type == ChangeType.ADDED]
+        assert len(added) == 1
+        assert "fileID=200" in added[0].property_path
+
+    def test_modification_removed(self):
+        old_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+            {"target": {"fileID": 200}, "propertyPath": "m_Enabled", "value": "1", "objectReference": {"fileID": 0}},
+        ]
+        new_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+        ]
+        left_doc = UnityYAMLDocument()
+        left_doc.add_object(_create_prefab_instance(1000, old_mods))
+        right_doc = UnityYAMLDocument()
+        right_doc.add_object(_create_prefab_instance(1000, new_mods))
+
+        result = semantic_diff(left_doc, right_doc)
+        assert result.has_changes
+        removed = [c for c in result.property_changes if c.change_type == ChangeType.REMOVED]
+        assert len(removed) == 1
+
+    def test_modification_value_changed(self):
+        old_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}},
+        ]
+        new_mods = [
+            {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "B", "objectReference": {"fileID": 0}},
+        ]
+        left_doc = UnityYAMLDocument()
+        left_doc.add_object(_create_prefab_instance(1000, old_mods))
+        right_doc = UnityYAMLDocument()
+        right_doc.add_object(_create_prefab_instance(1000, new_mods))
+
+        result = semantic_diff(left_doc, right_doc)
+        assert result.has_changes
+        modified = [c for c in result.property_changes if c.change_type == ChangeType.MODIFIED]
+        assert len(modified) == 1
+
+    def test_reordered_modifications_no_false_positive(self):
+        mod_a = {"target": {"fileID": 100}, "propertyPath": "m_Name", "value": "A", "objectReference": {"fileID": 0}}
+        mod_b = {"target": {"fileID": 200}, "propertyPath": "m_Enabled", "value": "1", "objectReference": {"fileID": 0}}
+
+        left_doc = UnityYAMLDocument()
+        left_doc.add_object(_create_prefab_instance(1000, [mod_a, mod_b]))
+        right_doc = UnityYAMLDocument()
+        right_doc.add_object(_create_prefab_instance(1000, [mod_b, mod_a]))
+
+        result = semantic_diff(left_doc, right_doc)
+        assert not result.has_changes

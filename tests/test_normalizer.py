@@ -268,6 +268,116 @@ class TestConvenienceFunction:
         assert content.startswith("%YAML 1.1")
 
 
+class TestModificationNameFiltering:
+
+    def test_m_name_override_matching_filename_is_removed(self):
+        normalizer = UnityPrefabNormalizer()
+        doc = UnityYAMLDocument()
+        from unityflow.parser import UnityYAMLObject
+
+        obj = UnityYAMLObject(
+            class_id=1001,
+            file_id=100000,
+            data={
+                "PrefabInstance": {
+                    "m_Modification": {
+                        "m_Modifications": [
+                            {
+                                "target": {"fileID": 400000, "guid": "abc"},
+                                "propertyPath": "m_Name",
+                                "value": "MyPrefab",
+                                "objectReference": {"fileID": 0},
+                            },
+                            {
+                                "target": {"fileID": 400000, "guid": "abc"},
+                                "propertyPath": "m_LocalPosition.x",
+                                "value": "5",
+                                "objectReference": {"fileID": 0},
+                            },
+                        ],
+                        "m_RemovedComponents": [],
+                    }
+                }
+            },
+        )
+        doc.add_object(obj)
+        doc.source_path = Path("/project/Assets/MyPrefab.prefab")
+
+        normalizer.normalize_document(doc)
+
+        content = doc.get_by_file_id(100000).get_content()
+        mods = content["m_Modification"]["m_Modifications"]
+        assert len(mods) == 1
+        assert mods[0]["propertyPath"] == "m_LocalPosition.x"
+
+    def test_m_name_override_not_matching_filename_is_preserved(self):
+        normalizer = UnityPrefabNormalizer()
+        doc = UnityYAMLDocument()
+        from unityflow.parser import UnityYAMLObject
+
+        obj = UnityYAMLObject(
+            class_id=1001,
+            file_id=100000,
+            data={
+                "PrefabInstance": {
+                    "m_Modification": {
+                        "m_Modifications": [
+                            {
+                                "target": {"fileID": 400000, "guid": "abc"},
+                                "propertyPath": "m_Name",
+                                "value": "CustomName",
+                                "objectReference": {"fileID": 0},
+                            },
+                        ],
+                        "m_RemovedComponents": [],
+                    }
+                }
+            },
+        )
+        doc.add_object(obj)
+        doc.source_path = Path("/project/Assets/MyPrefab.prefab")
+
+        normalizer.normalize_document(doc)
+
+        content = doc.get_by_file_id(100000).get_content()
+        mods = content["m_Modification"]["m_Modifications"]
+        assert len(mods) == 1
+        assert mods[0]["propertyPath"] == "m_Name"
+        assert mods[0]["value"] == "CustomName"
+
+    def test_no_source_path_preserves_all_mods(self):
+        normalizer = UnityPrefabNormalizer()
+        doc = UnityYAMLDocument()
+        from unityflow.parser import UnityYAMLObject
+
+        obj = UnityYAMLObject(
+            class_id=1001,
+            file_id=100000,
+            data={
+                "PrefabInstance": {
+                    "m_Modification": {
+                        "m_Modifications": [
+                            {
+                                "target": {"fileID": 400000, "guid": "abc"},
+                                "propertyPath": "m_Name",
+                                "value": "MyPrefab",
+                                "objectReference": {"fileID": 0},
+                            },
+                        ],
+                        "m_RemovedComponents": [],
+                    }
+                }
+            },
+        )
+        doc.add_object(obj)
+
+        normalizer.normalize_document(doc)
+
+        content = doc.get_by_file_id(100000).get_content()
+        mods = content["m_Modification"]["m_Modifications"]
+        assert len(mods) == 1
+
+
 class TestNestedFieldSync:
 
     def _make_nested_info(self, fields):

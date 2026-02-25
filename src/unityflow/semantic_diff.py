@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -231,6 +232,10 @@ def _compare_values(
             _compare_file_id_lists(old_value, new_value, path, file_id, class_name, game_object_name, changes)
             return
 
+        if _is_modification_list(old_value) and _is_modification_list(new_value):
+            _compare_modification_lists(old_value, new_value, path, file_id, class_name, game_object_name, changes)
+            return
+
         # For other lists, compare by index
         max_len = max(len(old_value), len(new_value))
         for i in range(max_len):
@@ -267,6 +272,72 @@ def _is_file_id_list(value: list[Any]) -> bool:
     if not value:
         return False
     return all(isinstance(item, dict) and "fileID" in item and len(item) == 1 for item in value)
+
+
+def _is_modification_list(value: list[Any]) -> bool:
+    if not value:
+        return True
+    return all(isinstance(item, dict) and "target" in item and "propertyPath" in item for item in value)
+
+
+def _modification_key(mod: dict[str, Any]) -> tuple[int, str]:
+    target = mod.get("target", {})
+    file_id = target.get("fileID", 0) if isinstance(target, dict) else 0
+    return (file_id, mod.get("propertyPath", ""))
+
+
+def _compare_modification_lists(
+    old_list: list[dict[str, Any]],
+    new_list: list[dict[str, Any]],
+    path: str,
+    file_id: int,
+    class_name: str,
+    game_object_name: str | None,
+    changes: list[PropertyChange],
+) -> None:
+    old_by_key = {_modification_key(m): m for m in old_list}
+    new_by_key = {_modification_key(m): m for m in new_list}
+
+    all_keys = set(old_by_key.keys()) | set(new_by_key.keys())
+    for key in sorted(all_keys):
+        old_mod = old_by_key.get(key)
+        new_mod = new_by_key.get(key)
+        key_label = f"target.fileID={key[0]},propertyPath={key[1]}"
+
+        if old_mod is None:
+            changes.append(
+                PropertyChange(
+                    file_id=file_id,
+                    class_name=class_name,
+                    property_path=f"{path}[{key_label}]",
+                    change_type=ChangeType.ADDED,
+                    old_value=None,
+                    new_value=new_mod,
+                    game_object_name=game_object_name,
+                )
+            )
+        elif new_mod is None:
+            changes.append(
+                PropertyChange(
+                    file_id=file_id,
+                    class_name=class_name,
+                    property_path=f"{path}[{key_label}]",
+                    change_type=ChangeType.REMOVED,
+                    old_value=old_mod,
+                    new_value=None,
+                    game_object_name=game_object_name,
+                )
+            )
+        elif old_mod != new_mod:
+            _compare_values(
+                old_mod,
+                new_mod,
+                f"{path}[{key_label}]",
+                file_id,
+                class_name,
+                game_object_name,
+                changes,
+            )
 
 
 def _compare_file_id_lists(
@@ -318,6 +389,7 @@ def _compare_file_id_lists(
 def semantic_diff(
     left_doc: UnityYAMLDocument,
     right_doc: UnityYAMLDocument,
+    project_root: str | Path | None = None,
 ) -> SemanticDiffResult:
     """Perform a semantic 2-way diff between two Unity YAML documents.
 
@@ -328,10 +400,18 @@ def semantic_diff(
     Args:
         left_doc: The left/old/base document
         right_doc: The right/new/modified document
+        project_root: Unity project root for normalization (optional)
 
     Returns:
         SemanticDiffResult containing all detected changes
     """
+    if project_root is not None:
+        from unityflow.normalizer import UnityPrefabNormalizer
+
+        normalizer = UnityPrefabNormalizer(project_root=project_root)
+        normalizer.normalize_document(left_doc)
+        normalizer.normalize_document(right_doc)
+
     result = SemanticDiffResult()
 
     # Collect all fileIDs

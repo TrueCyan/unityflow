@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -388,6 +389,26 @@ def _merge_values(
             auto_merged,
         )
 
+    if (
+        isinstance(base_value, list)
+        and isinstance(ours_value, list)
+        and isinstance(theirs_value, list)
+        and _is_modification_list(base_value)
+        and _is_modification_list(ours_value)
+        and _is_modification_list(theirs_value)
+    ):
+        return _merge_modification_lists(
+            base_value,
+            ours_value,
+            theirs_value,
+            path,
+            file_id,
+            class_name,
+            game_object_name,
+            conflicts,
+            auto_merged,
+        )
+
     # If all three are lists, merge element by element
     if isinstance(base_value, list) and isinstance(ours_value, list) and isinstance(theirs_value, list):
         return _merge_lists(
@@ -431,6 +452,60 @@ def _is_file_id_list(value: list[Any]) -> bool:
     if not value:
         return True  # Empty list is compatible
     return all(isinstance(item, dict) and "fileID" in item and len(item) == 1 for item in value)
+
+
+def _is_modification_list(value: list[Any]) -> bool:
+    if not value:
+        return True
+    return all(isinstance(item, dict) and "target" in item and "propertyPath" in item for item in value)
+
+
+def _modification_key(mod: dict[str, Any]) -> tuple[int, str]:
+    target = mod.get("target", {})
+    file_id = target.get("fileID", 0) if isinstance(target, dict) else 0
+    return (file_id, mod.get("propertyPath", ""))
+
+
+def _merge_modification_lists(
+    base_list: list[dict[str, Any]],
+    ours_list: list[dict[str, Any]],
+    theirs_list: list[dict[str, Any]],
+    path: str,
+    file_id: int,
+    class_name: str,
+    game_object_name: str | None,
+    conflicts: list[PropertyConflict],
+    auto_merged: list[AutoMergedChange],
+) -> list[dict[str, Any]]:
+    base_by_key = {_modification_key(m): m for m in base_list}
+    ours_by_key = {_modification_key(m): m for m in ours_list}
+    theirs_by_key = {_modification_key(m): m for m in theirs_list}
+
+    all_keys = set(base_by_key.keys()) | set(ours_by_key.keys()) | set(theirs_by_key.keys())
+    result = []
+
+    for key in sorted(all_keys):
+        base_mod = base_by_key.get(key)
+        ours_mod = ours_by_key.get(key)
+        theirs_mod = theirs_by_key.get(key)
+        key_label = f"target.fileID={key[0]},propertyPath={key[1]}"
+        child_path = f"{path}[{key_label}]"
+
+        merged = _merge_values(
+            base_mod,
+            ours_mod,
+            theirs_mod,
+            child_path,
+            file_id,
+            class_name,
+            game_object_name,
+            conflicts,
+            auto_merged,
+        )
+        if merged is not None:
+            result.append(merged)
+
+    return result
 
 
 def _merge_file_id_lists(
@@ -547,6 +622,7 @@ def semantic_three_way_merge(
     base_doc: UnityYAMLDocument,
     ours_doc: UnityYAMLDocument,
     theirs_doc: UnityYAMLDocument,
+    project_root: str | Path | None = None,
 ) -> SemanticMergeResult:
     """Perform a semantic three-way merge of Unity YAML documents.
 
@@ -559,11 +635,19 @@ def semantic_three_way_merge(
         base_doc: The common ancestor document
         ours_doc: Our version (current branch)
         theirs_doc: Their version (branch being merged)
+        project_root: Unity project root for normalization (optional)
 
     Returns:
         SemanticMergeResult containing merged document and conflict info
     """
-    # Start with a copy of ours as the base for merging
+    if project_root is not None:
+        from unityflow.normalizer import UnityPrefabNormalizer
+
+        normalizer = UnityPrefabNormalizer(project_root=project_root)
+        normalizer.normalize_document(base_doc)
+        normalizer.normalize_document(ours_doc)
+        normalizer.normalize_document(theirs_doc)
+
     merged_doc = _deep_copy_document(ours_doc)
 
     result = SemanticMergeResult(merged_document=merged_doc)
