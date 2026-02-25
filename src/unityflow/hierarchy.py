@@ -594,6 +594,9 @@ class HierarchyNode:
         for child in source_node.children:
             merged_node._merge_nested_child(child, guid_index, loading_prefabs, mods_by_target)
 
+        if merged_node.is_prefab_instance and not merged_node.nested_prefab_loaded and merged_node.source_guid:
+            merged_node.load_source_prefab(guid_index=guid_index, _loading_prefabs=loading_prefabs)
+
     def _merge_nested_child(
         self,
         source_child: HierarchyNode,
@@ -651,6 +654,9 @@ class HierarchyNode:
         # Recursively merge grandchildren
         for grandchild in source_child.children:
             merged_child._merge_nested_child(grandchild, guid_index, loading_prefabs, mods_by_target)
+
+        if merged_child.is_prefab_instance and not merged_child.nested_prefab_loaded and merged_child.source_guid:
+            merged_child.load_source_prefab(guid_index=guid_index, _loading_prefabs=loading_prefabs)
 
 
 @dataclass

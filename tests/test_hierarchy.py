@@ -1051,3 +1051,124 @@ Transform:
 
             # Cache should still have one entry (same GUID)
             assert len(hierarchy._nested_prefab_cache) == 1
+
+    def test_recursive_nested_prefab_loading(self):
+        """Test that load_nested_prefabs=True recursively loads all levels."""
+        import tempfile
+
+        from unityflow.asset_tracker import GUIDIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            leaf_guid = "leaf0000000000000000000000000001"
+            leaf_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: LeafRoot
+  m_Component:
+  - component: {fileID: 400000}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children: []
+"""
+            leaf_path = project_root / "Assets" / "LeafPrefab.prefab"
+            leaf_path.write_text(leaf_content)
+
+            mid_guid = "mid00000000000000000000000000001"
+            mid_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: MidRoot
+  m_Component:
+  - component: {{fileID: 400000}}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {{fileID: 100000}}
+  m_Father: {{fileID: 0}}
+  m_Children:
+  - {{fileID: 500000}}
+--- !u!1001 &200000
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {leaf_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {leaf_guid}}}
+      propertyPath: m_Name
+      value: LeafInstance
+      objectReference: {{fileID: 0}}
+--- !u!4 &500000 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {leaf_guid}}}
+  m_PrefabInstance: {{fileID: 200000}}
+"""
+            mid_path = project_root / "Assets" / "MidPrefab.prefab"
+            mid_path.write_text(mid_content)
+
+            top_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: TopRoot
+  m_Component:
+  - component: {{fileID: 400000}}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {{fileID: 100000}}
+  m_Father: {{fileID: 0}}
+  m_Children:
+  - {{fileID: 500000}}
+--- !u!1001 &200000
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {mid_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {mid_guid}}}
+      propertyPath: m_Name
+      value: MidInstance
+      objectReference: {{fileID: 0}}
+--- !u!4 &500000 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {mid_guid}}}
+  m_PrefabInstance: {{fileID: 200000}}
+"""
+            top_path = project_root / "Assets" / "TopPrefab.prefab"
+            top_path.write_text(top_content)
+
+            guid_index = GUIDIndex(project_root=project_root)
+            guid_index.guid_to_path[leaf_guid] = Path("Assets/LeafPrefab.prefab")
+            guid_index.guid_to_path[mid_guid] = Path("Assets/MidPrefab.prefab")
+
+            top_doc = UnityYAMLDocument.load(top_path)
+            hierarchy = build_hierarchy(
+                top_doc,
+                guid_index=guid_index,
+                project_root=project_root,
+                load_nested_prefabs=True,
+            )
+
+            root = hierarchy.root_objects[0]
+            assert root.name == "TopRoot"
+
+            mid_instance = next(
+                (c for c in root.iter_descendants() if c.name in ("MidInstance", "MidRoot")),
+                None,
+            )
+            assert mid_instance is not None
+
+            nested_prefab = next(
+                (c for c in mid_instance.iter_descendants() if c.is_prefab_instance),
+                None,
+            )
+            assert nested_prefab is not None, "Level-2 PrefabInstance not found"
+            assert nested_prefab.nested_prefab_loaded is True, "Level-2 PrefabInstance should be recursively loaded"
+            assert len(nested_prefab.children) > 0, "Level-2 PrefabInstance should have children after loading"
