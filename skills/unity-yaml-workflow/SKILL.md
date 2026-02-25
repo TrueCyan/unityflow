@@ -12,11 +12,13 @@ Edit Unity prefabs (.prefab), scenes (.unity), and ScriptableObject (.asset) fil
 All Unity YAML file operations require the `unityflow` CLI to preserve Unity's special format (tag aliases, deterministic field ordering, reference formats).
 
 Available commands:
+- `unityflow create` - Create new Unity file (.prefab, .unity, .asset)
 - `unityflow hierarchy` - Query hierarchy structure
 - `unityflow inspect` - Query specific object/component details
 - `unityflow get` - Query value at specific path
 - `unityflow set` - Modify values (single value, batch modification)
-- `unityflow set --value "@assetpath"` - Link assets
+- `unityflow set --add-component` / `--remove-component` - Manage components
+- `unityflow set --add-object` / `--remove-object` - Manage child GameObjects
 
 ---
 
@@ -170,14 +172,40 @@ unityflow set Player.prefab \
     --value "#Player/SpawnPoint"
 ```
 
+### Creating New Files (create)
+
+```bash
+# Create a new prefab
+unityflow create MyPrefab.prefab
+
+# Create with custom root name
+unityflow create Enemy.prefab --name "Enemy"
+
+# Create UI prefab with RectTransform
+unityflow create MyUI.prefab --name "Root" --type rect-transform
+```
+
 ### Adding and Removing Components
 
 ```bash
 # Add a component to a GameObject
-unityflow set Player.prefab --path "Player/Button" --create
+unityflow set Player.prefab --path "Player" --add-component "Button"
 
 # Remove a component from a GameObject
-unityflow set Player.prefab --path "Player/OldComponent" --remove
+unityflow set Player.prefab --path "Player" --remove-component "OldComponent"
+```
+
+### Adding and Removing Child GameObjects
+
+```bash
+# Add a child GameObject
+unityflow set Player.prefab --path "Player" --add-object "Child"
+
+# Add a child with RectTransform (for UI)
+unityflow set Player.prefab --path "Player" --add-object "Panel" --type rect-transform
+
+# Remove a child GameObject
+unityflow set Player.prefab --path "Player" --remove-object "Child"
 ```
 
 ### Validation and Normalization
@@ -229,6 +257,8 @@ unityflow validate problematic.prefab --format json
 ## Summary
 
 - Use `unityflow` CLI for all Unity YAML operations
+- Create files: `unityflow create`
 - References: `@` for external assets, `#` for internal objects
-- Components: `--create` to add, `--remove` to delete
-- Workflow: edit → normalize → validate
+- Components: `--add-component` to add, `--remove-component` to delete
+- Child objects: `--add-object` to add, `--remove-object` to delete
+- Workflow: create → edit → normalize → validate

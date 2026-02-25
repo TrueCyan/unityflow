@@ -278,28 +278,41 @@ unityflow set Scene.unity \
 
 ---
 
-## Adding and Removing Components
+## Creating UI Prefabs
 
-### Add Component (--create)
+```bash
+# Create a UI prefab with RectTransform
+unityflow create MyUI.prefab --type rect-transform
+
+# Create with custom root name
+unityflow create MainMenu.prefab --name "MainMenu" --type rect-transform
+```
+
+---
+
+## Adding and Removing Components
 
 ```bash
 # Add a Button component to a GameObject
-unityflow set Prefab.prefab --path "Canvas/Panel/Button" --create
+unityflow set Prefab.prefab --path "Canvas/Panel" --add-component "Button"
 
 # Add an Image component
-unityflow set Prefab.prefab --path "Canvas/Panel/Image" --create
+unityflow set Prefab.prefab --path "Canvas/Panel" --add-component "Image"
+
+# Remove a component
+unityflow set Prefab.prefab --path "Canvas/Panel" --remove-component "Button"
 ```
 
-Supported built-in component types: Button, Image, and other Unity built-in types.
+---
 
-### Remove Component (--remove)
+## Adding and Removing Child GameObjects
 
 ```bash
-# Remove a Button component from a GameObject
-unityflow set Prefab.prefab --path "Canvas/Panel/Button" --remove
+# Add a UI child object (with RectTransform)
+unityflow set Prefab.prefab --path "Canvas/Panel" --add-object "Button" --type rect-transform
 
-# Remove an Image component
-unityflow set Prefab.prefab --path "Canvas/Panel/Image" --remove
+# Remove a child object
+unityflow set Prefab.prefab --path "Canvas/Panel" --remove-object "Button"
 ```
 
 ---
@@ -307,5 +320,7 @@ unityflow set Prefab.prefab --path "Canvas/Panel/Image" --remove
 ## Summary
 
 - Use `unityflow` CLI for all Unity UI file operations
+- Create UI files: `unityflow create --type rect-transform`
 - References: `@` for external assets, `#` for internal objects
-- Components: `--create` to add, `--remove` to delete
+- Components: `--add-component` to add, `--remove-component` to delete
+- Child objects: `--add-object` to add, `--remove-object` to delete
