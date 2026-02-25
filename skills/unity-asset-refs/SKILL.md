@@ -5,11 +5,11 @@ description: Finds all files referencing a specific Unity asset by GUID. Tracks 
 
 # Unity Asset References Skill
 
-Find which files reference a specific Unity asset using `unityflow refs` CLI.
+Find which files reference a specific Unity asset using `uvx unityflow refs` CLI.
 
-## Rule: Use unityflow refs
+## Rule: Use uvx unityflow refs
 
-Asset reference searches require GUID-based lookup across Unity YAML files. Use `unityflow refs` to find all files that reference a given asset.
+Asset reference searches require GUID-based lookup across Unity YAML files. Use `uvx unityflow refs` to find all files that reference a given asset.
 
 ---
 
@@ -18,7 +18,7 @@ Asset reference searches require GUID-based lookup across Unity YAML files. Use 
 ### Basic Usage
 
 ```bash
-unityflow refs Assets/Scripts/Player.cs
+uvx unityflow refs Assets/Scripts/Player.cs
 ```
 
 Output:
@@ -34,22 +34,22 @@ Found 3 references to Assets/Scripts/Player.cs:
 
 ```bash
 # JSON output
-unityflow refs Assets/Scripts/Player.cs --format json
+uvx unityflow refs Assets/Scripts/Player.cs --format json
 
 # Specify Unity project root
-unityflow refs Assets/Scripts/Player.cs --project-root /path/to/unity
+uvx unityflow refs Assets/Scripts/Player.cs --project-root /path/to/unity
 
 # Include Library/PackageCache in search
-unityflow refs Assets/Scripts/Player.cs --include-packages
+uvx unityflow refs Assets/Scripts/Player.cs --include-packages
 
 # Show progress bar
-unityflow refs Assets/Scripts/Player.cs --progress
+uvx unityflow refs Assets/Scripts/Player.cs --progress
 ```
 
 ### JSON Output
 
 ```bash
-unityflow refs Assets/Scripts/Player.cs --format json
+uvx unityflow refs Assets/Scripts/Player.cs --format json
 ```
 
 ```json
@@ -76,20 +76,20 @@ Combine `refs`, `inspect`, and `hierarchy` for full dependency analysis:
 
 ```bash
 # 1. Find who uses this script
-unityflow refs Assets/Scripts/PlayerController.cs
+uvx unityflow refs Assets/Scripts/PlayerController.cs
 
 # 2. Inspect how the script is used in a specific prefab
-unityflow inspect Assets/Prefabs/Player.prefab --type MonoBehaviour
+uvx unityflow inspect Assets/Prefabs/Player.prefab --type MonoBehaviour
 
 # 3. See the prefab's full hierarchy
-unityflow hierarchy Assets/Prefabs/Player.prefab
+uvx unityflow hierarchy Assets/Prefabs/Player.prefab
 ```
 
 ### Detect Unused Assets
 
 ```bash
 # Check if an asset is referenced anywhere
-unityflow refs Assets/Materials/OldMaterial.mat
+uvx unityflow refs Assets/Materials/OldMaterial.mat
 # Output: "No references found for Assets/Materials/OldMaterial.mat"
 ```
 
@@ -99,12 +99,12 @@ Before renaming, moving, or deleting an asset, check what depends on it:
 
 ```bash
 # Find all files that will break if this asset is removed
-unityflow refs Assets/Scripts/LegacySystem.cs --format json
+uvx unityflow refs Assets/Scripts/LegacySystem.cs --format json
 ```
 
 ### Package Dependency Check
 
 ```bash
 # Find references including package files
-unityflow refs Assets/Scripts/SharedUtil.cs --include-packages
+uvx unityflow refs Assets/Scripts/SharedUtil.cs --include-packages
 ```

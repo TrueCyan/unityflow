@@ -12,13 +12,13 @@ Edit Unity prefabs (.prefab), scenes (.unity), and ScriptableObject (.asset) fil
 All Unity YAML file operations require the `unityflow` CLI to preserve Unity's special format (tag aliases, deterministic field ordering, reference formats).
 
 Available commands:
-- `unityflow create` - Create new Unity file (.prefab, .unity, .asset)
-- `unityflow hierarchy` - Query hierarchy structure
-- `unityflow inspect` - Query specific object/component details
-- `unityflow get` - Query value at specific path
-- `unityflow set` - Modify values (single value, batch modification)
-- `unityflow set --add-component` / `--remove-component` - Manage components
-- `unityflow set --add-object` / `--remove-object` - Manage child GameObjects
+- `uvx unityflow create` - Create new Unity file (.prefab, .unity, .asset)
+- `uvx unityflow hierarchy` - Query hierarchy structure
+- `uvx unityflow inspect` - Query specific object/component details
+- `uvx unityflow get` - Query value at specific path
+- `uvx unityflow set` - Modify values (single value, batch modification)
+- `uvx unityflow set --add-component` / `--remove-component` - Manage components
+- `uvx unityflow set --add-object` / `--remove-object` - Manage child GameObjects
 
 ---
 
@@ -28,54 +28,54 @@ Available commands:
 
 ```bash
 # View hierarchy structure (components shown by default)
-unityflow hierarchy Player.prefab
-unityflow hierarchy MainScene.unity
+uvx unityflow hierarchy Player.prefab
+uvx unityflow hierarchy MainScene.unity
 
 # Hide components for cleaner view
-unityflow hierarchy Player.prefab --no-components
+uvx unityflow hierarchy Player.prefab --no-components
 
 # Output in JSON format
-unityflow hierarchy Player.prefab --format json
+uvx unityflow hierarchy Player.prefab --format json
 
 # Display only up to specific depth
-unityflow hierarchy Scene.unity --depth 2
+uvx unityflow hierarchy Scene.unity --depth 2
 ```
 
 ### Querying Object/Component Details (inspect)
 
 ```bash
 # View GameObject details (specify by path)
-unityflow inspect Player.prefab "Player"
-unityflow inspect Scene.unity "Canvas/Panel/Button"
+uvx unityflow inspect Player.prefab "Player"
+uvx unityflow inspect Scene.unity "Canvas/Panel/Button"
 
 # View component details
-unityflow inspect Player.prefab "Player/Transform"
-unityflow inspect Scene.unity "Player/SpriteRenderer"
+uvx unityflow inspect Player.prefab "Player/Transform"
+uvx unityflow inspect Scene.unity "Player/SpriteRenderer"
 
 # Output in JSON format
-unityflow inspect Player.prefab "Player/Transform" --format json
+uvx unityflow inspect Player.prefab "Player/Transform" --format json
 ```
 
 ### Querying Values (get)
 
 ```bash
 # Query Transform position
-unityflow get Player.prefab "Player/Transform/m_LocalPosition"
+uvx unityflow get Player.prefab "Player/Transform/m_LocalPosition"
 
 # Query SpriteRenderer color
-unityflow get Player.prefab "Player/SpriteRenderer/m_Color"
+uvx unityflow get Player.prefab "Player/SpriteRenderer/m_Color"
 
 # Query GameObject name
-unityflow get Player.prefab "Player/name"
+uvx unityflow get Player.prefab "Player/name"
 
 # Query all component properties
-unityflow get Player.prefab "Player/Transform"
+uvx unityflow get Player.prefab "Player/Transform"
 
 # Specify by index when there are multiple components
-unityflow get Scene.unity "Canvas/Panel/Image[1]/m_Color"
+uvx unityflow get Scene.unity "Canvas/Panel/Image[1]/m_Color"
 
 # Output in text format
-unityflow get Player.prefab "Player/Transform/m_LocalPosition" --format text
+uvx unityflow get Player.prefab "Player/Transform/m_LocalPosition" --format text
 ```
 
 ### Modifying Values (set)
@@ -88,27 +88,27 @@ The `set` command supports 2 modes (mutually exclusive):
 
 ```bash
 # Set Transform position
-unityflow set Player.prefab \
+uvx unityflow set Player.prefab \
     --path "Player/Transform/m_LocalPosition" \
     --value '{"x": 0, "y": 5, "z": 0}'
 
 # Set SpriteRenderer color
-unityflow set Player.prefab \
+uvx unityflow set Player.prefab \
     --path "Player/SpriteRenderer/m_Color" \
     --value '{"r": 1, "g": 0, "b": 0, "a": 1}'
 
 # Change GameObject name
-unityflow set Player.prefab \
+uvx unityflow set Player.prefab \
     --path "Player/name" \
     --value '"NewName"'
 
 # Specify by index when there are multiple components
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/Image[1]/m_Color" \
     --value '{"r": 0, "g": 1, "b": 0, "a": 1}'
 
 # Modify multiple fields at once (batch mode)
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Player/MonoBehaviour" \
     --batch '{"speed": 5.0, "health": 100}'
 ```
@@ -119,22 +119,22 @@ Use `@` prefix to link assets.
 
 ```bash
 # Link sprite (Single mode)
-unityflow set Player.prefab \
+uvx unityflow set Player.prefab \
     --path "Player/SpriteRenderer/m_Sprite" \
     --value "@Assets/Sprites/player.png"
 
 # Link sprite (Multiple mode - sub sprite)
-unityflow set Player.prefab \
+uvx unityflow set Player.prefab \
     --path "Player/SpriteRenderer/m_Sprite" \
     --value "@Assets/Sprites/atlas.png:player_idle_0"
 
 # Link prefab reference (MonoBehaviour field)
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Player/MonoBehaviour/enemyPrefab" \
     --value "@Assets/Prefabs/Enemy.prefab"
 
 # Multiple asset references at once (batch mode)
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Player/MonoBehaviour" \
     --batch '{
         "playerPrefab": "@Assets/Prefabs/Player.prefab",
@@ -162,12 +162,12 @@ Use `#` prefix to reference objects/components within the same file.
 
 ```bash
 # Link to a component on another GameObject
-unityflow set Player.prefab \
+uvx unityflow set Player.prefab \
     --path "Player/MyScript/_target" \
     --value "#Player/Enemy/Transform"
 
 # Link to a GameObject (without component type)
-unityflow set Player.prefab \
+uvx unityflow set Player.prefab \
     --path "Player/MyScript/_spawnPoint" \
     --value "#Player/SpawnPoint"
 ```
@@ -176,62 +176,62 @@ unityflow set Player.prefab \
 
 ```bash
 # Create a new prefab
-unityflow create MyPrefab.prefab
+uvx unityflow create MyPrefab.prefab
 
 # Create with custom root name
-unityflow create Enemy.prefab --name "Enemy"
+uvx unityflow create Enemy.prefab --name "Enemy"
 
 # Create UI prefab with RectTransform
-unityflow create MyUI.prefab --name "Root" --type rect-transform
+uvx unityflow create MyUI.prefab --name "Root" --type rect-transform
 ```
 
 ### Adding and Removing Components
 
 ```bash
 # Add a component to a GameObject
-unityflow set Player.prefab --path "Player" --add-component "Button"
+uvx unityflow set Player.prefab --path "Player" --add-component "Button"
 
 # Remove a component from a GameObject
-unityflow set Player.prefab --path "Player" --remove-component "OldComponent"
+uvx unityflow set Player.prefab --path "Player" --remove-component "OldComponent"
 ```
 
 ### Adding and Removing Child GameObjects
 
 ```bash
 # Add a child GameObject
-unityflow set Player.prefab --path "Player" --add-object "Child"
+uvx unityflow set Player.prefab --path "Player" --add-object "Child"
 
 # Add a child with RectTransform (for UI)
-unityflow set Player.prefab --path "Player" --add-object "Panel" --type rect-transform
+uvx unityflow set Player.prefab --path "Player" --add-object "Panel" --type rect-transform
 
 # Remove a child GameObject
-unityflow set Player.prefab --path "Player" --remove-object "Child"
+uvx unityflow set Player.prefab --path "Player" --remove-object "Child"
 ```
 
 ### Validation and Normalization
 
 ```bash
 # Validate file
-unityflow validate Player.prefab
-unityflow validate MainScene.unity
-unityflow validate GameConfig.asset
+uvx unityflow validate Player.prefab
+uvx unityflow validate MainScene.unity
+uvx unityflow validate GameConfig.asset
 
 # Normalize (remove Git noise) - field sorting applied by default
-unityflow normalize Player.prefab
-unityflow normalize MainScene.unity
+uvx unityflow normalize Player.prefab
+uvx unityflow normalize MainScene.unity
 ```
 
 ### File Comparison and Merging
 
 ```bash
 # Compare two files
-unityflow diff old.prefab new.prefab
+uvx unityflow diff old.prefab new.prefab
 
 # Compare in summary format
-unityflow diff old.prefab new.prefab --format summary
+uvx unityflow diff old.prefab new.prefab --format summary
 
 # 3-way merge
-unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
+uvx unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 ```
 
 ---
@@ -239,8 +239,8 @@ unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 ## Recommended Workflow
 
 1. **Backup**: Use `-o` option to save to a new file
-2. **Normalize**: Run `unityflow normalize` after editing to reduce Git noise
-3. **Validate**: Run `unityflow validate` to check file integrity
+2. **Normalize**: Run `uvx unityflow normalize` after editing to reduce Git noise
+3. **Validate**: Run `uvx unityflow validate` to check file integrity
 
 ---
 
@@ -249,7 +249,7 @@ unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 ### When Parsing Errors Occur
 
 ```bash
-unityflow validate problematic.prefab --format json
+uvx unityflow validate problematic.prefab --format json
 ```
 
 ---
@@ -257,7 +257,7 @@ unityflow validate problematic.prefab --format json
 ## Summary
 
 - Use `unityflow` CLI for all Unity YAML operations
-- Create files: `unityflow create`
+- Create files: `uvx unityflow create`
 - References: `@` for external assets, `#` for internal objects
 - Components: `--add-component` to add, `--remove-component` to delete
 - Child objects: `--add-object` to add, `--remove-object` to delete

@@ -17,16 +17,16 @@ All Unity UI file operations require the `unityflow` CLI to preserve Unity's spe
 
 ```bash
 # View scene UI hierarchy (components shown by default)
-unityflow hierarchy Scene.unity
+uvx unityflow hierarchy Scene.unity
 
 # View UI prefab structure
-unityflow hierarchy MainMenu.prefab
+uvx unityflow hierarchy MainMenu.prefab
 
 # Hide components for cleaner view
-unityflow hierarchy MainMenu.prefab --no-components
+uvx unityflow hierarchy MainMenu.prefab --no-components
 
 # Output in JSON format
-unityflow hierarchy Scene.unity --format json
+uvx unityflow hierarchy Scene.unity --format json
 ```
 
 ---
@@ -37,27 +37,27 @@ unityflow hierarchy Scene.unity --format json
 
 ```bash
 # Canvas details
-unityflow inspect Scene.unity "Canvas"
+uvx unityflow inspect Scene.unity "Canvas"
 
 # Panel details
-unityflow inspect Scene.unity "Canvas/Panel"
+uvx unityflow inspect Scene.unity "Canvas/Panel"
 
 # Button details (find by path)
-unityflow inspect Scene.unity "Canvas/Panel/Button"
+uvx unityflow inspect Scene.unity "Canvas/Panel/Button"
 ```
 
 ### Component Properties
 
 ```bash
 # Query Image component
-unityflow inspect Scene.unity "Canvas/Panel/Image"
+uvx unityflow inspect Scene.unity "Canvas/Panel/Image"
 
 # Query RectTransform
-unityflow get Scene.unity "Canvas/Panel/RectTransform"
+uvx unityflow get Scene.unity "Canvas/Panel/RectTransform"
 
 # Query specific property
-unityflow get Scene.unity "Canvas/Panel/Image/m_Color"
-unityflow get Scene.unity "Canvas/Panel/RectTransform/m_AnchorMin"
+uvx unityflow get Scene.unity "Canvas/Panel/Image/m_Color"
+uvx unityflow get Scene.unity "Canvas/Panel/RectTransform/m_AnchorMin"
 ```
 
 ---
@@ -70,7 +70,7 @@ Use `@` prefix to reference external assets by path.
 
 ```bash
 # Link sprite to UI Image
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/Button/Image/m_Sprite" \
     --value "@Assets/Sprites/button_normal.png"
 ```
@@ -81,12 +81,12 @@ Use `#` prefix to reference objects/components within the same file.
 
 ```bash
 # Link to a Button component on another GameObject
-unityflow set Prefab.prefab \
+uvx unityflow set Prefab.prefab \
     --path "Root/MyScript/_button" \
     --value "#Root/Panel/Button"
 
 # Link to a GameObject (without component type)
-unityflow set Prefab.prefab \
+uvx unityflow set Prefab.prefab \
     --path "Root/MyScript/_targetObject" \
     --value "#Root/Panel"
 ```
@@ -99,17 +99,17 @@ unityflow set Prefab.prefab \
 
 ```bash
 # Set color
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/Image/m_Color" \
     --value '{"r": 0.2, "g": 0.2, "b": 0.2, "a": 1}'
 
 # Link sprite
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/Image/m_Sprite" \
     --value "@Assets/Sprites/panel_bg.png"
 
 # Set sprite type (0=Simple, 1=Sliced, 2=Tiled, 3=Filled)
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/Image/m_Type" \
     --value '1'
 ```
@@ -118,7 +118,7 @@ unityflow set Scene.unity \
 
 ```bash
 # Modify Button color block
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/Button/Button" \
     --batch '{
         "m_NormalColor": {"r": 1, "g": 1, "b": 1, "a": 1},
@@ -133,12 +133,12 @@ unityflow set Scene.unity \
 
 ```bash
 # Set text
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/Label/TextMeshProUGUI/m_text" \
     --value '"Hello World"'
 
 # Set font size
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/Label/TextMeshProUGUI/m_fontSize" \
     --value '24'
 ```
@@ -151,7 +151,7 @@ RectTransform determines the position and size of UI elements.
 
 ```bash
 # Set entire RectTransform (batch mode)
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/RectTransform" \
     --batch '{
         "m_AnchorMin": {"x": 0.5, "y": 0.5},
@@ -180,7 +180,7 @@ unityflow set Scene.unity \
 ### Example: Full-Screen Panel
 
 ```bash
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/RectTransform" \
     --batch '{
         "m_AnchorMin": {"x": 0, "y": 0},
@@ -194,7 +194,7 @@ unityflow set Scene.unity \
 ### Example: Fixed Header at Top (Height 60)
 
 ```bash
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Header/RectTransform" \
     --batch '{
         "m_AnchorMin": {"x": 0, "y": 1},
@@ -213,7 +213,7 @@ unityflow set Scene.unity \
 
 ```bash
 # Layout settings
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/VerticalLayoutGroup" \
     --batch '{
         "m_Spacing": 10,
@@ -229,7 +229,7 @@ unityflow set Scene.unity \
 
 ```bash
 # Settings (0=Unconstrained, 1=MinSize, 2=PreferredSize)
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/ContentSizeFitter" \
     --batch '{"m_HorizontalFit": 0, "m_VerticalFit": 2}'
 ```
@@ -255,12 +255,12 @@ Mask component uses Image alpha for masking. Set alpha to 1 and use `m_ShowMaskG
 
 ```bash
 # Set alpha to 1 for Mask
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/ScrollView/Image/m_Color" \
     --value '{"r": 1, "g": 1, "b": 1, "a": 1}'
 
 # Hide the mask image visually
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/ScrollView/Mask/m_ShowMaskGraphic" \
     --value '0'
 ```
@@ -271,7 +271,7 @@ Use index to specify which component when multiple exist.
 
 ```bash
 # Modify second Image component
-unityflow set Scene.unity \
+uvx unityflow set Scene.unity \
     --path "Canvas/Panel/Image[1]/m_Color" \
     --value '{"r": 1, "g": 0, "b": 0, "a": 1}'
 ```
@@ -282,10 +282,10 @@ unityflow set Scene.unity \
 
 ```bash
 # Create a UI prefab with RectTransform
-unityflow create MyUI.prefab --type rect-transform
+uvx unityflow create MyUI.prefab --type rect-transform
 
 # Create with custom root name
-unityflow create MainMenu.prefab --name "MainMenu" --type rect-transform
+uvx unityflow create MainMenu.prefab --name "MainMenu" --type rect-transform
 ```
 
 ---
@@ -294,13 +294,13 @@ unityflow create MainMenu.prefab --name "MainMenu" --type rect-transform
 
 ```bash
 # Add a Button component to a GameObject
-unityflow set Prefab.prefab --path "Canvas/Panel" --add-component "Button"
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-component "Button"
 
 # Add an Image component
-unityflow set Prefab.prefab --path "Canvas/Panel" --add-component "Image"
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-component "Image"
 
 # Remove a component
-unityflow set Prefab.prefab --path "Canvas/Panel" --remove-component "Button"
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --remove-component "Button"
 ```
 
 ---
@@ -309,10 +309,10 @@ unityflow set Prefab.prefab --path "Canvas/Panel" --remove-component "Button"
 
 ```bash
 # Add a UI child object (with RectTransform)
-unityflow set Prefab.prefab --path "Canvas/Panel" --add-object "Button" --type rect-transform
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-object "Button" --type rect-transform
 
 # Remove a child object
-unityflow set Prefab.prefab --path "Canvas/Panel" --remove-object "Button"
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --remove-object "Button"
 ```
 
 ---
@@ -320,7 +320,7 @@ unityflow set Prefab.prefab --path "Canvas/Panel" --remove-object "Button"
 ## Summary
 
 - Use `unityflow` CLI for all Unity UI file operations
-- Create UI files: `unityflow create --type rect-transform`
+- Create UI files: `uvx unityflow create --type rect-transform`
 - References: `@` for external assets, `#` for internal objects
 - Components: `--add-component` to add, `--remove-component` to delete
 - Child objects: `--add-object` to add, `--remove-object` to delete

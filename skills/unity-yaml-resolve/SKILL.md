@@ -198,11 +198,11 @@ p4 print <filepath>#<revision> > /tmp/theirs.yaml
 
 ```bash
 # 3-way semantic merge
-unityflow merge /tmp/base.yaml /tmp/ours.yaml /tmp/theirs.yaml -o merged.yaml
+uvx unityflow merge /tmp/base.yaml /tmp/ours.yaml /tmp/theirs.yaml -o merged.yaml
 
 # Or attempt automatic resolution
-unityflow resolve --dry-run  # Preview first
-unityflow resolve            # Actual resolution
+uvx unityflow resolve --dry-run  # Preview first
+uvx unityflow resolve            # Actual resolution
 ```
 
 ### Step 4: Analyze Conflicts and Query User
@@ -237,7 +237,7 @@ If merge results contain conflicts:
 
 ```bash
 # Save resolved file
-unityflow normalize merged.yaml  # Normalize
+uvx unityflow normalize merged.yaml  # Normalize
 
 # Git: Mark as resolved
 git add <filepath>
@@ -290,8 +290,8 @@ Which value would you like to use?
 ## Recommended Workflow
 
 1. **Backup**: Save original files before merging
-2. **Merge**: Use `unityflow merge` to process Unity YAML format
-3. **Validate**: Run `unityflow validate` to check file integrity
+2. **Merge**: Use `uvx unityflow merge` to process Unity YAML format
+3. **Validate**: Run `uvx unityflow validate` to check file integrity
 4. **Test**: Verify behavior in Unity Editor
 
 ---
@@ -300,20 +300,20 @@ Which value would you like to use?
 
 ```bash
 # Preview conflicts
-unityflow resolve --dry-run
+uvx unityflow resolve --dry-run
 
 # Auto-resolve only (no interaction)
-unityflow resolve --accept ours
-unityflow resolve --accept theirs
+uvx unityflow resolve --accept ours
+uvx unityflow resolve --accept theirs
 
 # Resolve specific file only
-unityflow resolve-file base.yaml ours.yaml theirs.yaml -o result.yaml
+uvx unityflow resolve-file base.yaml ours.yaml theirs.yaml -o result.yaml
 
 # Check diff
-unityflow diff old.prefab new.prefab
+uvx unityflow diff old.prefab new.prefab
 
 # Verify result
-unityflow validate merged.prefab
+uvx unityflow validate merged.prefab
 ```
 
 ---

@@ -11,7 +11,7 @@ Edit Unity animation files (.anim, .controller) using `unityflow` CLI.
 
 **NEVER directly edit .anim or .controller files as text.**
 
-Always use `unityflow anim` and `unityflow ctrl` commands. Direct YAML editing will
+Always use `uvx unityflow anim` and `uvx unityflow ctrl` commands. Direct YAML editing will
 corrupt animation data, break curve bindings, and cause Unity import failures.
 
 ## Animation Clip Commands
@@ -19,32 +19,32 @@ corrupt animation data, break curve bindings, and cause Unity import failures.
 ### Creating Animations
 
 ```bash
-unityflow anim create NewClip.anim --name "NewClip" --duration 2.0 --loop
+uvx unityflow anim create NewClip.anim --name "NewClip" --duration 2.0 --loop
 ```
 
 ### Querying Animation Structure
 
 | Command | Purpose |
 |---------|---------|
-| `unityflow anim info <file>` | Get clip metadata (duration, loop, sample rate) |
-| `unityflow anim curves <file>` | List all animation curves with keyframe counts |
-| `unityflow anim keyframes <file> --index <idx>` | View keyframes for curve by index |
-| `unityflow anim keyframes <file> --path <path> --attr <attr>` | View keyframes by path/attribute |
-| `unityflow anim events <file>` | List animation events |
-| `unityflow anim settings <file>` | View clip settings |
+| `uvx unityflow anim info <file>` | Get clip metadata (duration, loop, sample rate) |
+| `uvx unityflow anim curves <file>` | List all animation curves with keyframe counts |
+| `uvx unityflow anim keyframes <file> --index <idx>` | View keyframes for curve by index |
+| `uvx unityflow anim keyframes <file> --path <path> --attr <attr>` | View keyframes by path/attribute |
+| `uvx unityflow anim events <file>` | List animation events |
+| `uvx unityflow anim settings <file>` | View clip settings |
 
 ### Modifying Animations
 
 | Command | Purpose |
 |---------|---------|
-| `unityflow anim set-key <file> --index <curve> --key <idx> --value <val>` | Modify keyframe value |
-| `unityflow anim add-key <file> --index <curve> --time <t> --value <val>` | Add new keyframe |
-| `unityflow anim del-key <file> --index <curve> --key <idx>` | Delete keyframe |
-| `unityflow anim add-curve <file> --path <path> --type <type>` | Add new curve |
-| `unityflow anim del-curve <file> --index <idx>` | Delete curve |
-| `unityflow anim set-settings <file> --loop --duration 2.0` | Modify clip settings |
-| `unityflow anim add-event <file> --time <t> --function <name>` | Add animation event |
-| `unityflow anim del-event <file> --index <idx>` | Delete animation event |
+| `uvx unityflow anim set-key <file> --index <curve> --key <idx> --value <val>` | Modify keyframe value |
+| `uvx unityflow anim add-key <file> --index <curve> --time <t> --value <val>` | Add new keyframe |
+| `uvx unityflow anim del-key <file> --index <curve> --key <idx>` | Delete keyframe |
+| `uvx unityflow anim add-curve <file> --path <path> --type <type>` | Add new curve |
+| `uvx unityflow anim del-curve <file> --index <idx>` | Delete curve |
+| `uvx unityflow anim set-settings <file> --loop --duration 2.0` | Modify clip settings |
+| `uvx unityflow anim add-event <file> --time <t> --function <name>` | Add animation event |
+| `uvx unityflow anim del-event <file> --index <idx>` | Delete animation event |
 
 ### Curve Types
 
@@ -60,23 +60,23 @@ unityflow anim create NewClip.anim --name "NewClip" --duration 2.0 --loop
 
 | Command | Purpose |
 |---------|---------|
-| `unityflow ctrl info <file>` | Get controller overview |
-| `unityflow ctrl layers <file>` | List animator layers |
-| `unityflow ctrl states <file> --layer <name>` | List states in a layer |
-| `unityflow ctrl transitions <file> --state <name>` | List transitions from a state |
-| `unityflow ctrl transitions <file> --any-state --layer <name>` | List Any State transitions |
-| `unityflow ctrl params <file>` | List parameters |
-| `unityflow ctrl get-state <file> --state <name>` | Get detailed state info (JSON) |
+| `uvx unityflow ctrl info <file>` | Get controller overview |
+| `uvx unityflow ctrl layers <file>` | List animator layers |
+| `uvx unityflow ctrl states <file> --layer <name>` | List states in a layer |
+| `uvx unityflow ctrl transitions <file> --state <name>` | List transitions from a state |
+| `uvx unityflow ctrl transitions <file> --any-state --layer <name>` | List Any State transitions |
+| `uvx unityflow ctrl params <file>` | List parameters |
+| `uvx unityflow ctrl get-state <file> --state <name>` | Get detailed state info (JSON) |
 
 ### Modifying Controllers
 
 | Command | Purpose |
 |---------|---------|
-| `unityflow ctrl set-state <file> --state <name> --speed 1.5` | Modify state properties |
-| `unityflow ctrl set-state <file> --state <name> --motion "@Assets/Anim/New.anim"` | Change state motion |
-| `unityflow ctrl add-param <file> --name "Fire" --type trigger` | Add parameter |
-| `unityflow ctrl set-param <file> --name "Speed" --default 1.5` | Modify parameter default |
-| `unityflow ctrl del-param <file> --name "OldParam"` | Delete parameter |
+| `uvx unityflow ctrl set-state <file> --state <name> --speed 1.5` | Modify state properties |
+| `uvx unityflow ctrl set-state <file> --state <name> --motion "@Assets/Anim/New.anim"` | Change state motion |
+| `uvx unityflow ctrl add-param <file> --name "Fire" --type trigger` | Add parameter |
+| `uvx unityflow ctrl set-param <file> --name "Speed" --default 1.5` | Modify parameter default |
+| `uvx unityflow ctrl del-param <file> --name "OldParam"` | Delete parameter |
 
 ### Parameter Types
 
@@ -128,23 +128,23 @@ Use `@path` syntax for all asset references:
 
 ```bash
 # Get overview
-unityflow anim info Idle.anim
+uvx unityflow anim info Idle.anim
 
 # List all curves
-unityflow anim curves Idle.anim
+uvx unityflow anim curves Idle.anim
 
 # View specific curve keyframes
-unityflow anim keyframes Idle.anim --index 0
+uvx unityflow anim keyframes Idle.anim --index 0
 ```
 
 ### Adjust Animation Timing
 
 ```bash
 # Check current keyframes
-unityflow anim keyframes Idle.anim --path "Root/character" --attr position
+uvx unityflow anim keyframes Idle.anim --path "Root/character" --attr position
 
 # Modify specific keyframe time and value
-unityflow anim set-key Idle.anim \
+uvx unityflow anim set-key Idle.anim \
     --path "Root/character" --attr position \
     --key 0 --value '{"x": 0, "y": 2.0, "z": 0}'
 ```
@@ -153,21 +153,21 @@ unityflow anim set-key Idle.anim \
 
 ```bash
 # Add trigger parameter if not exists
-unityflow ctrl params Player.controller
-unityflow ctrl add-param Player.controller --name "Attack" --type trigger
+uvx unityflow ctrl params Player.controller
+uvx unityflow ctrl add-param Player.controller --name "Attack" --type trigger
 ```
 
 ### Change Animation Speed
 
 ```bash
-unityflow ctrl set-state Player.controller --state "Run" --speed 1.5
+uvx unityflow ctrl set-state Player.controller --state "Run" --speed 1.5
 ```
 
 ### Extract Keyframes to JSON
 
 ```bash
 # Export keyframes for later use
-unityflow anim keyframes Source.anim --index 0 --format json > keys.json
+uvx unityflow anim keyframes Source.anim --index 0 --format json > keys.json
 ```
 
 ## Best Practices
@@ -175,16 +175,16 @@ unityflow anim keyframes Source.anim --index 0 --format json > keys.json
 1. **Always query first** - Use `info`, `curves`, `states` to understand structure before modifying
 2. **Backup important files** - Animation data is complex and easy to corrupt
 3. **Use relative paths** - Prefer `--path "Child/Grandchild"` over full hierarchy paths when possible
-4. **Check curve indices** - Use `unityflow anim curves` to find correct curve indices before modifying
+4. **Check curve indices** - Use `uvx unityflow anim curves` to find correct curve indices before modifying
 
 ## Output Formats
 
 All query commands support `--format json` for structured output:
 
 ```bash
-unityflow anim info Clip.anim --format json
-unityflow anim curves Clip.anim --format json
-unityflow ctrl states Player.controller --format json
+uvx unityflow anim info Clip.anim --format json
+uvx unityflow anim curves Clip.anim --format json
+uvx unityflow ctrl states Player.controller --format json
 ```
 
 ## Limitations
@@ -198,6 +198,6 @@ unityflow ctrl states Player.controller --format json
 
 ## Summary
 
-- Use `unityflow anim` for .anim files, `unityflow ctrl` for .controller files
+- Use `uvx unityflow anim` for .anim files, `uvx unityflow ctrl` for .controller files
 - Query structure first (`info`, `curves`, `states`), then modify
 - References: `@` prefix for asset paths
