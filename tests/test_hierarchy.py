@@ -1172,3 +1172,521 @@ Transform:
             assert nested_prefab is not None, "Level-2 PrefabInstance not found"
             assert nested_prefab.nested_prefab_loaded is True, "Level-2 PrefabInstance should be recursively loaded"
             assert len(nested_prefab.children) > 0, "Level-2 PrefabInstance should have children after loading"
+
+    def test_prefab_variant_nested_prefab_loading(self):
+        import tempfile
+
+        from unityflow.asset_tracker import GUIDIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            skin_guid = "skin0000000000000000000000000001"
+            skin_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: SkinRoot
+  m_Component:
+  - component: {fileID: 400000}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children: []
+"""
+            (project_root / "Assets" / "skin.prefab").write_text(skin_content)
+
+            shadow_guid = "shadow00000000000000000000000001"
+            shadow_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: ShadowRoot
+  m_Component:
+  - component: {fileID: 400000}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children:
+  - {fileID: 400001}
+--- !u!1 &100001
+GameObject:
+  m_Name: ShadowChild
+  m_Component:
+  - component: {fileID: 400001}
+--- !u!4 &400001
+Transform:
+  m_GameObject: {fileID: 100001}
+  m_Father: {fileID: 400000}
+  m_Children: []
+"""
+            (project_root / "Assets" / "shadow.prefab").write_text(shadow_content)
+
+            base_guid = "base0000000000000000000000000001"
+            base_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: BaseRoot
+  m_Component:
+  - component: {{fileID: 400000}}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {{fileID: 100000}}
+  m_Father: {{fileID: 0}}
+  m_Children:
+  - {{fileID: 500001}}
+  - {{fileID: 500002}}
+--- !u!1001 &200001
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {skin_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {skin_guid}}}
+      propertyPath: m_Name
+      value: SkinInstance
+      objectReference: {{fileID: 0}}
+--- !u!4 &500001 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {skin_guid}}}
+  m_PrefabInstance: {{fileID: 200001}}
+--- !u!1001 &200002
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {shadow_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {shadow_guid}}}
+      propertyPath: m_Name
+      value: ShadowInstance
+      objectReference: {{fileID: 0}}
+--- !u!4 &500002 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {shadow_guid}}}
+  m_PrefabInstance: {{fileID: 200002}}
+"""
+            (project_root / "Assets" / "base.prefab").write_text(base_content)
+
+            variant_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1001 &100100000
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {base_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 0}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {base_guid}}}
+      propertyPath: m_Name
+      value: VariantRoot
+      objectReference: {{fileID: 0}}
+--- !u!4 &800000 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {base_guid}}}
+  m_PrefabInstance: {{fileID: 100100000}}
+--- !u!1001 &300001
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {skin_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 800000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {skin_guid}}}
+      propertyPath: m_Name
+      value: VariantSkinInstance
+      objectReference: {{fileID: 0}}
+--- !u!4 &900001 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {skin_guid}}}
+  m_PrefabInstance: {{fileID: 300001}}
+--- !u!1001 &300002
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {shadow_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 800000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {shadow_guid}}}
+      propertyPath: m_Name
+      value: VariantShadowInstance
+      objectReference: {{fileID: 0}}
+--- !u!4 &900002 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {shadow_guid}}}
+  m_PrefabInstance: {{fileID: 300002}}
+"""
+            variant_path = project_root / "Assets" / "variant.prefab"
+            variant_path.write_text(variant_content)
+
+            guid_index = GUIDIndex(project_root=project_root)
+            guid_index.guid_to_path[skin_guid] = Path("Assets/skin.prefab")
+            guid_index.guid_to_path[shadow_guid] = Path("Assets/shadow.prefab")
+            guid_index.guid_to_path[base_guid] = Path("Assets/base.prefab")
+
+            variant_doc = UnityYAMLDocument.load(variant_path)
+            hierarchy = build_hierarchy(
+                variant_doc,
+                guid_index=guid_index,
+                project_root=project_root,
+                load_nested_prefabs=True,
+            )
+
+            root = hierarchy.root_objects[0]
+            assert root.is_prefab_instance
+            assert root.nested_prefab_loaded is True
+
+            all_pi = [n for n in hierarchy.iter_all() if n.is_prefab_instance]
+            for pi in all_pi:
+                assert pi.nested_prefab_loaded is True, f"{pi.name} (source={pi.source_guid[:8]}) should be loaded"
+                assert len(pi.children) > 0, f"{pi.name} should have children after loading"
+
+    def test_three_level_nested_prefab_loading(self):
+        import tempfile
+
+        from unityflow.asset_tracker import GUIDIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            deep_guid = "deep0000000000000000000000000001"
+            deep_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: DeepRoot
+  m_Component:
+  - component: {fileID: 400000}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children: []
+"""
+            (project_root / "Assets" / "deep.prefab").write_text(deep_content)
+
+            mid_guid = "mid00000000000000000000000000001"
+            mid_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: MidRoot
+  m_Component:
+  - component: {{fileID: 400000}}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {{fileID: 100000}}
+  m_Father: {{fileID: 0}}
+  m_Children:
+  - {{fileID: 500001}}
+--- !u!1001 &200001
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {deep_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {deep_guid}}}
+      propertyPath: m_Name
+      value: DeepInstance
+      objectReference: {{fileID: 0}}
+--- !u!4 &500001 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {deep_guid}}}
+  m_PrefabInstance: {{fileID: 200001}}
+"""
+            (project_root / "Assets" / "mid.prefab").write_text(mid_content)
+
+            top_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: TopRoot
+  m_Component:
+  - component: {{fileID: 400000}}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {{fileID: 100000}}
+  m_Father: {{fileID: 0}}
+  m_Children:
+  - {{fileID: 500001}}
+--- !u!1001 &200001
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {mid_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {mid_guid}}}
+      propertyPath: m_Name
+      value: MidInstance
+      objectReference: {{fileID: 0}}
+--- !u!4 &500001 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {mid_guid}}}
+  m_PrefabInstance: {{fileID: 200001}}
+"""
+            top_path = project_root / "Assets" / "top.prefab"
+            top_path.write_text(top_content)
+
+            guid_index = GUIDIndex(project_root=project_root)
+            guid_index.guid_to_path[deep_guid] = Path("Assets/deep.prefab")
+            guid_index.guid_to_path[mid_guid] = Path("Assets/mid.prefab")
+
+            top_doc = UnityYAMLDocument.load(top_path)
+            hierarchy = build_hierarchy(
+                top_doc,
+                guid_index=guid_index,
+                project_root=project_root,
+                load_nested_prefabs=True,
+            )
+
+            all_pi = [n for n in hierarchy.iter_all() if n.is_prefab_instance]
+            assert len(all_pi) >= 2
+
+            for pi in all_pi:
+                assert pi.nested_prefab_loaded is True, f"{pi.name} should be loaded"
+                assert len(pi.children) > 0, f"{pi.name} should have children"
+
+            deep_nodes = [n for n in hierarchy.iter_all() if n.name in ("DeepRoot", "DeepInstance")]
+            assert len(deep_nodes) > 0, "Level-3 deep content should be present in the tree"
+
+    def test_variant_chain_three_levels(self):
+        import tempfile
+
+        from unityflow.asset_tracker import GUIDIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            leaf_guid = "leaf0000000000000000000000000001"
+            leaf_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: LeafRoot
+  m_Component:
+  - component: {fileID: 400000}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children: []
+"""
+            (project_root / "Assets" / "leaf.prefab").write_text(leaf_content)
+
+            actual_guid = "actual00000000000000000000000001"
+            actual_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: ActualRoot
+  m_Component:
+  - component: {{fileID: 400000}}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {{fileID: 100000}}
+  m_Father: {{fileID: 0}}
+  m_Children:
+  - {{fileID: 500001}}
+--- !u!1001 &200001
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {leaf_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 400000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {leaf_guid}}}
+      propertyPath: m_Name
+      value: LeafInstance
+      objectReference: {{fileID: 0}}
+--- !u!4 &500001 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {leaf_guid}}}
+  m_PrefabInstance: {{fileID: 200001}}
+"""
+            (project_root / "Assets" / "actual.prefab").write_text(actual_content)
+
+            base_variant_guid = "basevar0000000000000000000000001"
+            base_variant_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1001 &100100000
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {actual_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 0}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {actual_guid}}}
+      propertyPath: m_Name
+      value: BaseVariantRoot
+      objectReference: {{fileID: 0}}
+--- !u!4 &800000 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {actual_guid}}}
+  m_PrefabInstance: {{fileID: 100100000}}
+--- !u!1001 &300001
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {leaf_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 800000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {leaf_guid}}}
+      propertyPath: m_Name
+      value: LeafInBaseVariant
+      objectReference: {{fileID: 0}}
+--- !u!4 &900001 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {leaf_guid}}}
+  m_PrefabInstance: {{fileID: 300001}}
+"""
+            (project_root / "Assets" / "base_variant.prefab").write_text(base_variant_content)
+
+            top_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1001 &100100000
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {base_variant_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 0}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {base_variant_guid}}}
+      propertyPath: m_Name
+      value: TopRoot
+      objectReference: {{fileID: 0}}
+--- !u!4 &800000 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 800000, guid: {base_variant_guid}}}
+  m_PrefabInstance: {{fileID: 100100000}}
+--- !u!1001 &300001
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {leaf_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 800000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {leaf_guid}}}
+      propertyPath: m_Name
+      value: LeafInTop
+      objectReference: {{fileID: 0}}
+--- !u!4 &900001 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {leaf_guid}}}
+  m_PrefabInstance: {{fileID: 300001}}
+"""
+            top_path = project_root / "Assets" / "top.prefab"
+            top_path.write_text(top_content)
+
+            guid_index = GUIDIndex(project_root=project_root)
+            guid_index.guid_to_path[leaf_guid] = Path("Assets/leaf.prefab")
+            guid_index.guid_to_path[actual_guid] = Path("Assets/actual.prefab")
+            guid_index.guid_to_path[base_variant_guid] = Path("Assets/base_variant.prefab")
+
+            top_doc = UnityYAMLDocument.load(top_path)
+            hierarchy = build_hierarchy(
+                top_doc,
+                guid_index=guid_index,
+                project_root=project_root,
+                load_nested_prefabs=True,
+            )
+
+            all_pi = [n for n in hierarchy.iter_all() if n.is_prefab_instance]
+            for pi in all_pi:
+                assert pi.nested_prefab_loaded is True, f"{pi.name} (source={pi.source_guid[:8]}) should be loaded"
+
+            leaf_nodes = [n for n in hierarchy.iter_all() if n.name == "LeafRoot"]
+            assert len(leaf_nodes) >= 1, "Leaf content should be present through 3-level variant chain"
+
+    def test_load_nested_children_traverses_on_failed_load(self):
+        import tempfile
+
+        from unityflow.asset_tracker import GUIDIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "Assets").mkdir()
+
+            leaf_guid = "leaf0000000000000000000000000001"
+            leaf_content = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100000
+GameObject:
+  m_Name: LeafRoot
+  m_Component:
+  - component: {fileID: 400000}
+--- !u!4 &400000
+Transform:
+  m_GameObject: {fileID: 100000}
+  m_Father: {fileID: 0}
+  m_Children: []
+"""
+            (project_root / "Assets" / "leaf.prefab").write_text(leaf_content)
+
+            missing_guid = "miss0000000000000000000000000001"
+
+            variant_content = f"""%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1001 &100100000
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {missing_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 0}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {missing_guid}}}
+      propertyPath: m_Name
+      value: MissingBaseRoot
+      objectReference: {{fileID: 0}}
+--- !u!4 &800000 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {missing_guid}}}
+  m_PrefabInstance: {{fileID: 100100000}}
+--- !u!1001 &300001
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  m_SourcePrefab: {{fileID: 100100000, guid: {leaf_guid}, type: 3}}
+  m_Modification:
+    m_TransformParent: {{fileID: 800000}}
+    m_Modifications:
+    - target: {{fileID: 100000, guid: {leaf_guid}}}
+      propertyPath: m_Name
+      value: LeafChild
+      objectReference: {{fileID: 0}}
+--- !u!4 &900001 stripped
+Transform:
+  m_CorrespondingSourceObject: {{fileID: 400000, guid: {leaf_guid}}}
+  m_PrefabInstance: {{fileID: 300001}}
+"""
+            variant_path = project_root / "Assets" / "variant.prefab"
+            variant_path.write_text(variant_content)
+
+            guid_index = GUIDIndex(project_root=project_root)
+            guid_index.guid_to_path[leaf_guid] = Path("Assets/leaf.prefab")
+
+            variant_doc = UnityYAMLDocument.load(variant_path)
+            hierarchy = build_hierarchy(
+                variant_doc,
+                guid_index=guid_index,
+                project_root=project_root,
+                load_nested_prefabs=True,
+            )
+
+            root = hierarchy.root_objects[0]
+            assert root.nested_prefab_loaded is False
+
+            leaf_child = next((n for n in hierarchy.iter_all() if n.name == "LeafChild"), None)
+            assert leaf_child is not None
+            assert leaf_child.is_prefab_instance
+            assert (
+                leaf_child.nested_prefab_loaded is True
+            ), "Child PrefabInstance should load even when parent's load fails"
+            assert len(leaf_child.children) > 0

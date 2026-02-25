@@ -1229,7 +1229,6 @@ class Hierarchy:
         loaded_count = 0
         loading_prefabs: set[str] = set()
 
-        # Find all PrefabInstance nodes
         prefab_nodes = [node for node in self.iter_all() if node.is_prefab_instance and not node.nested_prefab_loaded]
 
         for node in prefab_nodes:
@@ -1240,8 +1239,22 @@ class Hierarchy:
             ):
                 loaded_count += 1
 
-                # Recursively load nested prefabs in the newly loaded content
                 if recursive:
+                    loaded_count += self._load_nested_in_children(node, loading_prefabs)
+
+        if recursive:
+            remaining = [
+                node
+                for node in self.iter_all()
+                if node.is_prefab_instance and not node.nested_prefab_loaded and node.source_guid
+            ]
+            for node in remaining:
+                if node.load_source_prefab(
+                    project_root=self.project_root,
+                    guid_index=self.guid_index,
+                    _loading_prefabs=loading_prefabs,
+                ):
+                    loaded_count += 1
                     loaded_count += self._load_nested_in_children(node, loading_prefabs)
 
         return loaded_count
@@ -1270,8 +1283,8 @@ class Hierarchy:
                     _loading_prefabs=loading_prefabs,
                 ):
                     loaded_count += 1
-                    loaded_count += self._load_nested_in_children(child, loading_prefabs)
-            elif child.children:
+
+            if child.children:
                 loaded_count += self._load_nested_in_children(child, loading_prefabs)
 
         return loaded_count
