@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from unityflow.hierarchy import Hierarchy, HierarchyNode
     from unityflow.parser import UnityYAMLDocument, UnityYAMLObject
+
+MatchKey = tuple[str, str, int]
 
 
 class ChangeType(Enum):
@@ -54,6 +57,9 @@ class PropertyChange:
     game_object_name: str | None = None
     """Name of the GameObject this component belongs to (if available)."""
 
+    hierarchy_path: str | None = None
+    """Hierarchy path of the object (e.g., 'Root/Child')."""
+
     @property
     def full_path(self) -> str:
         """Full path including class name and property path."""
@@ -84,6 +90,9 @@ class ObjectChange:
 
     game_object_name: str | None = None
     """Name of the GameObject (if this is a GameObject or its component)."""
+
+    hierarchy_path: str | None = None
+    """Hierarchy path of the object (e.g., 'Root/Child')."""
 
     def __repr__(self) -> str:
         return f"ObjectChange({self.change_type.value}: {self.class_name} fileID={self.file_id})"
@@ -154,6 +163,61 @@ def _get_game_object_name(doc: UnityYAMLDocument, obj: UnityYAMLObject) -> str |
                     return go_content.get("m_Name")
 
     return None
+
+
+def _disambiguated_node_name(node: HierarchyNode, siblings: list[HierarchyNode]) -> str:
+    same_name = [s for s in siblings if s.name == node.name]
+    if len(same_name) > 1:
+        idx = same_name.index(node)
+        return f"{node.name}[{idx}]"
+    return node.name
+
+
+def _build_match_map(
+    doc: UnityYAMLDocument,
+    hierarchy: Hierarchy,
+) -> tuple[dict[MatchKey, int], dict[int, MatchKey]]:
+    key_to_id: dict[MatchKey, int] = {}
+    id_to_key: dict[int, MatchKey] = {}
+    path_cache: dict[int, str] = {}
+
+    def _node_path(node: HierarchyNode) -> str:
+        if node.file_id in path_cache:
+            return path_cache[node.file_id]
+
+        siblings = hierarchy.root_objects if node.parent is None else node.parent.children
+        name = _disambiguated_node_name(node, siblings)
+
+        if node.parent is None:
+            result = name
+        else:
+            result = f"{_node_path(node.parent)}/{name}"
+
+        path_cache[node.file_id] = result
+        return result
+
+    def _register(key: MatchKey, file_id: int) -> None:
+        key_to_id[key] = file_id
+        id_to_key[file_id] = key
+
+    for node in hierarchy.iter_all():
+        path = _node_path(node)
+
+        node_class = "PrefabInstance" if node.is_prefab_instance else "GameObject"
+        _register((path, node_class, 0), node.file_id)
+
+        if node.transform_id:
+            transform_class = "RectTransform" if node.is_ui else "Transform"
+            _register((path, transform_class, 0), node.transform_id)
+
+        type_counts: dict[str, int] = {}
+        for comp in node.components:
+            type_name = comp.class_name
+            idx = type_counts.get(type_name, 0)
+            type_counts[type_name] = idx + 1
+            _register((path, type_name, idx), comp.file_id)
+
+    return key_to_id, id_to_key
 
 
 def _compare_values(
@@ -386,6 +450,54 @@ def _compare_file_id_lists(
         )
 
 
+def _remap_file_ids(data: Any, remap: dict[int, int]) -> Any:
+    if isinstance(data, dict):
+        if "fileID" in data and len(data) == 1:
+            old_id = data["fileID"]
+            return {"fileID": remap.get(old_id, old_id)}
+        return {k: _remap_file_ids(v, remap) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_remap_file_ids(item, remap) for item in data]
+    return data
+
+
+def _compare_matched_objects(
+    left_doc: UnityYAMLDocument,
+    right_doc: UnityYAMLDocument,
+    left_file_id: int,
+    right_file_id: int,
+    hierarchy_path: str | None,
+    result: SemanticDiffResult,
+    fileid_remap: dict[int, int] | None = None,
+) -> None:
+    left_obj = left_doc.get_by_file_id(left_file_id)
+    right_obj = right_doc.get_by_file_id(right_file_id)
+
+    if left_obj is None or right_obj is None:
+        return
+
+    left_content = left_obj.get_content() or {}
+    right_content = right_obj.get_content() or {}
+
+    if fileid_remap:
+        left_content = _remap_file_ids(left_content, fileid_remap)
+
+    game_object_name = _get_game_object_name(right_doc, right_obj)
+
+    start = len(result.property_changes)
+    _compare_values(
+        left_content,
+        right_content,
+        "",
+        right_file_id,
+        left_obj.class_name,
+        game_object_name,
+        result.property_changes,
+    )
+    for change in result.property_changes[start:]:
+        change.hierarchy_path = hierarchy_path
+
+
 def semantic_diff(
     left_doc: UnityYAMLDocument,
     right_doc: UnityYAMLDocument,
@@ -396,6 +508,10 @@ def semantic_diff(
     Compares documents at the property level, identifying:
     - Added/removed objects (GameObjects, Components, etc.)
     - Added/removed/modified properties within objects
+
+    Uses hierarchy path matching to pair objects by their position in the
+    GameObject tree, so structurally identical prefabs with different fileIDs
+    produce property-level diffs instead of wholesale add/remove.
 
     Args:
         left_doc: The left/old/base document
@@ -412,19 +528,87 @@ def semantic_diff(
         normalizer.normalize_document(left_doc)
         normalizer.normalize_document(right_doc)
 
+    from unityflow.hierarchy import Hierarchy
+
     result = SemanticDiffResult()
 
-    # Collect all fileIDs
-    left_ids = left_doc.get_all_file_ids()
-    right_ids = right_doc.get_all_file_ids()
+    left_hierarchy = Hierarchy.build(left_doc)
+    right_hierarchy = Hierarchy.build(right_doc)
 
-    # Find added and removed objects
-    added_ids = right_ids - left_ids
-    removed_ids = left_ids - right_ids
-    common_ids = left_ids & right_ids
+    left_key_to_id, left_id_to_key = _build_match_map(left_doc, left_hierarchy)
+    right_key_to_id, right_id_to_key = _build_match_map(right_doc, right_hierarchy)
 
-    # Process removed objects
-    for file_id in sorted(removed_ids):
+    left_keys = set(left_key_to_id.keys())
+    right_keys = set(right_key_to_id.keys())
+
+    matched_keys = left_keys & right_keys
+    removed_keys = left_keys - right_keys
+    added_keys = right_keys - left_keys
+
+    left_unmatched_by_id = {left_key_to_id[k]: k for k in removed_keys}
+    right_unmatched_by_id = {right_key_to_id[k]: k for k in added_keys}
+    fileid_rematched = set(left_unmatched_by_id.keys()) & set(right_unmatched_by_id.keys())
+    for file_id in fileid_rematched:
+        removed_keys.discard(left_unmatched_by_id[file_id])
+        added_keys.discard(right_unmatched_by_id[file_id])
+
+    for key in sorted(removed_keys):
+        file_id = left_key_to_id[key]
+        obj = left_doc.get_by_file_id(file_id)
+        if obj:
+            result.object_changes.append(
+                ObjectChange(
+                    file_id=file_id,
+                    class_name=obj.class_name,
+                    change_type=ChangeType.REMOVED,
+                    data=obj.data,
+                    game_object_name=_get_game_object_name(left_doc, obj),
+                    hierarchy_path=key[0],
+                )
+            )
+
+    for key in sorted(added_keys):
+        file_id = right_key_to_id[key]
+        obj = right_doc.get_by_file_id(file_id)
+        if obj:
+            result.object_changes.append(
+                ObjectChange(
+                    file_id=file_id,
+                    class_name=obj.class_name,
+                    change_type=ChangeType.ADDED,
+                    data=obj.data,
+                    game_object_name=_get_game_object_name(right_doc, obj),
+                    hierarchy_path=key[0],
+                )
+            )
+
+    fileid_remap: dict[int, int] = {}
+    for key in matched_keys:
+        fileid_remap[left_key_to_id[key]] = right_key_to_id[key]
+
+    for key in sorted(matched_keys):
+        left_file_id = left_key_to_id[key]
+        right_file_id = right_key_to_id[key]
+        _compare_matched_objects(left_doc, right_doc, left_file_id, right_file_id, key[0], result, fileid_remap)
+
+    for file_id in sorted(fileid_rematched):
+        right_key = right_unmatched_by_id[file_id]
+        _compare_matched_objects(left_doc, right_doc, file_id, file_id, right_key[0], result)
+
+    left_all_ids = left_doc.get_all_file_ids()
+    right_all_ids = right_doc.get_all_file_ids()
+
+    left_mapped_ids = set(left_id_to_key.keys())
+    right_mapped_ids = set(right_id_to_key.keys())
+
+    left_unmapped = left_all_ids - left_mapped_ids
+    right_unmapped = right_all_ids - right_mapped_ids
+
+    common_unmapped = left_unmapped & right_unmapped
+    removed_unmapped = left_unmapped - right_unmapped
+    added_unmapped = right_unmapped - left_unmapped
+
+    for file_id in sorted(removed_unmapped):
         obj = left_doc.get_by_file_id(file_id)
         if obj:
             result.object_changes.append(
@@ -437,8 +621,7 @@ def semantic_diff(
                 )
             )
 
-    # Process added objects
-    for file_id in sorted(added_ids):
+    for file_id in sorted(added_unmapped):
         obj = right_doc.get_by_file_id(file_id)
         if obj:
             result.object_changes.append(
@@ -451,30 +634,7 @@ def semantic_diff(
                 )
             )
 
-    # Compare common objects
-    for file_id in sorted(common_ids):
-        left_obj = left_doc.get_by_file_id(file_id)
-        right_obj = right_doc.get_by_file_id(file_id)
-
-        if left_obj is None or right_obj is None:
-            continue
-
-        # Get content under root key
-        left_content = left_obj.get_content() or {}
-        right_content = right_obj.get_content() or {}
-
-        # Get GameObject name for context
-        game_object_name = _get_game_object_name(right_doc, right_obj)
-
-        # Compare all properties
-        _compare_values(
-            left_content,
-            right_content,
-            "",
-            file_id,
-            left_obj.class_name,
-            game_object_name,
-            result.property_changes,
-        )
+    for file_id in sorted(common_unmapped):
+        _compare_matched_objects(left_doc, right_doc, file_id, file_id, None, result)
 
     return result

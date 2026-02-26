@@ -280,6 +280,63 @@ class TestSemanticDiffResult:
         assert result.has_changes
 
 
+def _build_hierarchy_doc(
+    go_file_id: int,
+    transform_file_id: int,
+    name: str,
+    position: dict | None = None,
+    components: list[tuple[int, int, str, dict]] | None = None,
+    children: list[dict] | None = None,
+    parent_transform_id: int = 0,
+) -> list[UnityYAMLObject]:
+    component_entries = [{"component": {"fileID": transform_file_id}}]
+    if components:
+        for comp_file_id, _class_id, _class_name, _data in components:
+            component_entries.append({"component": {"fileID": comp_file_id}})
+
+    go = UnityYAMLObject(
+        class_id=1,
+        file_id=go_file_id,
+        data={
+            "GameObject": {
+                "m_Name": name,
+                "m_Layer": 0,
+                "m_IsActive": 1,
+                "m_Component": component_entries,
+            }
+        },
+    )
+
+    transform = UnityYAMLObject(
+        class_id=4,
+        file_id=transform_file_id,
+        data={
+            "Transform": {
+                "m_GameObject": {"fileID": go_file_id},
+                "m_LocalPosition": position or {"x": 0, "y": 0, "z": 0},
+                "m_LocalRotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                "m_LocalScale": {"x": 1, "y": 1, "z": 1},
+                "m_Children": [{"fileID": c["transform_file_id"]} for c in (children or [])],
+                "m_Father": {"fileID": parent_transform_id},
+            }
+        },
+    )
+
+    objs = [go, transform]
+    if components:
+        for comp_file_id, class_id, class_name, data in components:
+            comp_data = dict(data)
+            comp_data["m_GameObject"] = {"fileID": go_file_id}
+            objs.append(
+                UnityYAMLObject(
+                    class_id=class_id,
+                    file_id=comp_file_id,
+                    data={class_name: comp_data},
+                )
+            )
+    return objs
+
+
 def _create_prefab_instance(file_id: int, modifications: list) -> UnityYAMLObject:
     return UnityYAMLObject(
         class_id=1001,
@@ -373,3 +430,96 @@ class TestModificationListDiff:
 
         result = semantic_diff(left_doc, right_doc)
         assert not result.has_changes
+
+
+class TestHierarchyMatching:
+
+    def test_matching_by_hierarchy_path(self):
+        left_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(100, 101, "Root", position={"x": 0, "y": 0, "z": 0}):
+            left_doc.add_object(obj)
+
+        right_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(900, 901, "Root", position={"x": 5, "y": 0, "z": 0}):
+            right_doc.add_object(obj)
+
+        result = semantic_diff(left_doc, right_doc)
+
+        assert len(result.object_changes) == 0
+        modified = [c for c in result.property_changes if c.change_type == ChangeType.MODIFIED]
+        assert len(modified) == 1
+        assert modified[0].property_path == "m_LocalPosition.x"
+        assert modified[0].old_value == 0
+        assert modified[0].new_value == 5
+
+    def test_component_index_differentiation(self):
+        left_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(
+            100,
+            101,
+            "Root",
+            components=[
+                (102, 212, "SpriteRenderer", {"m_Color": {"r": 1, "g": 1, "b": 1, "a": 1}}),
+                (103, 212, "SpriteRenderer", {"m_Color": {"r": 0, "g": 0, "b": 0, "a": 1}}),
+            ],
+        ):
+            left_doc.add_object(obj)
+
+        right_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(
+            200,
+            201,
+            "Root",
+            components=[
+                (202, 212, "SpriteRenderer", {"m_Color": {"r": 1, "g": 1, "b": 1, "a": 1}}),
+                (203, 212, "SpriteRenderer", {"m_Color": {"r": 1, "g": 0, "b": 0, "a": 1}}),
+            ],
+        ):
+            right_doc.add_object(obj)
+
+        result = semantic_diff(left_doc, right_doc)
+
+        assert len(result.object_changes) == 0
+        modified = [c for c in result.property_changes if c.change_type == ChangeType.MODIFIED]
+        assert len(modified) == 1
+        assert modified[0].property_path == "m_Color.r"
+        assert modified[0].old_value == 0
+        assert modified[0].new_value == 1
+
+    def test_hierarchy_path_populated(self):
+        left_doc = UnityYAMLDocument()
+        root_objs = _build_hierarchy_doc(100, 101, "Root", children=[{"transform_file_id": 201}])
+        child_objs = _build_hierarchy_doc(200, 201, "Child", position={"x": 0, "y": 0, "z": 0}, parent_transform_id=101)
+        for obj in root_objs + child_objs:
+            left_doc.add_object(obj)
+
+        right_doc = UnityYAMLDocument()
+        root_objs_r = _build_hierarchy_doc(100, 101, "Root", children=[{"transform_file_id": 201}])
+        child_objs_r = _build_hierarchy_doc(
+            200, 201, "Child", position={"x": 3, "y": 0, "z": 0}, parent_transform_id=101
+        )
+        for obj in root_objs_r + child_objs_r:
+            right_doc.add_object(obj)
+
+        result = semantic_diff(left_doc, right_doc)
+
+        assert len(result.property_changes) == 1
+        assert result.property_changes[0].hierarchy_path == "Root/Child"
+
+    def test_added_removed_objects(self):
+        left_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(100, 101, "Root"):
+            left_doc.add_object(obj)
+
+        right_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(200, 201, "Other"):
+            right_doc.add_object(obj)
+
+        result = semantic_diff(left_doc, right_doc)
+
+        removed = [c for c in result.object_changes if c.change_type == ChangeType.REMOVED]
+        added = [c for c in result.object_changes if c.change_type == ChangeType.ADDED]
+        assert len(removed) >= 1
+        assert len(added) >= 1
+        assert any(c.hierarchy_path == "Root" for c in removed)
+        assert any(c.hierarchy_path == "Other" for c in added)

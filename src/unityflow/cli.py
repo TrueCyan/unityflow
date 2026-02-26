@@ -443,38 +443,35 @@ def diff(
         click.echo(f"+++ {new_file}")
         click.echo()
 
-        # Show object changes
         if result.object_changes:
-            click.echo("Object Changes:")
             for change in result.object_changes:
-                if change.change_type == ChangeType.ADDED:
-                    prefix = "+"
-                else:
-                    prefix = "-"
-                name_str = f" ({change.game_object_name})" if change.game_object_name else ""
-                click.echo(f"  {prefix} {change.class_name} [fileID: {change.file_id}]{name_str}")
+                prefix = "+" if change.change_type == ChangeType.ADDED else "-"
+                label = change.hierarchy_path or f"{change.class_name} [fileID: {change.file_id}]"
+                click.echo(f"  {prefix} {label} ({change.class_name})")
             click.echo()
 
-        # Show property changes grouped by object
         if result.property_changes:
-            click.echo("Property Changes:")
-            # Group by file_id
-            by_object: dict[int, list] = {}
+            by_group: dict[tuple[str | None, str], list] = {}
             for change in result.property_changes:
-                if change.file_id not in by_object:
-                    by_object[change.file_id] = []
-                by_object[change.file_id].append(change)
+                group_key = (change.hierarchy_path, change.class_name)
+                if group_key not in by_group:
+                    by_group[group_key] = []
+                by_group[group_key].append(change)
 
-            for file_id, changes in sorted(by_object.items()):
-                first = changes[0]
-                name_str = f" ({first.game_object_name})" if first.game_object_name else ""
-                click.echo(f"  {first.class_name} [fileID: {file_id}]{name_str}:")
+            for (hierarchy_path, class_name), changes in sorted(
+                by_group.items(), key=lambda item: (item[0][0] or "", item[0][1])
+            ):
+                if hierarchy_path:
+                    label = f"{hierarchy_path} ({class_name})"
+                else:
+                    label = f"{class_name} [fileID: {changes[0].file_id}]"
+                click.echo(f"  ~ {label}:")
                 for change in changes:
                     if change.change_type == ChangeType.ADDED:
                         click.echo(f"    + {change.property_path}: {change.new_value}")
                     elif change.change_type == ChangeType.REMOVED:
                         click.echo(f"    - {change.property_path}: {change.old_value}")
-                    else:  # MODIFIED
+                    else:
                         click.echo(f"    ~ {change.property_path}: {change.old_value} -> {change.new_value}")
             click.echo()
 
