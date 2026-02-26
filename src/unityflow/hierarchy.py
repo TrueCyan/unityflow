@@ -504,10 +504,8 @@ class HierarchyNode:
                     guid_index,
                 )
             else:
-                # No parent hierarchy for caching, load directly
-                from .parser import UnityYAMLDocument
 
-                source_doc = UnityYAMLDocument.load_auto(source_path)
+                source_doc = _load_source_document(source_path)
                 source_hierarchy = Hierarchy.build(source_doc, guid_index=guid_index)
 
             if source_hierarchy is None:
@@ -659,6 +657,21 @@ class HierarchyNode:
             merged_child.load_source_prefab(guid_index=guid_index, _loading_prefabs=loading_prefabs)
 
 
+def _load_source_document(source_path: Path) -> UnityYAMLDocument:
+    from .fbx_loader import is_model_file
+    from .parser import UnityYAMLDocument
+
+    if is_model_file(source_path):
+        from .fbx_loader import load_fbx_as_document
+
+        doc = load_fbx_as_document(source_path)
+        if doc is None:
+            raise ValueError(f"Failed to load model file: {source_path}")
+        return doc
+
+    return UnityYAMLDocument.load_auto(source_path)
+
+
 @dataclass
 class Hierarchy:
     """Represents the complete hierarchy of a Unity YAML document.
@@ -803,11 +816,8 @@ class Hierarchy:
         if source_guid in self._nested_prefab_cache:
             return self._nested_prefab_cache[source_guid]
 
-        # Load and parse the source prefab
         try:
-            from .parser import UnityYAMLDocument
-
-            source_doc = UnityYAMLDocument.load_auto(source_path)
+            source_doc = _load_source_document(source_path)
 
             # Build hierarchy for the source prefab
             # Use same guid_index for consistent script name resolution
