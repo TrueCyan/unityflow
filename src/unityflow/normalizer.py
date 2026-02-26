@@ -19,7 +19,10 @@ import struct
 from pathlib import Path
 from typing import Any
 
+from unityflow.builtin_schema import get_builtin_fields
 from unityflow.parser import UnityYAMLDocument, UnityYAMLObject
+
+_MONOBEHAVIOUR_CLASS_ID = 114
 
 # Properties that contain quaternion values
 QUATERNION_PROPERTIES = {
@@ -128,15 +131,29 @@ class UnityPrefabNormalizer:
             self._sort_modifications(content["m_Modification"])
 
         # Process MonoBehaviour fields (requires project_root for script parsing)
-        if obj.class_id == 114 and self.project_root:  # MonoBehaviour
+        if obj.class_id == _MONOBEHAVIOUR_CLASS_ID and self.project_root:
             # Sync fields with C# script (remove obsolete, add missing, merge renamed)
             self._cleanup_obsolete_fields(obj)
 
             # Reorder MonoBehaviour fields according to C# script declaration order
             self._reorder_monobehaviour_fields(obj)
 
+        if obj.class_id != _MONOBEHAVIOUR_CLASS_ID:
+            self._strip_nonstandard_fields(obj)
+
         # Recursively normalize the data
         self._normalize_value(obj.data, parent_key=None)
+
+    def _strip_nonstandard_fields(self, obj: UnityYAMLObject) -> None:
+        schema = get_builtin_fields(obj.class_id)
+        if schema is None:
+            return
+        content = obj.get_content()
+        if content is None:
+            return
+        nonstandard = [k for k in content if k not in schema]
+        for k in nonstandard:
+            del content[k]
 
     def _reorder_monobehaviour_fields(self, obj: UnityYAMLObject) -> None:
         """Reorder MonoBehaviour fields according to C# script declaration order.

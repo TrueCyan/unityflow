@@ -162,30 +162,29 @@ class TestSetValueCreate:
     """Tests for set_value with create=True option."""
 
     def test_create_new_field(self):
-        """Test creating a new field that doesn't exist."""
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+        """Test creating a new field that doesn't exist (on MonoBehaviour)."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
 
-        # Create a new field
         result = set_value(
             doc,
-            "components/400000/newField",
+            "components/114000/newField",
             {"fileID": 123, "guid": "abc", "type": 3},
             create=True,
         )
 
         assert result is True
 
-        transform = doc.get_by_file_id(400000)
-        assert "newField" in transform.get_content()
-        assert transform.get_content()["newField"]["fileID"] == 123
+        mb = doc.get_by_file_id(114000)
+        assert "newField" in mb.get_content()
+        assert mb.get_content()["newField"]["fileID"] == 123
 
     def test_create_fails_without_flag(self):
         """Test that creating a new field fails without create=True."""
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
 
         result = set_value(
             doc,
-            "components/400000/nonExistentField",
+            "components/114000/nonExistentField",
             {"value": 123},
             create=False,
         )
@@ -213,20 +212,20 @@ class TestSetValueCreate:
         assert pos["z"] == 77.0
 
     def test_create_intermediate_path(self):
-        """Test creating intermediate dicts in the path."""
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+        """Test creating intermediate dicts in the path (on MonoBehaviour)."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
 
         result = set_value(
             doc,
-            "components/400000/nested/deep/value",
+            "components/114000/nested/deep/value",
             123,
             create=True,
         )
 
         assert result is True
 
-        transform = doc.get_by_file_id(400000)
-        content = transform.get_content()
+        mb = doc.get_by_file_id(114000)
+        content = mb.get_content()
         assert "nested" in content
         assert "deep" in content["nested"]
         assert content["nested"]["deep"]["value"] == 123
@@ -236,12 +235,12 @@ class TestMergeValues:
     """Tests for merge_values function."""
 
     def test_merge_multiple_fields(self):
-        """Test merging multiple new fields."""
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+        """Test merging multiple new fields (on MonoBehaviour)."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
 
         updated, created = merge_values(
             doc,
-            "components/400000",
+            "components/114000",
             {
                 "portalAPrefab": {"fileID": 123, "guid": "abc", "type": 3},
                 "portalBPrefab": {"fileID": 456, "guid": "def", "type": 3},
@@ -252,42 +251,42 @@ class TestMergeValues:
         assert created == 3
         assert updated == 0
 
-        transform = doc.get_by_file_id(400000)
-        content = transform.get_content()
+        mb = doc.get_by_file_id(114000)
+        content = mb.get_content()
         assert content["portalAPrefab"]["fileID"] == 123
         assert content["portalBPrefab"]["guid"] == "def"
         assert content["rotationStep"] == 15
 
     def test_merge_update_existing(self):
-        """Test merging with existing fields."""
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+        """Test merging with existing and new fields (on MonoBehaviour)."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
 
         updated, created = merge_values(
             doc,
-            "components/400000",
+            "components/114000",
             {
-                "m_LocalPosition": {"x": 10.0, "y": 20.0, "z": 30.0},
+                "m_Enabled": 0,
                 "newField": "new_value",
             },
         )
 
-        assert updated == 1  # m_LocalPosition updated
+        assert updated == 1  # m_Enabled updated
         assert created == 1  # newField created
 
-        transform = doc.get_by_file_id(400000)
-        content = transform.get_content()
-        assert content["m_LocalPosition"]["x"] == 10.0
+        mb = doc.get_by_file_id(114000)
+        content = mb.get_content()
+        assert content["m_Enabled"] == 0
         assert content["newField"] == "new_value"
 
     def test_merge_no_create(self):
         """Test merging with create=False only updates existing fields."""
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
 
         updated, created = merge_values(
             doc,
-            "components/400000",
+            "components/114000",
             {
-                "m_LocalPosition": {"x": 5.0, "y": 5.0, "z": 5.0},
+                "m_Enabled": 0,
                 "nonExistentField": "should_not_create",
             },
             create=False,
@@ -296,14 +295,14 @@ class TestMergeValues:
         assert updated == 1
         assert created == 0
 
-        transform = doc.get_by_file_id(400000)
-        content = transform.get_content()
-        assert content["m_LocalPosition"]["x"] == 5.0
+        mb = doc.get_by_file_id(114000)
+        content = mb.get_content()
+        assert content["m_Enabled"] == 0
         assert "nonExistentField" not in content
 
     def test_merge_invalid_path(self):
         """Test merging to invalid path returns zeros."""
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
 
         updated, created = merge_values(
             doc,
@@ -315,12 +314,12 @@ class TestMergeValues:
         assert created == 0
 
     def test_merge_creates_intermediate_path(self):
-        """Test that merge creates intermediate paths when needed."""
-        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+        """Test that merge creates intermediate paths when needed (on MonoBehaviour)."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
 
         updated, created = merge_values(
             doc,
-            "components/400000/customData",
+            "components/114000/customData",
             {
                 "key1": "value1",
                 "key2": 42,
@@ -330,8 +329,37 @@ class TestMergeValues:
 
         assert created == 2
 
-        transform = doc.get_by_file_id(400000)
-        content = transform.get_content()
+        mb = doc.get_by_file_id(114000)
+        content = mb.get_content()
         assert "customData" in content
         assert content["customData"]["key1"] == "value1"
         assert content["customData"]["key2"] == 42
+
+
+class TestBuiltinFieldRestriction:
+
+    def test_set_value_resolves_unity_key(self):
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+
+        result = set_value(doc, "components/400000/localPosition", {"x": 5.0, "y": 6.0, "z": 7.0})
+
+        assert result is True
+        transform = doc.get_by_file_id(400000)
+        assert transform.get_content()["m_LocalPosition"]["x"] == 5.0
+
+    def test_set_value_blocks_unknown_field_on_builtin(self):
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+
+        result = set_value(doc, "components/400000/bogusField", 42, create=True)
+
+        assert result is False
+        assert "bogusField" not in doc.get_by_file_id(400000).get_content()
+
+    def test_set_value_allows_create_on_monobehaviour(self):
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab.prefab")
+        mb = doc.get_by_class_id(114)[0]
+
+        result = set_value(doc, f"components/{mb.file_id}/customUserField", 99, create=True)
+
+        assert result is True
+        assert mb.get_content()["customUserField"] == 99

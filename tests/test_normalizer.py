@@ -592,3 +592,42 @@ class TestNestedFieldSync:
         }
 
         normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
+
+
+class TestStripNonstandardFields:
+
+    def test_nonstandard_field_removed_by_normalize(self):
+        normalizer = UnityPrefabNormalizer()
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+
+        transform = doc.get_by_file_id(400000)
+        transform.get_content()["bogusField"] = 123
+
+        normalizer.normalize_document(doc)
+
+        assert "bogusField" not in doc.get_by_file_id(400000).get_content()
+
+    def test_monobehaviour_custom_fields_preserved(self):
+        normalizer = UnityPrefabNormalizer()
+        doc = UnityYAMLDocument()
+        from unityflow.parser import UnityYAMLObject
+
+        obj = UnityYAMLObject(
+            class_id=114,
+            file_id=11400000,
+            data={
+                "MonoBehaviour": {
+                    "m_ObjectHideFlags": 0,
+                    "m_Script": {"fileID": 11500000, "guid": "abc", "type": 3},
+                    "customField": 42,
+                    "anotherCustom": "hello",
+                }
+            },
+        )
+        doc.add_object(obj)
+
+        normalizer.normalize_document(doc)
+
+        content = doc.get_by_file_id(11400000).get_content()
+        assert content["customField"] == 42
+        assert content["anotherCustom"] == "hello"

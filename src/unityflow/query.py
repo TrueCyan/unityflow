@@ -8,8 +8,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from unityflow.builtin_schema import get_builtin_fields
 from unityflow.formats import export_to_json
 from unityflow.parser import UnityYAMLDocument
+
+_MONOBEHAVIOUR_CLASS_ID = 114
 
 
 @dataclass
@@ -183,6 +186,24 @@ def _query_recursive(
             _query_recursive(item, path_parts, new_path, results)
 
 
+def _resolve_unity_key(key: str, target: dict) -> str:
+    if key in target:
+        return key
+    unity_key = f"m_{key[0].upper()}{key[1:]}"
+    if unity_key in target:
+        return unity_key
+    return key
+
+
+def _can_create_field(key: str, class_id: int) -> bool:
+    if class_id == _MONOBEHAVIOUR_CLASS_ID:
+        return True
+    schema = get_builtin_fields(class_id)
+    if schema is None:
+        return True
+    return key in schema
+
+
 def set_value(
     doc: UnityYAMLDocument,
     path: str,
@@ -256,23 +277,16 @@ def set_value(
     final_key = property_path[-1]
 
     if isinstance(target, dict):
-        # Check if key exists
-        key_exists = final_key in target
-
-        # Convert JSON-style keys to Unity-style if needed
-        if not key_exists:
-            # Try m_FieldName format
-            unity_key = f"m_{final_key[0].upper()}{final_key[1:]}"
-            if unity_key in target:
-                final_key = unity_key
-                key_exists = True
+        resolved = _resolve_unity_key(final_key, target)
+        key_exists = resolved in target
+        final_key = resolved
 
         if key_exists:
-            # Update existing value
             target[final_key] = _convert_value(value)
             return True
         elif create:
-            # Create new field (appended at end)
+            if not _can_create_field(final_key, obj.class_id):
+                return False
             target[final_key] = _convert_value(value)
             return True
         else:
@@ -363,11 +377,14 @@ def merge_values(
 
     for key, value in values.items():
         converted_value = _convert_value(value)
-        if key in target:
-            target[key] = converted_value
+        resolved = _resolve_unity_key(key, target)
+        if resolved in target:
+            target[resolved] = converted_value
             updated_count += 1
         elif create:
-            target[key] = converted_value
+            if not _can_create_field(resolved, obj.class_id):
+                continue
+            target[resolved] = converted_value
             created_count += 1
 
     return (updated_count, created_count)
