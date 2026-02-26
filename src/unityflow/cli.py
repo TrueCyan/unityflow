@@ -933,26 +933,17 @@ def _resolve_gameobject_by_path(
 def _resolve_component_path(
     doc: UnityYAMLDocument,
     path_spec: str,
+    project_root: Path | None = None,
 ) -> tuple[str | None, str | None]:
-    """Resolve a component path to the internal format.
-
-    Converts paths like:
-        "Player/SpriteRenderer/m_Color" -> "components/12345/m_Color"
-        "Canvas/Panel/Button/Image/m_Sprite" -> "components/67890/m_Sprite"
-        "Canvas/Button/Image[1]/m_Color" -> "components/11111/m_Color"
-        "Player/name" -> "gameObjects/12345/name"
-        "Canvas/Panel/RectTransform" -> "components/12345" (for batch mode)
-
-    Args:
-        doc: The Unity YAML document
-        path_spec: Path like "Player/SpriteRenderer/m_Color"
-
-    Returns:
-        Tuple of (resolved_path, error_message). If successful, error_message is None.
-    """
     import re
 
     from unityflow.parser import CLASS_IDS
+
+    guid_index = None
+    if project_root:
+        from unityflow.asset_tracker import get_lazy_guid_index
+
+        guid_index = get_lazy_guid_index(project_root, include_packages=True)
 
     # Check if already in internal format (components/12345/... or gameObjects/12345/...)
     if re.match(r"^(components|gameObjects)/\d+", path_spec):
@@ -997,11 +988,11 @@ def _resolve_component_path(
         last_component_index = int(last_part_match.group(2)) if last_part_match.group(2) else None
         last_component_type_lower = last_component_type.lower()
 
-        # Check if last part is a known component type
         last_is_component = (
             last_component_type_lower in name_to_ids
             or last_component_type_lower in package_components
             or last_component_type == "MonoBehaviour"
+            or guid_index is not None
         )
 
         if last_is_component:
@@ -1035,9 +1026,8 @@ def _resolve_component_path(
                 # Check if component matches the type
                 comp_class_name = comp.class_name.lower()
 
-                # For package components (MonoBehaviour), check script GUID
                 if last_component_type_lower in package_components:
-                    if comp.class_id == 114:  # MonoBehaviour
+                    if comp.class_id == 114:
                         comp_content = comp.get_content()
                         if comp_content:
                             script_ref = comp_content.get("m_Script", {})
@@ -1045,8 +1035,6 @@ def _resolve_component_path(
                                 script_guid = script_ref.get("guid", "")
                             else:
                                 script_guid = ""
-                            # Check if GUID matches the package component
-                            # Use case-insensitive key lookup
                             expected_guid = ""
                             for key, guid in PACKAGE_COMPONENT_GUIDS.items():
                                 if key.lower() == last_component_type_lower:
@@ -1056,12 +1044,20 @@ def _resolve_component_path(
                                 matching_components.append(comp_id)
                 elif comp_class_name == last_component_type_lower:
                     matching_components.append(comp_id)
+                elif comp.class_id == 114 and guid_index:
+                    comp_content = comp.get_content()
+                    if comp_content:
+                        script_ref = comp_content.get("m_Script", {})
+                        script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+                        if script_guid:
+                            resolved = guid_index.resolve_name(script_guid)
+                            if resolved and resolved.lower() == last_component_type_lower:
+                                matching_components.append(comp_id)
 
             if not matching_components:
                 return None, f"Component '{last_component_type}' not found on '{go_path}'"
 
             if len(matching_components) == 1:
-                # Return component path without property (for batch mode)
                 return f"components/{matching_components[0]}", None
 
             # Multiple matches
@@ -1092,11 +1088,11 @@ def _resolve_component_path(
         component_index = int(component_match.group(2)) if component_match.group(2) else None
         component_type_lower = component_type.lower()
 
-        # Check if it's a known component type
         is_component = (
             component_type_lower in name_to_ids
             or component_type_lower in package_components
             or component_type == "MonoBehaviour"
+            or guid_index is not None
         )
 
         if is_component:
@@ -1130,9 +1126,8 @@ def _resolve_component_path(
                 # Check if component matches the type
                 comp_class_name = comp.class_name.lower()
 
-                # For package components (MonoBehaviour), check script GUID
                 if component_type_lower in package_components:
-                    if comp.class_id == 114:  # MonoBehaviour
+                    if comp.class_id == 114:
                         comp_content = comp.get_content()
                         if comp_content:
                             script_ref = comp_content.get("m_Script", {})
@@ -1140,8 +1135,6 @@ def _resolve_component_path(
                                 script_guid = script_ref.get("guid", "")
                             else:
                                 script_guid = ""
-                            # Check if GUID matches the package component
-                            # Use case-insensitive key lookup
                             expected_guid = ""
                             for key, guid in PACKAGE_COMPONENT_GUIDS.items():
                                 if key.lower() == component_type_lower:
@@ -1151,6 +1144,15 @@ def _resolve_component_path(
                                 matching_components.append(comp_id)
                 elif comp_class_name == component_type_lower:
                     matching_components.append(comp_id)
+                elif comp.class_id == 114 and guid_index:
+                    comp_content = comp.get_content()
+                    if comp_content:
+                        script_ref = comp_content.get("m_Script", {})
+                        script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+                        if script_guid:
+                            resolved = guid_index.resolve_name(script_guid)
+                            if resolved and resolved.lower() == component_type_lower:
+                                matching_components.append(comp_id)
 
             if not matching_components:
                 return None, f"Component '{component_type}' not found on '{go_path}'"
@@ -1228,6 +1230,7 @@ def _handle_add_component(
                 if path.suffix == ".cs" and path.stem == comp_type
             ]
             if matched:
+                matched.sort(key=lambda item: 1 if "Editor" in item[0].parts else 0)
                 script_guid = matched[0][1]
                 if len(matched) > 1:
                     candidate_list = "\n".join(f"  {p}" for p, _ in matched)
@@ -1627,6 +1630,7 @@ def get_value_cmd(
     """
     import json
 
+    from unityflow.asset_tracker import find_unity_project_root
     from unityflow.parser import UnityYAMLDocument
     from unityflow.query import get_value
 
@@ -1636,8 +1640,8 @@ def get_value_cmd(
         click.echo(f"Error: Failed to load {file}: {e}", err=True)
         sys.exit(1)
 
-    # Resolve path (convert "Player/Transform/localPosition" to "components/12345/localPosition")
-    resolved_path, error = _resolve_component_path(doc, path_spec)
+    project_root = find_unity_project_root(file)
+    resolved_path, error = _resolve_component_path(doc, path_spec, project_root=project_root)
     if error:
         click.echo(f"Error: {error}", err=True)
         sys.exit(1)
@@ -1879,7 +1883,7 @@ def set_value_cmd(
 
     # Resolve path (convert "Player/Transform/localPosition" to "components/12345/localPosition")
     original_path = set_path
-    resolved_path, error = _resolve_component_path(doc, set_path)
+    resolved_path, error = _resolve_component_path(doc, set_path, project_root=project_root)
     if error:
         click.echo(f"Error: {error}", err=True)
         sys.exit(1)

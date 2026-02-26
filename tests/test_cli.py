@@ -1187,3 +1187,41 @@ class TestSetAddRemoveObject:
         doc = UnityYAMLDocument.load(prefab_file)
         assert len(doc.get_game_objects()) == 1
         assert doc.get_game_objects()[0].get_content()["m_Name"] == "Root"
+
+    def test_add_component_prefers_runtime_over_editor(self, runner, tmp_path):
+        import shutil
+
+        project_root = tmp_path / "project"
+        (project_root / "Assets").mkdir(parents=True)
+        (project_root / "ProjectSettings").mkdir()
+
+        editor_dir = project_root / "Assets" / "Editor"
+        editor_dir.mkdir(parents=True)
+        (editor_dir / "MyComp.cs").write_text("public class MyComp : MonoBehaviour {}")
+        (editor_dir / "MyComp.cs.meta").write_text("fileFormatVersion: 2\nguid: eeee000011112222eeee000011112222\n")
+
+        runtime_dir = project_root / "Assets" / "Scripts"
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "MyComp.cs").write_text("public class MyComp : MonoBehaviour {}")
+        (runtime_dir / "MyComp.cs.meta").write_text("fileFormatVersion: 2\nguid: aabb000011112222aabb000011112222\n")
+
+        test_file = project_root / "Assets" / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--add-component",
+                "MyComp",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        content = test_file.read_text()
+        assert "aabb000011112222aabb000011112222" in content
+        assert "eeee000011112222eeee000011112222" not in content

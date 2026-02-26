@@ -523,3 +523,105 @@ class TestHierarchyMatching:
         assert len(added) >= 1
         assert any(c.hierarchy_path == "Root" for c in removed)
         assert any(c.hierarchy_path == "Other" for c in added)
+
+    def test_different_script_guid_not_matched(self):
+        left_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(
+            100,
+            101,
+            "Root",
+            components=[
+                (
+                    102,
+                    114,
+                    "MonoBehaviour",
+                    {
+                        "m_Script": {"fileID": 11500000, "guid": "guid_aaaa", "type": 3},
+                        "m_Enabled": 1,
+                    },
+                ),
+            ],
+        ):
+            left_doc.add_object(obj)
+
+        right_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(
+            200,
+            201,
+            "Root",
+            components=[
+                (
+                    202,
+                    114,
+                    "MonoBehaviour",
+                    {
+                        "m_Script": {"fileID": 11500000, "guid": "guid_bbbb", "type": 3},
+                        "m_Enabled": 1,
+                    },
+                ),
+            ],
+        ):
+            right_doc.add_object(obj)
+
+        result = semantic_diff(left_doc, right_doc)
+
+        mono_added = [
+            c for c in result.object_changes if c.change_type == ChangeType.ADDED and c.class_name == "MonoBehaviour"
+        ]
+        mono_removed = [
+            c for c in result.object_changes if c.change_type == ChangeType.REMOVED and c.class_name == "MonoBehaviour"
+        ]
+        assert len(mono_added) == 1
+        assert len(mono_removed) == 1
+
+    def test_same_script_guid_matched(self):
+        left_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(
+            100,
+            101,
+            "Root",
+            components=[
+                (
+                    102,
+                    114,
+                    "MonoBehaviour",
+                    {
+                        "m_Script": {"fileID": 11500000, "guid": "guid_same", "type": 3},
+                        "m_Enabled": 1,
+                        "m_Health": 50,
+                    },
+                ),
+            ],
+        ):
+            left_doc.add_object(obj)
+
+        right_doc = UnityYAMLDocument()
+        for obj in _build_hierarchy_doc(
+            200,
+            201,
+            "Root",
+            components=[
+                (
+                    202,
+                    114,
+                    "MonoBehaviour",
+                    {
+                        "m_Script": {"fileID": 11500000, "guid": "guid_same", "type": 3},
+                        "m_Enabled": 1,
+                        "m_Health": 100,
+                    },
+                ),
+            ],
+        ):
+            right_doc.add_object(obj)
+
+        result = semantic_diff(left_doc, right_doc)
+
+        mono_changes = [c for c in result.object_changes if c.class_name == "MonoBehaviour"]
+        assert len(mono_changes) == 0
+
+        modified = [c for c in result.property_changes if c.change_type == ChangeType.MODIFIED]
+        health_changes = [c for c in modified if "m_Health" in c.property_path]
+        assert len(health_changes) == 1
+        assert health_changes[0].old_value == 50
+        assert health_changes[0].new_value == 100

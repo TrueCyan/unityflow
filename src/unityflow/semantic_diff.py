@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from unityflow.hierarchy import Hierarchy, HierarchyNode
     from unityflow.parser import UnityYAMLDocument, UnityYAMLObject
 
-MatchKey = tuple[str, str, int]
+MatchKey = tuple[str, str, str, int]
 
 
 class ChangeType(Enum):
@@ -204,18 +204,19 @@ def _build_match_map(
         path = _node_path(node)
 
         node_class = "PrefabInstance" if node.is_prefab_instance else "GameObject"
-        _register((path, node_class, 0), node.file_id)
+        _register((path, node_class, "", 0), node.file_id)
 
         if node.transform_id:
             transform_class = "RectTransform" if node.is_ui else "Transform"
-            _register((path, transform_class, 0), node.transform_id)
+            _register((path, transform_class, "", 0), node.transform_id)
 
-        type_counts: dict[str, int] = {}
+        type_counts: dict[tuple[str, str], int] = {}
         for comp in node.components:
-            type_name = comp.class_name
-            idx = type_counts.get(type_name, 0)
-            type_counts[type_name] = idx + 1
-            _register((path, type_name, idx), comp.file_id)
+            type_name = comp.type_name
+            guid = comp.script_guid or ""
+            idx = type_counts.get((type_name, guid), 0)
+            type_counts[(type_name, guid)] = idx + 1
+            _register((path, type_name, guid, idx), comp.file_id)
 
     return key_to_id, id_to_key
 
@@ -528,12 +529,17 @@ def semantic_diff(
         normalizer.normalize_document(left_doc)
         normalizer.normalize_document(right_doc)
 
+    from unityflow.asset_tracker import get_lazy_guid_index
     from unityflow.hierarchy import Hierarchy
+
+    guid_index = None
+    if project_root:
+        guid_index = get_lazy_guid_index(Path(project_root), include_packages=True)
 
     result = SemanticDiffResult()
 
-    left_hierarchy = Hierarchy.build(left_doc)
-    right_hierarchy = Hierarchy.build(right_doc)
+    left_hierarchy = Hierarchy.build(left_doc, guid_index=guid_index)
+    right_hierarchy = Hierarchy.build(right_doc, guid_index=guid_index)
 
     left_key_to_id, left_id_to_key = _build_match_map(left_doc, left_hierarchy)
     right_key_to_id, right_id_to_key = _build_match_map(right_doc, right_hierarchy)
@@ -559,7 +565,7 @@ def semantic_diff(
             result.object_changes.append(
                 ObjectChange(
                     file_id=file_id,
-                    class_name=obj.class_name,
+                    class_name=key[1],
                     change_type=ChangeType.REMOVED,
                     data=obj.data,
                     game_object_name=_get_game_object_name(left_doc, obj),
@@ -574,7 +580,7 @@ def semantic_diff(
             result.object_changes.append(
                 ObjectChange(
                     file_id=file_id,
-                    class_name=obj.class_name,
+                    class_name=key[1],
                     change_type=ChangeType.ADDED,
                     data=obj.data,
                     game_object_name=_get_game_object_name(right_doc, obj),

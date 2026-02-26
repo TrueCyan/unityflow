@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from unityflow.parser import UnityYAMLDocument
+from unityflow.parser import UnityYAMLDocument, UnityYAMLObject
 from unityflow.query import get_value, merge_values, query_path, set_value
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -389,3 +389,100 @@ class TestBuiltinFieldRestriction:
         assert scale["x"] == 5.0
         assert scale["y"] == 1
         assert scale["z"] == 3.0
+
+
+class TestResolveComponentPathByScriptName:
+
+    @staticmethod
+    def _make_doc_with_monobehaviour(script_guid):
+        doc = UnityYAMLDocument()
+        doc.add_object(
+            UnityYAMLObject(
+                class_id=1,
+                file_id=100000,
+                data={
+                    "GameObject": {
+                        "m_Name": "Player",
+                        "m_Component": [
+                            {"component": {"fileID": 400000}},
+                            {"component": {"fileID": 500000}},
+                        ],
+                    }
+                },
+            )
+        )
+        doc.add_object(
+            UnityYAMLObject(
+                class_id=4,
+                file_id=400000,
+                data={
+                    "Transform": {
+                        "m_GameObject": {"fileID": 100000},
+                        "m_LocalPosition": {"x": 0, "y": 0, "z": 0},
+                        "m_LocalRotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                        "m_LocalScale": {"x": 1, "y": 1, "z": 1},
+                        "m_Children": [],
+                        "m_Father": {"fileID": 0},
+                    }
+                },
+            )
+        )
+        doc.add_object(
+            UnityYAMLObject(
+                class_id=114,
+                file_id=500000,
+                data={
+                    "MonoBehaviour": {
+                        "m_GameObject": {"fileID": 100000},
+                        "m_Script": {"fileID": 11500000, "guid": script_guid, "type": 3},
+                        "m_Enabled": 1,
+                        "m_Health": 100,
+                    }
+                },
+            )
+        )
+        return doc
+
+    @staticmethod
+    def _make_project(tmp_path, script_name, script_guid):
+        project_root = tmp_path / "project"
+        (project_root / "Assets" / "Scripts").mkdir(parents=True)
+        (project_root / "ProjectSettings").mkdir()
+        script_dir = project_root / "Assets" / "Scripts"
+        (script_dir / f"{script_name}.cs").write_text(f"public class {script_name} : MonoBehaviour {{}}")
+        (script_dir / f"{script_name}.cs.meta").write_text(f"fileFormatVersion: 2\nguid: {script_guid}\n")
+        return project_root
+
+    def test_resolve_property_path_by_script_name(self, tmp_path):
+        from unityflow.cli import _resolve_component_path
+
+        guid = "abc123def456abc123def456abc12345"
+        doc = self._make_doc_with_monobehaviour(guid)
+        project_root = self._make_project(tmp_path, "PlayerController", guid)
+
+        resolved, error = _resolve_component_path(doc, "Player/PlayerController/m_Health", project_root=project_root)
+
+        assert error is None
+        assert resolved == "components/500000/m_Health"
+
+    def test_resolve_batch_mode_by_script_name(self, tmp_path):
+        from unityflow.cli import _resolve_component_path
+
+        guid = "abc123def456abc123def456abc12345"
+        doc = self._make_doc_with_monobehaviour(guid)
+        project_root = self._make_project(tmp_path, "PlayerController", guid)
+
+        resolved, error = _resolve_component_path(doc, "Player/PlayerController", project_root=project_root)
+
+        assert error is None
+        assert resolved == "components/500000"
+
+    def test_no_match_without_project_root(self):
+        from unityflow.cli import _resolve_component_path
+
+        guid = "abc123def456abc123def456abc12345"
+        doc = self._make_doc_with_monobehaviour(guid)
+
+        resolved, error = _resolve_component_path(doc, "Player/PlayerController/m_Health", project_root=None)
+
+        assert error is not None
