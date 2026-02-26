@@ -233,7 +233,7 @@ def set_value(
         return False
 
     file_id_str = parts[1]
-    property_path = parts[2:] if len(parts) > 2 else []
+    property_path = [seg for part in parts[2:] for seg in part.split(".")]
 
     # Find the object
     if not file_id_str.isdigit():
@@ -376,6 +376,11 @@ def merge_values(
     created_count = 0
 
     for key, value in values.items():
+        if "." in key:
+            full_path = f"{path}/{key.replace('.', '/')}"
+            if set_value(doc, full_path, value, create=create):
+                updated_count += 1
+            continue
         converted_value = _convert_value(value)
         resolved = _resolve_unity_key(key, target)
         if resolved in target:

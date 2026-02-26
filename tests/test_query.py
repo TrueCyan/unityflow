@@ -363,3 +363,29 @@ class TestBuiltinFieldRestriction:
 
         assert result is True
         assert mb.get_content()["customUserField"] == 99
+
+    def test_set_value_dot_notation_navigates_nested(self):
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+
+        result = set_value(doc, "components/400000/m_LocalScale.x", 1662.7688)
+
+        assert result is True
+        scale = doc.get_by_file_id(400000).get_content()["m_LocalScale"]
+        assert scale["x"] == 1662.7688
+        assert scale["y"] == 1
+        assert scale["z"] == 1
+
+    def test_merge_values_dot_notation_key(self):
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+
+        updated, created = merge_values(
+            doc,
+            "components/400000",
+            {"m_LocalScale.x": 5.0, "m_LocalScale.z": 3.0},
+        )
+
+        assert updated == 2
+        scale = doc.get_by_file_id(400000).get_content()["m_LocalScale"]
+        assert scale["x"] == 5.0
+        assert scale["y"] == 1
+        assert scale["z"] == 3.0
