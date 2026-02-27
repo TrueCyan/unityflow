@@ -204,29 +204,34 @@ class GUIDIndex:
         return self.guid_to_path.get(guid)
 
     def batch_resolve_names(self, guids: set[str]) -> dict[str, str]:
-        """Batch resolve multiple GUIDs to asset names.
-
-        Efficiently resolves multiple GUIDs at once using simple dict lookups.
-        This is more efficient than calling resolve_name() repeatedly when
-        processing many components.
-
-        Args:
-            guids: Set of GUIDs to resolve
-
-        Returns:
-            Dict mapping GUID to asset name (filename without extension).
-            GUIDs that couldn't be resolved are omitted from the result.
-
-        Example:
-            >>> names = guid_index.batch_resolve_names({"abc123...", "def456..."})
-            >>> print(names)  # {"abc123...": "PlayerController", "def456...": "EnemyAI"}
-        """
+        """Batch resolve multiple GUIDs to asset names."""
         result: dict[str, str] = {}
         for guid in guids:
             path = self.guid_to_path.get(guid)
             if path is not None:
                 result[guid] = path.stem
         return result
+
+    def find_paths_by_stem_and_suffix(self, stem: str, suffix: str) -> list[tuple[Path, str]]:
+        """Find all (path, guid) pairs matching a filename stem and suffix."""
+        return [(path, guid) for path, guid in self.path_to_guid.items() if path.suffix == suffix and path.stem == stem]
+
+    def find_paths_by_suffix(self, suffix: str) -> list[tuple[Path, str]]:
+        """Find all (path, guid) pairs matching a file suffix."""
+        return [(path, guid) for path, guid in self.path_to_guid.items() if path.suffix.lower() == suffix]
+
+    def find_path_by_filename(self, filename: str) -> Path | None:
+        """Find an asset path by exact filename."""
+        stem = Path(filename).stem
+        suffix = Path(filename).suffix
+        matches = self.find_paths_by_stem_and_suffix(stem, suffix)
+        if matches:
+            path = matches[0][0]
+            if path.is_absolute():
+                return path
+            if self.project_root:
+                return self.project_root / path
+        return None
 
 
 def find_unity_project_root(start_path: Path) -> Path | None:
@@ -1621,6 +1626,75 @@ class LazyGUIDIndex:
             pass
 
         return result
+
+    def find_paths_by_stem_and_suffix(self, stem: str, suffix: str) -> list[tuple[Path, str]]:
+        """Find all (path, guid) pairs matching a filename stem and suffix."""
+        if not self._db_path.exists():
+            return []
+        filename = f"{stem}{suffix}"
+        try:
+            with self._db_lock:
+                conn = self._get_connection()
+                pattern = f"%/{filename}"
+                cursor = conn.execute(
+                    "SELECT guid, path FROM guid_cache WHERE path LIKE ? OR path = ?",
+                    (pattern, filename),
+                )
+                results = []
+                for row in cursor:
+                    guid, path_str = row
+                    path = Path(path_str)
+                    self._add_to_cache(guid, path)
+                    results.append((path, guid))
+                return results
+        except sqlite3.Error:
+            return []
+
+    def find_paths_by_suffix(self, suffix: str) -> list[tuple[Path, str]]:
+        """Find all (path, guid) pairs matching a file suffix (e.g., '.dll')."""
+        if not self._db_path.exists():
+            return []
+        try:
+            with self._db_lock:
+                conn = self._get_connection()
+                pattern = f"%{suffix}"
+                cursor = conn.execute(
+                    "SELECT guid, path FROM guid_cache WHERE path LIKE ?",
+                    (pattern,),
+                )
+                results = []
+                for row in cursor:
+                    guid, path_str = row
+                    path = Path(path_str)
+                    results.append((path, guid))
+                return results
+        except sqlite3.Error:
+            return []
+
+    def find_path_by_filename(self, filename: str) -> Path | None:
+        """Find an asset path by exact filename (e.g., 'PlayerController.cs')."""
+        if not self._db_path.exists():
+            return None
+        try:
+            with self._db_lock:
+                conn = self._get_connection()
+                pattern = f"%/{filename}"
+                cursor = conn.execute(
+                    "SELECT guid, path FROM guid_cache WHERE path LIKE ? OR path = ? LIMIT 1",
+                    (pattern, filename),
+                )
+                row = cursor.fetchone()
+                if row:
+                    guid, path_str = row
+                    path = Path(path_str)
+                    self._add_to_cache(guid, path)
+                    if path.is_absolute():
+                        return path
+                    if self.project_root:
+                        return self.project_root / path
+        except sqlite3.Error:
+            pass
+        return None
 
     def close(self) -> None:
         """Close the database connection."""

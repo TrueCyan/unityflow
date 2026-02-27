@@ -1277,10 +1277,9 @@ def _handle_add_component(
             click.echo("Error: Path-qualified component requires a Unity project root.", err=True)
             sys.exit(1)
         suffix_parts = tuple(comp_type.replace("\\", "/").split("/"))
+        all_cs = guid_index.find_paths_by_suffix(".cs")
         matched = [
-            (path, guid)
-            for path, guid in guid_index.path_to_guid.items()
-            if path.suffix == ".cs" and path.with_suffix("").parts[-len(suffix_parts) :] == suffix_parts
+            (path, guid) for path, guid in all_cs if path.with_suffix("").parts[-len(suffix_parts) :] == suffix_parts
         ]
         if not matched:
             click.echo(f"Error: No script matching path '{comp_type}' found.", err=True)
@@ -1301,11 +1300,7 @@ def _handle_add_component(
                 break
 
         if guid_index:
-            script_matches = [
-                (path, guid)
-                for path, guid in guid_index.path_to_guid.items()
-                if path.suffix == ".cs" and path.stem == comp_type
-            ]
+            script_matches = guid_index.find_paths_by_stem_and_suffix(comp_type, ".cs")
             for path, guid in script_matches:
                 candidates.append(("script", str(path), 114, guid, 11500000))
 
@@ -1320,8 +1315,7 @@ def _handle_add_component(
 
             dll_paths = [
                 (project_root / path if not path.is_absolute() else path, guid)
-                for path, guid in guid_index.path_to_guid.items()
-                if path.suffix.lower() == ".dll"
+                for path, guid in guid_index.find_paths_by_suffix(".dll")
             ]
             dll_result = find_class_in_dlls(dll_paths, comp_type)
             if dll_result:

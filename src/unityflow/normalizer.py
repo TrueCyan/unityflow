@@ -412,12 +412,23 @@ class UnityPrefabNormalizer:
     def _find_script_by_class_name(self, class_name: str) -> Path | None:
         if self._guid_index is None:
             return None
-        for path in self._guid_index.path_to_guid:
-            if path.suffix == ".cs" and path.stem == class_name:
-                if path.is_absolute():
-                    return path
-                if self.project_root:
-                    return self.project_root / path
+
+        target_filename = f"{class_name}.cs"
+
+        if hasattr(self._guid_index, "path_to_guid"):
+            for path in self._guid_index.path_to_guid:
+                if path.suffix == ".cs" and path.stem == class_name:
+                    if path.is_absolute():
+                        return path
+                    if self.project_root:
+                        return self.project_root / path
+            return None
+
+        from unityflow.asset_tracker import LazyGUIDIndex
+
+        if isinstance(self._guid_index, LazyGUIDIndex):
+            return self._guid_index.find_path_by_filename(target_filename)
+
         return None
 
     def _get_script_field_order(self, script_guid: str) -> list[str] | None:
