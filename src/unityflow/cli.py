@@ -935,13 +935,13 @@ def _shortest_unique_suffixes(paths: list[Path]) -> dict[Path, str]:
     for target in paths:
         parts = target.with_suffix("").parts
         for length in range(1, len(parts) + 1):
-            suffix = "/".join(parts[-length:])
-            matches = sum(1 for p in paths if str(p.with_suffix("")).endswith(suffix))
+            target_suffix = parts[-length:]
+            matches = sum(1 for p in paths if p.with_suffix("").parts[-length:] == target_suffix)
             if matches == 1:
-                results[target] = suffix
+                results[target] = "/".join(target_suffix)
                 break
         else:
-            results[target] = str(target.with_suffix(""))
+            results[target] = "/".join(target.with_suffix("").parts)
     return results
 
 
@@ -1264,10 +1264,11 @@ def _handle_add_component(
         if not guid_index:
             click.echo("Error: Path-qualified component requires a Unity project root.", err=True)
             sys.exit(1)
+        suffix_parts = tuple(comp_type.replace("\\", "/").split("/"))
         matched = [
             (path, guid)
             for path, guid in guid_index.path_to_guid.items()
-            if path.suffix == ".cs" and str(path.with_suffix("")).endswith(comp_type)
+            if path.suffix == ".cs" and path.with_suffix("").parts[-len(suffix_parts) :] == suffix_parts
         ]
         if not matched:
             click.echo(f"Error: No script matching path '{comp_type}' found.", err=True)
