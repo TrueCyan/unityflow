@@ -1272,7 +1272,7 @@ def _handle_add_component(
         if class_id is None:
             click.echo(f"Error: Built-in component '{actual_name}' not found.", err=True)
             sys.exit(1)
-    elif "/" in comp_type:
+    elif "/" in comp_type or "\\" in comp_type:
         if not guid_index:
             click.echo("Error: Path-qualified component requires a Unity project root.", err=True)
             sys.exit(1)
