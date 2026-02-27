@@ -614,26 +614,68 @@ def resolve_asset_reference(
     )
 
 
+def resolve_internal_reference(
+    value: str,
+    doc: Any,
+    hierarchy: Any,
+) -> dict[str, int]:
+    """Resolve an internal # reference to a fileID dict.
+
+    Args:
+        value: Internal reference string (e.g., "#Player/Child/Button")
+        doc: UnityYAMLDocument instance
+        hierarchy: Hierarchy instance built from the document
+
+    Returns:
+        Dict with fileID (e.g., {"fileID": 12345})
+
+    Raises:
+        ValueError: If the reference cannot be resolved
+    """
+    ref_path, component_type = parse_internal_reference(value)
+
+    target_node = hierarchy.find(ref_path)
+    if target_node is None:
+        raise ValueError(f"Internal reference not found: {ref_path}")
+
+    if component_type:
+        target_comp = None
+        for comp in target_node.components:
+            comp_name = comp.script_name or comp.class_name
+            if comp_name == component_type:
+                target_comp = comp
+                break
+        if target_comp is None:
+            raise ValueError(f"Component '{component_type}' not found on '{ref_path}'")
+        return {"fileID": target_comp.file_id}
+
+    return {"fileID": target_node.file_id}
+
+
 def resolve_value(
     value: Any,
     project_root: Path | None = None,
     field_name: str | None = None,
+    doc: Any = None,
+    hierarchy: Any = None,
 ) -> Any:
-    """Resolve a value, converting asset references to Unity reference dicts.
+    """Resolve a value, converting asset/internal references to Unity reference dicts.
 
     Recursively processes dicts and lists, converting any string values
-    that start with @ to asset references.
+    that start with @ to asset references or # to internal references.
 
     Args:
         value: Value to process
         project_root: Unity project root for resolving relative paths
         field_name: The field name being set (for type validation)
+        doc: UnityYAMLDocument (required for # internal references)
+        hierarchy: Hierarchy instance (required for # internal references)
 
     Returns:
-        Processed value with asset references resolved
+        Processed value with references resolved
 
     Raises:
-        ValueError: If an asset reference cannot be resolved
+        ValueError: If a reference cannot be resolved
         AssetTypeMismatchError: If the asset type doesn't match the field type
     """
     if isinstance(value, str):
@@ -649,15 +691,19 @@ def resolve_value(
                 validate_asset_type_for_field(field_name, result.asset_path, asset_type)
 
             return result.to_dict()
+
+        if is_internal_reference(value):
+            if doc is None or hierarchy is None:
+                raise ValueError(f"Internal reference '{value}' requires document context")
+            return resolve_internal_reference(value, doc, hierarchy)
+
         return value
 
     elif isinstance(value, dict):
-        # For dicts, use the key as the field name for validation
-        return {k: resolve_value(v, project_root, field_name=k) for k, v in value.items()}
+        return {k: resolve_value(v, project_root, field_name=k, doc=doc, hierarchy=hierarchy) for k, v in value.items()}
 
     elif isinstance(value, list):
-        # For lists, use the parent field name
-        return [resolve_value(item, project_root, field_name) for item in value]
+        return [resolve_value(item, project_root, field_name, doc=doc, hierarchy=hierarchy) for item in value]
 
     return value
 

@@ -36,12 +36,14 @@ class SerializedField:
         default_value: any = None,
         **kwargs,
     ) -> SerializedField:
-        """Create a SerializedField with auto-generated Unity name."""
-        # Unity uses m_FieldName format for serialized fields
-        unity_name = f"m_{name[0].upper()}{name[1:]}" if name else ""
+        """Create a SerializedField with the C# field name as Unity name.
+
+        Unity serializes user-defined fields with the exact C# field name.
+        The m_ prefix is only used by Unity's built-in C++ components.
+        """
         return cls(
             name=name,
-            unity_name=unity_name,
+            unity_name=name,
             field_type=field_type,
             former_names=former_names or [],
             default_value=default_value,

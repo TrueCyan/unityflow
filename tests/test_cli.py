@@ -896,7 +896,6 @@ class TestSetAddComponent:
 
         assert result.exit_code != 0
         assert "not found" in result.output
-        assert "Library/PackageCache/" in result.output
 
 
 class TestSetAddRemoveObject:

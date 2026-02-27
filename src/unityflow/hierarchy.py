@@ -71,6 +71,7 @@ class ComponentInfo:
     data: dict[str, Any]
     is_on_stripped_object: bool = False
     script_guid: str | None = None
+    script_file_id: int | None = None
     script_name: str | None = None
     modifications: list[dict[str, Any]] | None = None
 
@@ -875,13 +876,15 @@ class Hierarchy:
             (script_name will be resolved later via batch_resolve_script_names)
         """
         script_guid: str | None = None
+        script_file_id: int | None = None
 
-        # For MonoBehaviour (class_id=114), extract script GUID
-        # Script name resolution is deferred to _batch_resolve_script_names
         if comp_obj.class_id == 114:
             script_ref = comp_content.get("m_Script", {})
             if isinstance(script_ref, dict):
                 script_guid = script_ref.get("guid")
+                raw_fid = script_ref.get("fileID")
+                if isinstance(raw_fid, int):
+                    script_file_id = raw_fid
 
         return ComponentInfo(
             file_id=comp_obj.file_id,
@@ -890,23 +893,19 @@ class Hierarchy:
             data=comp_content,
             is_on_stripped_object=is_on_stripped_object,
             script_guid=script_guid,
-            script_name=None,  # Resolved later via _batch_resolve_script_names
+            script_file_id=script_file_id,
+            script_name=None,
         )
 
     def _batch_resolve_script_names(self) -> None:
-        """Batch resolve all script GUIDs to names using a single query.
+        """Batch resolve all script GUIDs to names.
 
-        This method collects all script GUIDs from MonoBehaviour components
-        across all nodes and resolves them in a single batch query, which is
-        significantly faster than resolving each GUID individually.
-
-        Performance improvement: O(1) query instead of O(N) queries.
-        Typical: 1600ms -> 80ms for prefabs with 100+ MonoBehaviour components.
+        For .cs scripts, uses filename stem. For .dll scripts, parses the DLL
+        metadata to find the actual class name by fileID hash matching.
         """
         if not self.guid_index:
             return
 
-        # Collect all script GUIDs from all components
         all_guids: set[str] = set()
         for node in self.iter_all():
             for comp in node.components:
@@ -916,15 +915,36 @@ class Hierarchy:
         if not all_guids:
             return
 
-        # Batch resolve all GUIDs at once
         resolved_names = self.guid_index.batch_resolve_names(all_guids)
 
-        # Update component script_name fields
+        dll_guids: dict[str, Path] = {}
+        for guid in all_guids:
+            path = self.guid_index.get_path(guid)
+            if path is not None and path.suffix.lower() == ".dll":
+                if not path.is_absolute() and self.guid_index.project_root:
+                    path = self.guid_index.project_root / path
+                dll_guids[guid] = path
+
+        dll_class_cache: dict[tuple[str, int], str | None] = {}
+
         for node in self.iter_all():
             for comp in node.components:
-                if comp.script_guid and comp.script_guid in resolved_names:
-                    # ComponentInfo is a dataclass, need to use object.__setattr__
-                    # if it's frozen, but it's not frozen, so direct assignment works
+                if not comp.script_guid:
+                    continue
+
+                if comp.script_guid in dll_guids and comp.script_file_id is not None:
+                    cache_key = (comp.script_guid, comp.script_file_id)
+                    if cache_key not in dll_class_cache:
+                        from unityflow.dll_inspector import resolve_dll_class_name
+
+                        dll_path = dll_guids[comp.script_guid]
+                        dll_class_cache[cache_key] = resolve_dll_class_name(dll_path, comp.script_file_id)
+                    resolved = dll_class_cache[cache_key]
+                    if resolved:
+                        comp.script_name = resolved
+                        continue
+
+                if comp.script_guid in resolved_names:
                     comp.script_name = resolved_names[comp.script_guid]
 
     def _build_nodes(self, doc: UnityYAMLDocument) -> None:

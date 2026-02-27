@@ -570,7 +570,6 @@ def create_transform(
         "m_PrefabInstance": {"fileID": 0},
         "m_PrefabAsset": {"fileID": 0},
         "m_GameObject": {"fileID": game_object_id},
-        "serializedVersion": 2,
         "m_LocalRotation": rotation or {"x": 0, "y": 0, "z": 0, "w": 1},
         "m_LocalPosition": position or {"x": 0, "y": 0, "z": 0},
         "m_LocalScale": scale or {"x": 1, "y": 1, "z": 1},

@@ -480,7 +480,7 @@ class TestNestedFieldSync:
 
         content = {
             "m_Script": {"fileID": 11500000, "guid": "abc"},
-            "m_SocketDataList": [
+            "socketDataList": [
                 {"Name": "socket1", "PositionOffset": {"x": 1, "y": 2, "z": 3}},
                 {"Name": "socket2", "PositionOffset": {"x": 0, "y": 0, "z": 0}},
             ],
@@ -488,7 +488,7 @@ class TestNestedFieldSync:
 
         normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
 
-        for item in content["m_SocketDataList"]:
+        for item in content["socketDataList"]:
             assert "NewField" in item
             assert item["NewField"] == 0
 
@@ -506,13 +506,13 @@ class TestNestedFieldSync:
 
         content = {
             "m_Script": {"fileID": 11500000, "guid": "abc"},
-            "m_Data": {"Name": "test", "ObsoleteField": 42},
+            "data": {"Name": "test", "ObsoleteField": 42},
         }
 
         normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
 
-        assert "ObsoleteField" not in content["m_Data"]
-        assert content["m_Data"]["Name"] == "test"
+        assert "ObsoleteField" not in content["data"]
+        assert content["data"]["Name"] == "test"
 
     def test_sync_renames_struct_field(self):
         normalizer = UnityPrefabNormalizer()
@@ -532,13 +532,13 @@ class TestNestedFieldSync:
 
         content = {
             "m_Script": {"fileID": 11500000, "guid": "abc"},
-            "m_Item": {"Name": "old_value"},
+            "item": {"Name": "old_value"},
         }
 
         normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
 
-        assert "Name" not in content["m_Item"]
-        assert content["m_Item"]["Label"] == "old_value"
+        assert "Name" not in content["item"]
+        assert content["item"]["Label"] == "old_value"
 
     def test_sync_recursive_nested(self):
         normalizer = UnityPrefabNormalizer()
@@ -564,7 +564,7 @@ class TestNestedFieldSync:
 
         content = {
             "m_Script": {"fileID": 11500000, "guid": "abc"},
-            "m_Data": {
+            "data": {
                 "label": "test",
                 "inner": {"value": 5},
             },
@@ -572,8 +572,8 @@ class TestNestedFieldSync:
 
         normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
 
-        assert content["m_Data"]["inner"]["newInnerField"] == 0.0
-        assert content["m_Data"]["inner"]["value"] == 5
+        assert content["data"]["inner"]["newInnerField"] == 0.0
+        assert content["data"]["inner"]["value"] == 5
 
     def test_sync_skips_non_dict_list_values(self):
         normalizer = UnityPrefabNormalizer()
@@ -588,7 +588,7 @@ class TestNestedFieldSync:
         script_info.nested_types["TestStruct"] = nested_info
 
         content = {
-            "m_Items": [42, "not_a_dict"],
+            "items": [42, "not_a_dict"],
         }
 
         normalizer._sync_nested_fields(content, script_info, script_info.nested_types)

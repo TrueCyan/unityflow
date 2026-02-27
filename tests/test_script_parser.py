@@ -34,7 +34,7 @@ public class Player : MonoBehaviour
         assert field_names == ["speed", "health", "playerName"]
 
         unity_names = [f.unity_name for f in info.fields]
-        assert unity_names == ["m_Speed", "m_Health", "m_PlayerName"]
+        assert unity_names == ["speed", "health", "playerName"]
 
     def test_parse_serialize_field_attribute(self):
         """Test parsing private fields with [SerializeField]."""
@@ -289,7 +289,7 @@ public class OrderTest : MonoBehaviour
 
         assert info is not None
         order = info.get_field_order()
-        assert order == ["m_Alpha", "m_Beta", "m_Gamma"]
+        assert order == ["alpha", "beta", "gamma"]
 
     def test_get_field_index(self):
         """Test getting field index by Unity name."""
@@ -306,10 +306,10 @@ public class IndexTest : MonoBehaviour
         info = parse_script(script)
 
         assert info is not None
-        assert info.get_field_index("m_First") == 0
-        assert info.get_field_index("m_Second") == 1
-        assert info.get_field_index("m_Third") == 2
-        assert info.get_field_index("m_NotExists") == -1
+        assert info.get_field_index("first") == 0
+        assert info.get_field_index("second") == 1
+        assert info.get_field_index("third") == 2
+        assert info.get_field_index("notExists") == -1
 
 
 class TestReorderFields:
@@ -391,7 +391,7 @@ class TestSerializedField:
         field = SerializedField.from_field_name("playerSpeed", "float")
 
         assert field.name == "playerSpeed"
-        assert field.unity_name == "m_PlayerSpeed"
+        assert field.unity_name == "playerSpeed"
         assert field.field_type == "float"
 
     def test_from_field_name_single_char(self):
@@ -399,7 +399,7 @@ class TestSerializedField:
         field = SerializedField.from_field_name("x", "int")
 
         assert field.name == "x"
-        assert field.unity_name == "m_X"
+        assert field.unity_name == "x"
 
     def test_from_field_name_with_options(self):
         """Test creating SerializedField with additional options."""

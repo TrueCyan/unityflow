@@ -1220,6 +1220,13 @@ def _resolve_component_path(
     return f"gameObjects/{go_id}/{property_name}", None
 
 
+def _normalize_and_save(doc: UnityYAMLDocument, output_path: Path, project_root: Path | None) -> None:
+    if project_root:
+        normalizer = UnityPrefabNormalizer(project_root=project_root)
+        normalizer.normalize_document(doc)
+    doc.save(output_path)
+
+
 def _handle_add_component(
     doc: UnityYAMLDocument,
     go_path: str,
@@ -1227,6 +1234,7 @@ def _handle_add_component(
     output_path: Path,
     output: Path | None,
     project_root: Path | None,
+    explicit_script_guid: str | None = None,
 ) -> None:
     from unityflow.asset_tracker import get_cached_guid_index
     from unityflow.formats import CLASS_NAME_TO_ID
@@ -1248,9 +1256,13 @@ def _handle_add_component(
 
     class_id = None
     script_guid = None
+    script_file_id_for_m_script = 11500000
     display_name = comp_type
 
-    if comp_type.startswith("builtin:"):
+    if explicit_script_guid:
+        script_guid = explicit_script_guid
+        class_id = 114
+    elif comp_type.startswith("builtin:"):
         actual_name = comp_type[len("builtin:") :]
         for name, cid in CLASS_NAME_TO_ID.items():
             if name.lower() == actual_name.lower():
@@ -1281,11 +1293,11 @@ def _handle_add_component(
         display_name = matched[0][0].stem
         class_id = 114
     else:
-        candidates: list[tuple[str, str, int, str | None]] = []
+        candidates: list[tuple[str, str, int, str | None, int]] = []
 
         for name, cid in CLASS_NAME_TO_ID.items():
             if name.lower() == comp_type.lower():
-                candidates.append(("built-in", name, cid, None))
+                candidates.append(("built-in", name, cid, None, 0))
                 break
 
         if guid_index:
@@ -1295,19 +1307,33 @@ def _handle_add_component(
                 if path.suffix == ".cs" and path.stem == comp_type
             ]
             for path, guid in script_matches:
-                candidates.append(("script", str(path), 114, guid))
+                candidates.append(("script", str(path), 114, guid, 11500000))
 
         if not any(c[0] == "script" for c in candidates):
             for name, guid in PACKAGE_COMPONENT_GUIDS.items():
                 if name.lower() == comp_type.lower():
-                    candidates.append(("package", name, 114, guid))
+                    candidates.append(("package", name, 114, guid, 11500000))
                     break
+
+        if not candidates and guid_index:
+            from unityflow.dll_inspector import find_class_in_dlls
+
+            dll_paths = [
+                (project_root / path if not path.is_absolute() else path, guid)
+                for path, guid in guid_index.path_to_guid.items()
+                if path.suffix.lower() == ".dll"
+            ]
+            dll_result = find_class_in_dlls(dll_paths, comp_type)
+            if dll_result:
+                dll_guid, dll_file_id, dll_namespace = dll_result
+                dll_path_obj = guid_index.get_path(dll_guid)
+                candidates.append(("dll", str(dll_path_obj or comp_type), 114, dll_guid, dll_file_id))
 
         if not candidates:
             click.echo(f"Error: Component or script '{comp_type}' not found.", err=True)
             if project_root:
                 click.echo(
-                    f"Searched for {comp_type}.cs in Assets/, Packages/, and Library/PackageCache/.",
+                    "Searched .cs files, DLLs, and known packages.",
                     err=True,
                 )
             sys.exit(1)
@@ -1318,7 +1344,7 @@ def _handle_add_component(
 
             error_lines = [f"Error: Multiple components named '{comp_type}':"]
             specify_lines = []
-            for kind, name_or_path, _cid, _guid in candidates:
+            for kind, name_or_path, _cid, _guid, _sfid in candidates:
                 if kind == "built-in":
                     error_lines.append(f"  builtin:{name_or_path:<20s} (built-in)")
                     specify_lines.append(f'  --add-component "builtin:{name_or_path}"')
@@ -1332,11 +1358,11 @@ def _handle_add_component(
             click.echo("\n".join(error_lines), err=True)
             sys.exit(1)
 
-        kind, name_or_path, class_id, script_guid = candidates[0]
+        kind, name_or_path, class_id, script_guid, script_file_id_for_m_script = candidates[0]
         if kind == "built-in":
             display_name = name_or_path
-        elif kind == "script":
-            display_name = Path(name_or_path).stem
+        elif kind in ("script", "dll"):
+            display_name = Path(name_or_path).stem if kind == "script" else comp_type
         else:
             display_name = name_or_path
 
@@ -1400,7 +1426,7 @@ def _handle_add_component(
         )
 
     if class_id == 114 and script_guid:
-        comp_data["m_Script"] = {"fileID": 11500000, "guid": script_guid, "type": 3}
+        comp_data["m_Script"] = {"fileID": script_file_id_for_m_script, "guid": script_guid, "type": 3}
 
     root_key = CLASS_IDS.get(class_id, "MonoBehaviour") if class_id != 114 else "MonoBehaviour"
     new_obj = UnityYAMLObject(
@@ -1420,7 +1446,7 @@ def _handle_add_component(
             components.append({"component": {"fileID": new_file_id}})
             go_content["m_Component"] = components
 
-    doc.save(output_path)
+    _normalize_and_save(doc, output_path, project_root)
     click.echo(f"Added {display_name} to {go_path}")
     if output:
         click.echo(f"Saved to: {output}")
@@ -1468,7 +1494,7 @@ def _handle_remove_component(
             new_components = [c for c in components if c.get("component", {}).get("fileID") != target_comp.file_id]
             go_content["m_Component"] = new_components
 
-    doc.save(output_path)
+    _normalize_and_save(doc, output_path, project_root)
     click.echo(f"Removed {comp_type} from {go_path}")
     if output:
         click.echo(f"Saved to: {output}")
@@ -1534,7 +1560,7 @@ def _handle_add_object(
             children.append({"fileID": child_transform_id})
             t_content["m_Children"] = children
 
-    doc.save(output_path)
+    _normalize_and_save(doc, output_path, project_root)
     click.echo(f"Added '{child_name}' under '{parent_path}'")
     if output:
         click.echo(f"Saved to: {output}")
@@ -1616,7 +1642,7 @@ def _handle_remove_object(
     new_children = [c for c in children_refs if c.get("fileID", 0) != child_transform_id]
     t_content["m_Children"] = new_children
 
-    doc.save(output_path)
+    _normalize_and_save(doc, output_path, project_root)
     click.echo(f"Removed '{child_name}' from '{parent_path}'")
     if output:
         click.echo(f"Saved to: {output}")
@@ -1820,6 +1846,12 @@ def get_value_cmd(
     default="transform",
     help="Transform type for --add-object (default: transform)",
 )
+@click.option(
+    "--script-guid",
+    "script_guid",
+    default=None,
+    help="Script GUID for --add-component (for DLL-based scripts not discoverable by filename)",
+)
 def set_value_cmd(
     file: Path,
     set_path: str,
@@ -1833,6 +1865,7 @@ def set_value_cmd(
     add_object: str | None,
     remove_object: str | None,
     object_type: str,
+    script_guid: str | None,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
@@ -1876,7 +1909,6 @@ def set_value_cmd(
         AssetTypeMismatchError,
         is_asset_reference,
         is_internal_reference,
-        parse_internal_reference,
         resolve_value,
     )
     from unityflow.hierarchy import Hierarchy
@@ -1945,7 +1977,7 @@ def set_value_cmd(
 
     # Handle --add-component
     if add_component is not None:
-        _handle_add_component(doc, set_path, add_component, output_path, output, project_root)
+        _handle_add_component(doc, set_path, add_component, output_path, output, project_root, script_guid)
         return
 
     # Handle --remove-component
@@ -1994,9 +2026,18 @@ def set_value_cmd(
                 click.echo(f"Error: {error_msg}", err=True)
                 sys.exit(1)
 
-        # Resolve asset references in batch values (keys are used as field names)
+        # Build hierarchy if any value contains # reference
+        batch_hier = None
+        has_internal_refs = any(isinstance(v, str) and is_internal_reference(v) for v in parsed_values.values())
+        if has_internal_refs:
+            from unityflow.asset_tracker import get_cached_guid_index
+
+            guid_index = get_cached_guid_index(project_root) if project_root else None
+            batch_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+        # Resolve asset/internal references in batch values (keys are used as field names)
         try:
-            resolved_values = resolve_value(parsed_values, project_root)
+            resolved_values = resolve_value(parsed_values, project_root, doc=doc, hierarchy=batch_hier)
         except AssetTypeMismatchError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
@@ -2010,7 +2051,7 @@ def set_value_cmd(
             click.echo(f"Error: Path not found or no fields set: {original_path}", err=True)
             sys.exit(1)
 
-        doc.save(output_path)
+        _normalize_and_save(doc, output_path, project_root)
         click.echo(f"Set {updated + created} fields at {original_path}")
         click.echo(f"  Updated: {updated}, Created: {created}")
 
@@ -2021,67 +2062,39 @@ def set_value_cmd(
         except json.JSONDecodeError:
             parsed_value = value
 
-        # Check for internal reference (# prefix)
         is_internal_ref = is_internal_reference(value) if isinstance(value, str) else False
-        resolved_value = parsed_value
 
-        if is_internal_ref:
-            # Resolve internal reference to fileID
-            ref_path, component_type = parse_internal_reference(value)
-
-            # Build hierarchy to resolve internal reference
-            from unityflow.asset_tracker import get_cached_guid_index
-
-            guid_index = get_cached_guid_index(project_root) if project_root else None
-            hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
-
-            # Find the target node
-            target_node = hier.find(ref_path)
-            if target_node is None:
-                click.echo(f"Error: Internal reference not found: {ref_path}", err=True)
-                sys.exit(1)
-
-            # Resolve to fileID
-            if component_type:
-                # Find specific component
-                target_comp = None
-                for comp in target_node.components:
-                    comp_name = comp.script_name or comp.class_name
-                    if comp_name == component_type:
-                        target_comp = comp
-                        break
-                if target_comp is None:
-                    click.echo(
-                        f"Error: Component '{component_type}' not found on '{ref_path}'",
-                        err=True,
-                    )
-                    sys.exit(1)
-                resolved_value = {"fileID": target_comp.file_id}
-            else:
-                # Reference the GameObject itself
-                resolved_value = {"fileID": target_node.file_id}
-        else:
-            # Validate field type
+        # Validate field type (skip for # references)
+        if not is_internal_ref:
             is_valid, error_msg = _validate_field_value(field_name, parsed_value)
             if not is_valid:
                 click.echo(f"Error: {error_msg}", err=True)
                 sys.exit(1)
 
-            # Resolve asset references with field name for type validation
-            try:
-                resolved_value = resolve_value(parsed_value, project_root, field_name=field_name)
-            except AssetTypeMismatchError as e:
-                click.echo(f"Error: {e}", err=True)
-                sys.exit(1)
-            except ValueError as e:
-                click.echo(f"Error: {e}", err=True)
-                sys.exit(1)
+        # Build hierarchy if needed for # reference
+        single_hier = None
+        if is_internal_ref:
+            from unityflow.asset_tracker import get_cached_guid_index
+
+            guid_index = get_cached_guid_index(project_root) if project_root else None
+            single_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+        try:
+            resolved_value = resolve_value(
+                parsed_value, project_root, field_name=field_name, doc=doc, hierarchy=single_hier
+            )
+        except AssetTypeMismatchError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
 
         # Show resolved info
         is_asset_ref = is_asset_reference(value) if isinstance(value, str) else False
 
         if set_value(doc, set_path, resolved_value, create=True):
-            doc.save(output_path)
+            _normalize_and_save(doc, output_path, project_root)
             if is_internal_ref:
                 click.echo(f"Set {original_path} = {value[1:]}")  # Remove # prefix for display
             elif is_asset_ref:
