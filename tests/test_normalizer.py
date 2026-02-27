@@ -492,7 +492,7 @@ class TestNestedFieldSync:
             assert "NewField" in item
             assert item["NewField"] == 0
 
-    def test_sync_preserves_unknown_struct_field(self):
+    def test_sync_removes_obsolete_struct_field(self):
         normalizer = UnityPrefabNormalizer()
         nested_info = self._make_nested_info(
             [
@@ -506,12 +506,12 @@ class TestNestedFieldSync:
 
         content = {
             "m_Script": {"fileID": 11500000, "guid": "abc"},
-            "data": {"Name": "test", "UnknownField": 42},
+            "data": {"Name": "test", "ObsoleteField": 42},
         }
 
         normalizer._sync_nested_fields(content, script_info, script_info.nested_types)
 
-        assert "UnknownField" in content["data"]
+        assert "ObsoleteField" not in content["data"]
         assert content["data"]["Name"] == "test"
 
     def test_sync_renames_struct_field(self):

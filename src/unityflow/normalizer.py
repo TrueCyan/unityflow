@@ -24,6 +24,19 @@ from unityflow.parser import UnityYAMLDocument, UnityYAMLObject
 
 _MONOBEHAVIOUR_CLASS_ID = 114
 
+_TERMINAL_BASE_CLASSES = frozenset(
+    {
+        "MonoBehaviour",
+        "ScriptableObject",
+        "StateMachineBehaviour",
+        "NetworkBehaviour",
+        "Component",
+        "Behaviour",
+        "Object",
+        "UIBehaviour",
+    }
+)
+
 # Properties that contain quaternion values
 QUATERNION_PROPERTIES = {
     "m_LocalRotation",
@@ -212,20 +225,38 @@ class UnityPrefabNormalizer:
         if script_info is None:
             return
 
+        valid_names = script_info.get_valid_field_names()
         rename_mapping = script_info.get_rename_mapping()
 
+        unity_standard_fields = {
+            "m_ObjectHideFlags",
+            "m_CorrespondingSourceObject",
+            "m_PrefabInstance",
+            "m_PrefabAsset",
+            "m_GameObject",
+            "m_Enabled",
+            "m_EditorHideFlags",
+            "m_Script",
+            "m_Name",
+            "m_EditorClassIdentifier",
+        }
+
         # First pass: handle FormerlySerializedAs renames
-        # If old name exists and new name doesn't, copy old value to new name
         for old_name, new_name in rename_mapping.items():
             if old_name in content and new_name not in content:
                 content[new_name] = content[old_name]
 
-        # Second pass: only remove FormerlySerializedAs old names that were migrated
-        # Do NOT remove unknown fields — they may come from parent classes,
-        # partial classes, or other sources the C# parser can't see.
-        for old_name in rename_mapping:
-            if old_name in content and rename_mapping[old_name] in content:
-                del content[old_name]
+        # Second pass: remove obsolete fields
+        # valid_names includes inherited fields from the full inheritance chain
+        fields_to_remove = []
+        for field_name in content:
+            if field_name in unity_standard_fields:
+                continue
+            if field_name not in valid_names:
+                fields_to_remove.append(field_name)
+
+        for field_name in fields_to_remove:
+            del content[field_name]
 
         # Third pass: add missing fields with default values
         existing_names = set(content.keys())
@@ -284,9 +315,10 @@ class UnityPrefabNormalizer:
             if old_name in data and new_name not in data:
                 data[new_name] = data[old_name]
 
-        for old_name in rename_mapping:
-            if old_name in data and rename_mapping[old_name] in data:
-                del data[old_name]
+        valid_names = nested_info.get_valid_field_names()
+        fields_to_remove = [name for name in data if name not in valid_names]
+        for name in fields_to_remove:
+            del data[name]
 
         existing_names = set(data.keys())
         for f in nested_info.get_missing_fields(existing_names):
@@ -333,12 +365,60 @@ class UnityPrefabNormalizer:
             self._script_info_cache[script_guid] = None
             return None
 
-        # Parse script
+        # Parse script with inheritance chain
         from unityflow.script_parser import parse_script_file
 
         result = parse_script_file(script_path)
+        if result is not None:
+            self._resolve_inheritance(result)
         self._script_info_cache[script_guid] = result
         return result
+
+    def _resolve_inheritance(self, info, visited: set[str] | None = None) -> None:
+        """Resolve inheritance chain and merge parent fields into info."""
+        from unityflow.script_parser import parse_script_file
+
+        if visited is None:
+            visited = set()
+
+        base = info.base_class
+        if not base or base in visited:
+            return
+
+        if base in _TERMINAL_BASE_CLASSES:
+            return
+
+        visited.add(base)
+
+        base_path = self._find_script_by_class_name(base)
+        if base_path is None:
+            return
+
+        base_info = parse_script_file(base_path)
+        if base_info is None:
+            return
+
+        self._resolve_inheritance(base_info, visited)
+
+        existing_names = {f.name for f in info.fields}
+        for field in base_info.fields:
+            if field.name not in existing_names:
+                info.fields.insert(0, field)
+
+        for type_name, nested in base_info.nested_types.items():
+            if type_name not in info.nested_types:
+                info.nested_types[type_name] = nested
+
+    def _find_script_by_class_name(self, class_name: str) -> Path | None:
+        if self._guid_index is None:
+            return None
+        for path in self._guid_index.path_to_guid:
+            if path.suffix == ".cs" and path.stem == class_name:
+                if path.is_absolute():
+                    return path
+                if self.project_root:
+                    return self.project_root / path
+        return None
 
     def _get_script_field_order(self, script_guid: str) -> list[str] | None:
         """Get field order for a script by GUID (with caching).
