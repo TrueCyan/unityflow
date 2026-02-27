@@ -10,6 +10,7 @@
   "repository": "https://github.com/TrueCyan/unityflow",
   "license": "MIT",
   "keywords": ["unity", "prefab", "scene", "animation", "merge", "mcp", "visual-feedback"],
+  "skills": "./skills/",
   "mcpServers": {
     "unityflow-bridge": {
       "command": "uvx",
