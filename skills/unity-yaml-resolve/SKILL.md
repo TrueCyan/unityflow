@@ -200,9 +200,6 @@ p4 print <filepath>#<revision> > /tmp/theirs.yaml
 # 3-way semantic merge
 uvx unityflow merge /tmp/base.yaml /tmp/ours.yaml /tmp/theirs.yaml -o merged.yaml
 
-# Or attempt automatic resolution
-uvx unityflow resolve --dry-run  # Preview first
-uvx unityflow resolve            # Actual resolution
 ```
 
 ### Step 4: Analyze Conflicts and Query User
@@ -299,15 +296,8 @@ Which value would you like to use?
 ## Related Commands
 
 ```bash
-# Preview conflicts
-uvx unityflow resolve --dry-run
-
-# Auto-resolve only (no interaction)
-uvx unityflow resolve --accept ours
-uvx unityflow resolve --accept theirs
-
-# Resolve specific file only
-uvx unityflow resolve-file base.yaml ours.yaml theirs.yaml -o result.yaml
+# 3-way merge
+uvx unityflow merge base.yaml ours.yaml theirs.yaml -o result.yaml
 
 # Check diff
 uvx unityflow diff old.prefab new.prefab

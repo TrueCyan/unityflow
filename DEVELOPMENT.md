@@ -5,19 +5,24 @@
 ```
 unityflow/
 ├── src/unityflow/
-│   ├── parser.py        # Unity YAML 파서, 프리팹 생성 API
-│   ├── fast_parser.py   # rapidyaml 기반 고속 파싱
-│   ├── normalizer.py    # 결정적 정규화
-│   ├── validator.py     # 구조적 무결성 검증
-│   ├── diff.py          # 비교
-│   ├── merge.py         # 3-way 병합
-│   ├── formats.py       # RectTransform 변환
-│   ├── query.py         # 경로 기반 쿼리
-│   ├── git_utils.py     # Git 연동
-│   ├── asset_tracker.py # 에셋 의존성 추적
-│   └── cli.py           # CLI 엔트리포인트
+│   ├── parser.py         # Unity YAML 파서, 프리팹 생성 API
+│   ├── fast_parser.py    # rapidyaml 기반 고속 파싱
+│   ├── normalizer.py     # 결정적 정규화 (상속 체인 해석 포함)
+│   ├── validator.py      # 구조적 무결성 검증
+│   ├── semantic_diff.py  # 프로퍼티 레벨 비교
+│   ├── merge.py          # 3-way 병합
+│   ├── hierarchy.py      # GameObject 계층 구조 빌드
+│   ├── query.py          # 경로 기반 쿼리
+│   ├── script_parser.py  # C# 스크립트 필드 파싱
+│   ├── dll_inspector.py  # .NET DLL 메타데이터 파싱, Unity fileID 계산
+│   ├── asset_resolver.py # 에셋/내부 참조 해석 (@, #)
+│   ├── asset_tracker.py  # GUID 인덱스, 에셋 의존성 추적
+│   ├── formats.py        # RectTransform 변환
+│   ├── git_utils.py      # Git 연동
+│   ├── cli.py            # CLI 엔트리포인트
+│   └── bridge/           # Unity Editor MCP 서버
 ├── tests/
-│   ├── fixtures/        # 테스트용 Unity 파일
+│   ├── fixtures/         # 테스트용 Unity 파일
 │   └── test_*.py
 └── pyproject.toml
 ```

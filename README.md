@@ -12,11 +12,15 @@ Unity 워크플로우 자동화 도구입니다. Unity 에디터 없이 프리�
 unityflow hierarchy    # 계층 구조 표시
 unityflow inspect      # GameObject/컴포넌트 상세 조회
 unityflow get          # 경로 기반 데이터 조회
-unityflow set          # 경로 기반 값 설정
+unityflow set          # 경로 기반 값 설정 (컴포넌트/오브젝트 추가·제거 포함)
+unityflow create       # 새 프리팹/씬/에셋 파일 생성
 unityflow normalize    # Unity YAML 파일 정규화
 unityflow validate     # 구조적 무결성 검증
 unityflow diff         # 두 파일 비교 (semantic)
 unityflow merge        # 3-way 병합 (semantic)
+unityflow refs         # 에셋 참조 검색 (GUID 기반)
+unityflow anim         # 애니메이션 클립 편집 (.anim)
+unityflow ctrl         # Animator Controller 편집 (.controller)
 unityflow setup        # Git 통합 설정
 unityflow git-textconv # Git diff용 정규화 출력
 ```
@@ -38,6 +42,7 @@ unityflow git-textconv # Git diff용 정규화 출력
 | `unity-yaml-workflow` | Unity YAML 파일 편집 가이드 (프리팹, 씬, 에셋) |
 | `unity-ui-workflow` | UI 프리팹 작업 가이드 (Canvas, RectTransform) |
 | `unity-animation-workflow` | 애니메이션 파일 작업 가이드 (.anim, .controller) |
+| `unity-asset-refs` | 에셋 참조 검색 가이드 (GUID 기반 역참조) |
 | `unity-yaml-resolve` | Unity YAML 머지 컨플릭트 AI 해결 (Git/Perforce 다중 스트림 지원) |
 
 ### Unity Editor Bridge (MCP)
@@ -184,8 +189,6 @@ unityflow validate Player.prefab --strict
 unityflow diff old.prefab new.prefab
 unityflow diff Scene_v1.unity Scene_v2.unity
 
-# 정규화 없이 비교
-unityflow diff old.prefab new.prefab --no-normalize
 ```
 
 ## Git 통합 설정
@@ -316,6 +319,8 @@ ruff check src/ tests/
 ```
 
 아키텍처와 API 상세 문서는 [DEVELOPMENT.md](DEVELOPMENT.md)를 참조하세요.
+
+변경 이력은 [GitHub Releases](https://github.com/TrueCyan/unityflow/releases)를 참조하세요.
 
 ## 라이선스
 
