@@ -930,6 +930,62 @@ def _resolve_gameobject_by_path(
     return None, "\n".join(error_lines)
 
 
+def _shortest_unique_suffixes(paths: list[Path]) -> dict[Path, str]:
+    results: dict[Path, str] = {}
+    for target in paths:
+        parts = target.with_suffix("").parts
+        for length in range(1, len(parts) + 1):
+            suffix = "/".join(parts[-length:])
+            matches = sum(1 for p in paths if str(p.with_suffix("")).endswith(suffix))
+            if matches == 1:
+                results[target] = suffix
+                break
+        else:
+            results[target] = str(target.with_suffix(""))
+    return results
+
+
+def _build_disambiguation_message(
+    doc: UnityYAMLDocument,
+    comp_type: str,
+    go_path: str,
+    matching_components: list[int],
+    guid_index,
+    suffix: str = "",
+) -> str:
+    source_map: dict[str, list[int]] = {}
+    for idx, comp_id in enumerate(matching_components):
+        comp = doc.get_by_file_id(comp_id)
+        if not comp:
+            continue
+        if comp.class_id != 114:
+            key = f"{comp.class_name} (built-in)"
+        else:
+            comp_content = comp.get_content()
+            script_ref = comp_content.get("m_Script", {}) if comp_content else {}
+            script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+            if script_guid and guid_index:
+                script_path = guid_index.resolve_path(script_guid)
+                key = str(script_path) if script_path else f"MonoBehaviour ({script_guid[:8]})"
+            else:
+                key = f"MonoBehaviour ({script_guid[:8]})" if script_guid else "MonoBehaviour"
+        source_map.setdefault(key, []).append(idx)
+
+    has_multiple_sources = len(source_map) > 1
+    max_idx = len(matching_components) - 1
+
+    if has_multiple_sources:
+        error_lines = [f"Multiple '{comp_type}' components on '{go_path}' from different sources:"]
+        for source, indices in source_map.items():
+            idx_str = "".join(f"[{i}]" for i in indices)
+            error_lines.append(f"  {idx_str} <- {source}")
+    else:
+        error_lines = [f"Multiple '{comp_type}' components on '{go_path}'."]
+
+    error_lines.append(f'Use index: "{go_path}/{comp_type}[0]{suffix}" (0-{max_idx})')
+    return "\n".join(error_lines)
+
+
 def _resolve_component_path(
     doc: UnityYAMLDocument,
     path_spec: str,
@@ -1015,7 +1071,6 @@ def _resolve_component_path(
             if not go_content or "m_Component" not in go_content:
                 return None, "GameObject has no components"
 
-            # Find matching components
             matching_components: list[int] = []
             for comp_ref in go_content["m_Component"]:
                 comp_id = comp_ref.get("component", {}).get("fileID", 0)
@@ -1023,36 +1078,28 @@ def _resolve_component_path(
                 if not comp:
                     continue
 
-                # Check if component matches the type
                 comp_class_name = comp.class_name.lower()
+                matched = False
 
-                if last_component_type_lower in package_components:
-                    if comp.class_id == 114:
-                        comp_content = comp.get_content()
-                        if comp_content:
-                            script_ref = comp_content.get("m_Script", {})
-                            if isinstance(script_ref, dict):
-                                script_guid = script_ref.get("guid", "")
-                            else:
-                                script_guid = ""
-                            expected_guid = ""
-                            for key, guid in PACKAGE_COMPONENT_GUIDS.items():
-                                if key.lower() == last_component_type_lower:
-                                    expected_guid = guid.lower()
-                                    break
-                            if script_guid.lower() == expected_guid:
-                                matching_components.append(comp_id)
-                elif comp_class_name == last_component_type_lower:
+                if comp_class_name == last_component_type_lower:
                     matching_components.append(comp_id)
-                elif comp.class_id == 114 and guid_index:
+                    matched = True
+
+                if not matched and comp.class_id == 114:
                     comp_content = comp.get_content()
                     if comp_content:
                         script_ref = comp_content.get("m_Script", {})
                         script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
                         if script_guid:
-                            resolved = guid_index.resolve_name(script_guid)
-                            if resolved and resolved.lower() == last_component_type_lower:
-                                matching_components.append(comp_id)
+                            for key, guid in PACKAGE_COMPONENT_GUIDS.items():
+                                if key.lower() == last_component_type_lower and script_guid.lower() == guid.lower():
+                                    matching_components.append(comp_id)
+                                    matched = True
+                                    break
+                            if not matched and guid_index:
+                                resolved = guid_index.resolve_name(script_guid)
+                                if resolved and resolved.lower() == last_component_type_lower:
+                                    matching_components.append(comp_id)
 
             if not matching_components:
                 return None, f"Component '{last_component_type}' not found on '{go_path}'"
@@ -1071,11 +1118,9 @@ def _resolve_component_path(
                     return None, f"Index [{idx}] out of range. Found {count} components"
 
             # No index specified
-            comp_type = last_component_type
-            error_lines = [f"Multiple '{comp_type}' components on '{go_path}'."]
-            max_idx = len(matching_components) - 1
-            error_lines.append(f'Use index: "{go_path}/{comp_type}[0]" (0-{max_idx})')
-            return None, "\n".join(error_lines)
+            return None, _build_disambiguation_message(
+                doc, last_component_type, go_path, matching_components, guid_index
+            )
 
     # Last part is the property name
     property_name = parts[-1]
@@ -1115,7 +1160,6 @@ def _resolve_component_path(
             if not go_content or "m_Component" not in go_content:
                 return None, "GameObject has no components"
 
-            # Find matching components
             matching_components: list[int] = []
             for comp_ref in go_content["m_Component"]:
                 comp_id = comp_ref.get("component", {}).get("fileID", 0)
@@ -1123,36 +1167,28 @@ def _resolve_component_path(
                 if not comp:
                     continue
 
-                # Check if component matches the type
                 comp_class_name = comp.class_name.lower()
+                matched = False
 
-                if component_type_lower in package_components:
-                    if comp.class_id == 114:
-                        comp_content = comp.get_content()
-                        if comp_content:
-                            script_ref = comp_content.get("m_Script", {})
-                            if isinstance(script_ref, dict):
-                                script_guid = script_ref.get("guid", "")
-                            else:
-                                script_guid = ""
-                            expected_guid = ""
-                            for key, guid in PACKAGE_COMPONENT_GUIDS.items():
-                                if key.lower() == component_type_lower:
-                                    expected_guid = guid.lower()
-                                    break
-                            if script_guid.lower() == expected_guid:
-                                matching_components.append(comp_id)
-                elif comp_class_name == component_type_lower:
+                if comp_class_name == component_type_lower:
                     matching_components.append(comp_id)
-                elif comp.class_id == 114 and guid_index:
+                    matched = True
+
+                if not matched and comp.class_id == 114:
                     comp_content = comp.get_content()
                     if comp_content:
                         script_ref = comp_content.get("m_Script", {})
                         script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
                         if script_guid:
-                            resolved = guid_index.resolve_name(script_guid)
-                            if resolved and resolved.lower() == component_type_lower:
-                                matching_components.append(comp_id)
+                            for key, guid in PACKAGE_COMPONENT_GUIDS.items():
+                                if key.lower() == component_type_lower and script_guid.lower() == guid.lower():
+                                    matching_components.append(comp_id)
+                                    matched = True
+                                    break
+                            if not matched and guid_index:
+                                resolved = guid_index.resolve_name(script_guid)
+                                if resolved and resolved.lower() == component_type_lower:
+                                    matching_components.append(comp_id)
 
             if not matching_components:
                 return None, f"Component '{component_type}' not found on '{go_path}'"
@@ -1170,11 +1206,9 @@ def _resolve_component_path(
                     return None, f"Index [{component_index}] out of range. Found {count}"
 
             # No index specified
-            comp_type = component_type
-            error_lines = [f"Multiple '{comp_type}' components on '{go_path}'."]
-            max_idx = len(matching_components) - 1
-            error_lines.append(f'Use index: "{go_path}/{comp_type}[0]/..." (0-{max_idx})')
-            return None, "\n".join(error_lines)
+            return None, _build_disambiguation_message(
+                doc, component_type, go_path, matching_components, guid_index, suffix="/..."
+            )
 
     # Not a component path - treat as GameObject property
     # Path format: GameObject.../property
@@ -1212,42 +1246,63 @@ def _handle_add_component(
         click.echo(f"Error: Component '{comp_type}' already exists on '{go_path}'", err=True)
         sys.exit(1)
 
-    class_id = CLASS_NAME_TO_ID.get(comp_type)
+    class_id = None
     script_guid = None
+    display_name = comp_type
 
-    if class_id is None:
+    if comp_type.startswith("builtin:"):
+        actual_name = comp_type[len("builtin:") :]
+        for name, cid in CLASS_NAME_TO_ID.items():
+            if name.lower() == actual_name.lower():
+                class_id = cid
+                display_name = name
+                break
+        if class_id is None:
+            click.echo(f"Error: Built-in component '{actual_name}' not found.", err=True)
+            sys.exit(1)
+    elif "/" in comp_type:
+        if not guid_index:
+            click.echo("Error: Path-qualified component requires a Unity project root.", err=True)
+            sys.exit(1)
+        matched = [
+            (path, guid)
+            for path, guid in guid_index.path_to_guid.items()
+            if path.suffix == ".cs" and str(path.with_suffix("")).endswith(comp_type)
+        ]
+        if not matched:
+            click.echo(f"Error: No script matching path '{comp_type}' found.", err=True)
+            sys.exit(1)
+        if len(matched) > 1:
+            candidate_list = "\n".join(f"  {p}" for p, _ in matched)
+            click.echo(f"Error: Multiple scripts match '{comp_type}':\n{candidate_list}", err=True)
+            sys.exit(1)
+        script_guid = matched[0][1]
+        display_name = matched[0][0].stem
+        class_id = 114
+    else:
+        candidates: list[tuple[str, str, int, str | None]] = []
+
         for name, cid in CLASS_NAME_TO_ID.items():
             if name.lower() == comp_type.lower():
-                class_id = cid
-                comp_type = name
+                candidates.append(("built-in", name, cid, None))
                 break
 
-    if class_id is None:
         if guid_index:
-            matched = [
+            script_matches = [
                 (path, guid)
                 for path, guid in guid_index.path_to_guid.items()
                 if path.suffix == ".cs" and path.stem == comp_type
             ]
-            if matched:
-                matched.sort(key=lambda item: 1 if "Editor" in item[0].parts else 0)
-                script_guid = matched[0][1]
-                if len(matched) > 1:
-                    candidate_list = "\n".join(f"  {p}" for p, _ in matched)
-                    click.echo(
-                        f"Warning: Multiple scripts named '{comp_type}.cs' found. "
-                        f"Using highest-priority match:\n{candidate_list}",
-                        err=True,
-                    )
+            for path, guid in script_matches:
+                candidates.append(("script", str(path), 114, guid))
 
-        if script_guid is None:
+        if not any(c[0] == "script" for c in candidates):
             for name, guid in PACKAGE_COMPONENT_GUIDS.items():
                 if name.lower() == comp_type.lower():
-                    script_guid = guid
-                    comp_type = name
+                    candidates.append(("package", name, 114, guid))
                     break
 
-        if script_guid is None:
+        if not candidates:
             click.echo(f"Error: Component or script '{comp_type}' not found.", err=True)
             if project_root:
                 click.echo(
@@ -1256,7 +1311,33 @@ def _handle_add_component(
                 )
             sys.exit(1)
 
-        class_id = 114
+        if len(candidates) > 1:
+            script_paths = [Path(c[1]) for c in candidates if c[0] == "script"]
+            suffixes = _shortest_unique_suffixes(script_paths) if script_paths else {}
+
+            error_lines = [f"Error: Multiple components named '{comp_type}':"]
+            specify_lines = []
+            for kind, name_or_path, _cid, _guid in candidates:
+                if kind == "built-in":
+                    error_lines.append(f"  builtin:{name_or_path:<20s} (built-in)")
+                    specify_lines.append(f'  --add-component "builtin:{name_or_path}"')
+                else:
+                    path_obj = Path(name_or_path)
+                    suffix = suffixes.get(path_obj, str(path_obj.with_suffix("")))
+                    error_lines.append(f"  {suffix:<24s} ({name_or_path})")
+                    specify_lines.append(f'  --add-component "{suffix}"')
+            error_lines.append("Specify:")
+            error_lines.extend(specify_lines)
+            click.echo("\n".join(error_lines), err=True)
+            sys.exit(1)
+
+        kind, name_or_path, class_id, script_guid = candidates[0]
+        if kind == "built-in":
+            display_name = name_or_path
+        elif kind == "script":
+            display_name = Path(name_or_path).stem
+        else:
+            display_name = name_or_path
 
     new_file_id = doc.generate_unique_file_id()
 
@@ -1269,7 +1350,7 @@ def _handle_add_component(
         "m_Enabled": 1,
     }
 
-    if comp_type == "Button":
+    if display_name == "Button":
         comp_data.update(
             {
                 "m_Interactable": 1,
@@ -1296,7 +1377,7 @@ def _handle_add_component(
                 },
             }
         )
-    elif comp_type == "Image":
+    elif display_name == "Image":
         comp_data.update(
             {
                 "m_Material": {"fileID": 0},
@@ -1339,7 +1420,7 @@ def _handle_add_component(
             go_content["m_Component"] = components
 
     doc.save(output_path)
-    click.echo(f"Added {comp_type} to {go_path}")
+    click.echo(f"Added {display_name} to {go_path}")
     if output:
         click.echo(f"Saved to: {output}")
 
@@ -2642,11 +2723,18 @@ def hierarchy_cmd(
     default="text",
     help="Output format (default: text)",
 )
+@click.option(
+    "--detail",
+    is_flag=True,
+    default=False,
+    help="Show script source paths for MonoBehaviour components",
+)
 def inspect_cmd(
     file: Path,
     object_path: str | None,
     project_root: Path | None,
     output_format: str,
+    detail: bool,
 ) -> None:
     """Inspect a GameObject or component in detail.
 
@@ -2761,7 +2849,10 @@ def inspect_cmd(
             }
             if comp.script_guid:
                 comp_data["script_guid"] = comp.script_guid
-            # Include component properties
+                if detail and guid_index:
+                    script_path = guid_index.resolve_path(comp.script_guid)
+                    if script_path:
+                        comp_data["script_path"] = str(script_path)
             comp_data["properties"] = comp.data
             result["components"].append(comp_data)
 
@@ -2869,7 +2960,14 @@ def inspect_cmd(
         # Other components
         for comp in node.components:
             comp_type = comp.script_name or comp.class_name
-            click.echo(f"[{comp_type}]")
+            if detail and comp.script_guid and guid_index:
+                script_path = guid_index.resolve_path(comp.script_guid)
+                if script_path:
+                    click.echo(f"[{comp_type}] {script_path}")
+                else:
+                    click.echo(f"[{comp_type}]")
+            else:
+                click.echo(f"[{comp_type}]")
 
             # Show key properties (excluding internal Unity fields)
             skip_keys = {

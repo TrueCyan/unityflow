@@ -835,7 +835,7 @@ class TestSetAddComponent:
         content = test_file.read_text()
         assert "aabbccdd11223344aabbccdd11223344" in content
 
-    def test_add_component_duplicate_scripts_warns(self, runner, tmp_path):
+    def test_add_component_rejects_ambiguous_scripts(self, runner, tmp_path):
         import shutil
 
         project_root = tmp_path / "project"
@@ -867,11 +867,10 @@ class TestSetAddComponent:
             ],
         )
 
-        assert result.exit_code == 0, f"Command failed: {result.output}"
-        assert "Warning: Multiple scripts" in result.output
-
-        content = test_file.read_text()
-        assert "aaaa000011112222aaaa000011112222" in content
+        assert result.exit_code != 0
+        assert "Multiple components named" in result.output
+        assert "Specify:" in result.output
+        assert "--add-component" in result.output
 
     def test_add_component_not_found_shows_search_paths(self, runner, tmp_path):
         import shutil
@@ -1188,7 +1187,7 @@ class TestSetAddRemoveObject:
         assert len(doc.get_game_objects()) == 1
         assert doc.get_game_objects()[0].get_content()["m_Name"] == "Root"
 
-    def test_add_component_prefers_runtime_over_editor(self, runner, tmp_path):
+    def test_add_component_with_path_suffix(self, runner, tmp_path):
         import shutil
 
         project_root = tmp_path / "project"
@@ -1216,11 +1215,12 @@ class TestSetAddRemoveObject:
                 "--path",
                 "BasicPrefab",
                 "--add-component",
-                "MyComp",
+                "Scripts/MyComp",
             ],
         )
 
         assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Added MyComp to BasicPrefab" in result.output
 
         content = test_file.read_text()
         assert "aabb000011112222aabb000011112222" in content
