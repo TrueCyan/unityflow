@@ -1902,6 +1902,22 @@ def set_value_cmd(
             "@Assets/Sprites/icon.png"          -> Sprite reference
             "@Assets/Sprites/atlas.png:idle_0"  -> Sub-sprite
             "@Assets/Prefabs/Enemy.prefab"      -> Prefab reference
+
+    Internal References:
+        Use # prefix to reference objects within the same file by hierarchy path:
+            "#Root/Panel/Image"                 -> GameObject fileID
+            "#Root/Panel/Image/Button"          -> Button component fileID
+
+        Examples:
+            # Set a component reference to another object
+            unityflow set file.prefab \\
+                --path "Root/MyScript/m_TargetGraphic" \\
+                --value "#Root/Panel/Image"
+
+            # Use in batch mode
+            unityflow set file.prefab \\
+                --path "Root/MyScript" \\
+                --batch '{"m_Target": "#Root/Child", "m_Graphic": "#Root/Panel/Image"}'
     """
     import json
 

@@ -212,23 +212,7 @@ class UnityPrefabNormalizer:
         if script_info is None:
             return
 
-        # Get valid field names and rename mapping
-        valid_names = script_info.get_valid_field_names()
         rename_mapping = script_info.get_rename_mapping()
-
-        # Unity standard fields that should never be removed
-        unity_standard_fields = {
-            "m_ObjectHideFlags",
-            "m_CorrespondingSourceObject",
-            "m_PrefabInstance",
-            "m_PrefabAsset",
-            "m_GameObject",
-            "m_Enabled",
-            "m_EditorHideFlags",
-            "m_Script",
-            "m_Name",
-            "m_EditorClassIdentifier",
-        }
 
         # First pass: handle FormerlySerializedAs renames
         # If old name exists and new name doesn't, copy old value to new name
@@ -236,21 +220,12 @@ class UnityPrefabNormalizer:
             if old_name in content and new_name not in content:
                 content[new_name] = content[old_name]
 
-        # Second pass: collect fields to remove
-        fields_to_remove = []
-        for field_name in content.keys():
-            # Skip Unity standard fields
-            if field_name in unity_standard_fields:
-                continue
-
-            # Check if field is valid (in current script) or is an old renamed field
-            if field_name not in valid_names:
-                # It's either an obsolete field or a FormerlySerializedAs old name
-                fields_to_remove.append(field_name)
-
-        # Remove obsolete fields
-        for field_name in fields_to_remove:
-            del content[field_name]
+        # Second pass: only remove FormerlySerializedAs old names that were migrated
+        # Do NOT remove unknown fields — they may come from parent classes,
+        # partial classes, or other sources the C# parser can't see.
+        for old_name in rename_mapping:
+            if old_name in content and rename_mapping[old_name] in content:
+                del content[old_name]
 
         # Third pass: add missing fields with default values
         existing_names = set(content.keys())
@@ -303,16 +278,15 @@ class UnityPrefabNormalizer:
         nested_info: Any,
         nested_types: dict[str, Any],
     ) -> None:
-        valid_names = nested_info.get_valid_field_names()
         rename_mapping = nested_info.get_rename_mapping()
 
         for old_name, new_name in rename_mapping.items():
             if old_name in data and new_name not in data:
                 data[new_name] = data[old_name]
 
-        fields_to_remove = [name for name in data if name not in valid_names]
-        for name in fields_to_remove:
-            del data[name]
+        for old_name in rename_mapping:
+            if old_name in data and rename_mapping[old_name] in data:
+                del data[old_name]
 
         existing_names = set(data.keys())
         for f in nested_info.get_missing_fields(existing_names):
