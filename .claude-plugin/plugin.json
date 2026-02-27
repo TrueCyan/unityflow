@@ -1,6 +1,6 @@
 {
   "name": "unityflow",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Let Claude edit Unity prefabs, scenes, and animations directly. Visual feedback from Unity Editor via MCP.",
   "author": {
     "name": "TrueCyan",
