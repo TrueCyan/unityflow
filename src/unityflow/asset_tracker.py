@@ -140,6 +140,8 @@ class GUIDIndex:
     guid_to_path: dict[str, Path] = field(default_factory=dict)
     path_to_guid: dict[Path, str] = field(default_factory=dict)
     project_root: Path | None = None
+    _dll_classes_by_name: dict[str, tuple[str, int, str]] = field(default_factory=dict, repr=False)
+    _dll_classes_by_id: dict[tuple[str, int], str] = field(default_factory=dict, repr=False)
 
     def __len__(self) -> int:
         return len(self.guid_to_path)
@@ -232,6 +234,19 @@ class GUIDIndex:
             if self.project_root:
                 return self.project_root / path
         return None
+
+    def find_dll_class(self, class_name: str) -> tuple[str, int, str] | None:
+        """Find a DLL class by name. Returns (dll_guid, unity_file_id, namespace) or None."""
+        return self._dll_classes_by_name.get(class_name)
+
+    def resolve_dll_class_name(self, dll_guid: str, file_id: int) -> str | None:
+        """Resolve a DLL fileID to class name. Returns class_name or None."""
+        return self._dll_classes_by_id.get((dll_guid, file_id))
+
+    def add_dll_class(self, dll_guid: str, class_name: str, namespace: str, file_id: int) -> None:
+        """Register a DLL class entry."""
+        self._dll_classes_by_name[class_name] = (dll_guid, file_id, namespace)
+        self._dll_classes_by_id[(dll_guid, file_id)] = class_name
 
 
 def find_unity_project_root(start_path: Path) -> Path | None:
@@ -743,7 +758,7 @@ def analyze_dependencies(
 
 CACHE_DIR_NAME = ".unityflow"
 CACHE_DB_NAME = "guid_cache.db"
-CACHE_VERSION = 2  # Bumped for SQLite migration
+CACHE_VERSION = 3  # Bumped for dll_class_cache table
 
 # Type alias for progress callback
 ProgressCallback = Callable[[int, int], None] | None
@@ -894,6 +909,16 @@ class CachedGUIDIndex:
             );
 
             CREATE INDEX IF NOT EXISTS idx_path ON guid_cache(path);
+
+            CREATE TABLE IF NOT EXISTS dll_class_cache (
+                dll_guid TEXT NOT NULL,
+                class_name TEXT NOT NULL,
+                namespace TEXT NOT NULL DEFAULT '',
+                unity_file_id INTEGER NOT NULL,
+                PRIMARY KEY (dll_guid, unity_file_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_dll_class_name ON dll_class_cache(class_name);
         """)
         conn.commit()
 
@@ -962,9 +987,42 @@ class CachedGUIDIndex:
 
                 # Batch insert GUIDs with mtime (already calculated during scan)
                 conn.executemany("INSERT OR REPLACE INTO guid_cache (guid, path, mtime) VALUES (?, ?, ?)", db_entries)
+
+                self._build_dll_class_cache(conn, db_entries)
+
                 conn.commit()
         except sqlite3.Error:
             pass  # Ignore cache write errors
+
+    def _build_dll_class_cache(
+        self,
+        conn: sqlite3.Connection,
+        db_entries: list[tuple[str, str, float]],
+    ) -> None:
+        from unityflow.dll_inspector import compute_unity_file_id, inspect_dll
+
+        conn.execute("DELETE FROM dll_class_cache")
+
+        dll_entries = [(guid, path_str) for guid, path_str, _ in db_entries if path_str.lower().endswith(".dll")]
+
+        dll_class_rows: list[tuple[str, str, str, int]] = []
+        for dll_guid, path_str in dll_entries:
+            dll_path = Path(path_str)
+            if not dll_path.is_absolute() and self.project_root:
+                dll_path = self.project_root / dll_path
+            if not dll_path.exists():
+                continue
+            for t in inspect_dll(dll_path):
+                file_id = compute_unity_file_id(t.namespace, t.name)
+                dll_class_rows.append((dll_guid, t.name, t.namespace, file_id))
+
+        if dll_class_rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO dll_class_cache"
+                " (dll_guid, class_name, namespace, unity_file_id)"
+                " VALUES (?, ?, ?, ?)",
+                dll_class_rows,
+            )
 
     def _load_from_db(self) -> GUIDIndex | None:
         """Load cache from SQLite database."""
@@ -979,6 +1037,11 @@ class CachedGUIDIndex:
                     path = Path(path_str)
                     index.guid_to_path[guid] = path
                     index.path_to_guid[path] = guid
+
+                dll_cursor = conn.execute("SELECT dll_guid, class_name, namespace, unity_file_id FROM dll_class_cache")
+                for dll_guid, class_name, namespace, file_id in dll_cursor:
+                    index.add_dll_class(dll_guid, class_name, namespace, file_id)
+
             return index
         except sqlite3.Error:
             return None
@@ -1107,9 +1170,55 @@ class CachedGUIDIndex:
                         "INSERT OR REPLACE INTO guid_cache (guid, path, mtime) VALUES (?, ?, ?)", db_updates
                     )
 
+                self._update_dll_class_entries(conn, db_updates, deleted_paths)
+
                 conn.commit()
         except sqlite3.Error:
             pass
+
+    def _update_dll_class_entries(
+        self,
+        conn: sqlite3.Connection,
+        db_updates: list[tuple[str, str, float]],
+        deleted_paths: set[str],
+    ) -> None:
+        from unityflow.dll_inspector import compute_unity_file_id, inspect_dll
+
+        deleted_dll_guids = set()
+        for path_str in deleted_paths:
+            if path_str.lower().endswith(".dll"):
+                cursor = conn.execute("SELECT guid FROM guid_cache WHERE path = ?", (path_str,))
+                row = cursor.fetchone()
+                if row:
+                    deleted_dll_guids.add(row[0])
+
+        changed_dlls = [(guid, path_str) for guid, path_str, _ in db_updates if path_str.lower().endswith(".dll")]
+
+        guids_to_refresh = deleted_dll_guids | {guid for guid, _ in changed_dlls}
+        if not guids_to_refresh:
+            return
+
+        for guid in guids_to_refresh:
+            conn.execute("DELETE FROM dll_class_cache WHERE dll_guid = ?", (guid,))
+
+        dll_class_rows: list[tuple[str, str, str, int]] = []
+        for dll_guid, path_str in changed_dlls:
+            dll_path = Path(path_str)
+            if not dll_path.is_absolute() and self.project_root:
+                dll_path = self.project_root / dll_path
+            if not dll_path.exists():
+                continue
+            for t in inspect_dll(dll_path):
+                file_id = compute_unity_file_id(t.namespace, t.name)
+                dll_class_rows.append((dll_guid, t.name, t.namespace, file_id))
+
+        if dll_class_rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO dll_class_cache"
+                " (dll_guid, class_name, namespace, unity_file_id)"
+                " VALUES (?, ?, ?, ?)",
+                dll_class_rows,
+            )
 
     def _collect_meta_files(self, include_packages: bool) -> list[Path]:
         """Collect all .meta files from relevant directories.
@@ -1692,6 +1801,42 @@ class LazyGUIDIndex:
                         return path
                     if self.project_root:
                         return self.project_root / path
+        except sqlite3.Error:
+            pass
+        return None
+
+    def find_dll_class(self, class_name: str) -> tuple[str, int, str] | None:
+        """Find a DLL class by name. Returns (dll_guid, unity_file_id, namespace) or None."""
+        if not self._db_path.exists():
+            return None
+        try:
+            with self._db_lock:
+                conn = self._get_connection()
+                cursor = conn.execute(
+                    "SELECT dll_guid, unity_file_id, namespace FROM dll_class_cache WHERE class_name = ? LIMIT 1",
+                    (class_name,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return (row[0], row[1], row[2])
+        except sqlite3.Error:
+            pass
+        return None
+
+    def resolve_dll_class_name(self, dll_guid: str, file_id: int) -> str | None:
+        """Resolve a DLL fileID to class name. Returns class_name or None."""
+        if not self._db_path.exists():
+            return None
+        try:
+            with self._db_lock:
+                conn = self._get_connection()
+                cursor = conn.execute(
+                    "SELECT class_name FROM dll_class_cache WHERE dll_guid = ? AND unity_file_id = ?",
+                    (dll_guid, file_id),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
         except sqlite3.Error:
             pass
         return None

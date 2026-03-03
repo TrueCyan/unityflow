@@ -1311,13 +1311,7 @@ def _handle_add_component(
                     break
 
         if not candidates and guid_index:
-            from unityflow.dll_inspector import find_class_in_dlls
-
-            dll_paths = [
-                (project_root / path if not path.is_absolute() else path, guid)
-                for path, guid in guid_index.find_paths_by_suffix(".dll")
-            ]
-            dll_result = find_class_in_dlls(dll_paths, comp_type)
+            dll_result = guid_index.find_dll_class(comp_type)
             if dll_result:
                 dll_guid, dll_file_id, dll_namespace = dll_result
                 dll_path_obj = guid_index.get_path(dll_guid)

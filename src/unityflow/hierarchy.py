@@ -917,31 +917,17 @@ class Hierarchy:
 
         resolved_names = self.guid_index.batch_resolve_names(all_guids)
 
-        dll_guids: dict[str, Path] = {}
-        for guid in all_guids:
-            path = self.guid_index.get_path(guid)
-            if path is not None and path.suffix.lower() == ".dll":
-                if not path.is_absolute() and self.guid_index.project_root:
-                    path = self.guid_index.project_root / path
-                dll_guids[guid] = path
-
-        dll_class_cache: dict[tuple[str, int], str | None] = {}
+        has_dll_lookup = hasattr(self.guid_index, "resolve_dll_class_name")
 
         for node in self.iter_all():
             for comp in node.components:
                 if not comp.script_guid:
                     continue
 
-                if comp.script_guid in dll_guids and comp.script_file_id is not None:
-                    cache_key = (comp.script_guid, comp.script_file_id)
-                    if cache_key not in dll_class_cache:
-                        from unityflow.dll_inspector import resolve_dll_class_name
-
-                        dll_path = dll_guids[comp.script_guid]
-                        dll_class_cache[cache_key] = resolve_dll_class_name(dll_path, comp.script_file_id)
-                    resolved = dll_class_cache[cache_key]
-                    if resolved:
-                        comp.script_name = resolved
+                if has_dll_lookup and comp.script_file_id is not None:
+                    dll_name = self.guid_index.resolve_dll_class_name(comp.script_guid, comp.script_file_id)
+                    if dll_name:
+                        comp.script_name = dll_name
                         continue
 
                 if comp.script_guid in resolved_names:
