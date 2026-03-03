@@ -1220,6 +1220,16 @@ def _resolve_component_path(
     return f"gameObjects/{go_id}/{property_name}", None
 
 
+def _contains_internal_reference(value: object) -> bool:
+    if isinstance(value, str):
+        return value.startswith("#")
+    if isinstance(value, dict):
+        return any(_contains_internal_reference(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_contains_internal_reference(v) for v in value)
+    return False
+
+
 def _normalize_and_save(doc: UnityYAMLDocument, output_path: Path, project_root: Path | None) -> None:
     if project_root:
         normalizer = UnityPrefabNormalizer(project_root=project_root)
@@ -2030,9 +2040,9 @@ def set_value_cmd(
                 click.echo(f"Error: {error_msg}", err=True)
                 sys.exit(1)
 
-        # Build hierarchy if any value contains # reference
+        # Build hierarchy if any value (including nested) contains # reference
         batch_hier = None
-        has_internal_refs = any(isinstance(v, str) and is_internal_reference(v) for v in parsed_values.values())
+        has_internal_refs = _contains_internal_reference(parsed_values)
         if has_internal_refs:
             from unityflow.asset_tracker import get_cached_guid_index
 

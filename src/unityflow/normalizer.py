@@ -246,17 +246,19 @@ class UnityPrefabNormalizer:
             if old_name in content and new_name not in content:
                 content[new_name] = content[old_name]
 
-        # Second pass: remove obsolete fields
-        # valid_names includes inherited fields from the full inheritance chain
-        fields_to_remove = []
-        for field_name in content:
-            if field_name in unity_standard_fields:
-                continue
-            if field_name not in valid_names:
-                fields_to_remove.append(field_name)
+        # Second pass: remove obsolete fields (only if inheritance chain is complete)
+        # If any parent class was not found, skip removal to avoid deleting inherited fields
+        inheritance_complete = getattr(script_info, "_inheritance_complete", False)
+        if inheritance_complete:
+            fields_to_remove = []
+            for field_name in content:
+                if field_name in unity_standard_fields:
+                    continue
+                if field_name not in valid_names:
+                    fields_to_remove.append(field_name)
 
-        for field_name in fields_to_remove:
-            del content[field_name]
+            for field_name in fields_to_remove:
+                del content[field_name]
 
         # Third pass: add missing fields with default values
         existing_names = set(content.keys())
@@ -370,12 +372,16 @@ class UnityPrefabNormalizer:
 
         result = parse_script_file(script_path)
         if result is not None:
-            self._resolve_inheritance(result)
+            chain_complete = self._resolve_inheritance(result)
+            result._inheritance_complete = chain_complete
         self._script_info_cache[script_guid] = result
         return result
 
-    def _resolve_inheritance(self, info, visited: set[str] | None = None) -> None:
-        """Resolve inheritance chain and merge parent fields into info."""
+    def _resolve_inheritance(self, info, visited: set[str] | None = None) -> bool:
+        """Resolve inheritance chain and merge parent fields into info.
+
+        Returns True if the full chain was resolved, False if any parent was missing.
+        """
         from unityflow.script_parser import parse_script_file
 
         if visited is None:
@@ -383,22 +389,22 @@ class UnityPrefabNormalizer:
 
         base = info.base_class
         if not base or base in visited:
-            return
+            return True
 
         if base in _TERMINAL_BASE_CLASSES:
-            return
+            return True
 
         visited.add(base)
 
         base_path = self._find_script_by_class_name(base)
         if base_path is None:
-            return
+            return False
 
         base_info = parse_script_file(base_path)
         if base_info is None:
-            return
+            return False
 
-        self._resolve_inheritance(base_info, visited)
+        chain_complete = self._resolve_inheritance(base_info, visited)
 
         existing_names = {f.name for f in info.fields}
         for field in base_info.fields:
@@ -408,6 +414,8 @@ class UnityPrefabNormalizer:
         for type_name, nested in base_info.nested_types.items():
             if type_name not in info.nested_types:
                 info.nested_types[type_name] = nested
+
+        return chain_complete
 
     def _find_script_by_class_name(self, class_name: str) -> Path | None:
         if self._guid_index is None:
