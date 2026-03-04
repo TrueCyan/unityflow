@@ -2840,6 +2840,7 @@ def inspect_cmd(
     import json as json_module
 
     from unityflow import UnityYAMLDocument, build_hierarchy
+    from unityflow.asset_resolver import humanize_references
     from unityflow.asset_tracker import find_unity_project_root, get_lazy_guid_index
 
     # Load document
@@ -2934,38 +2935,36 @@ def inspect_cmd(
                     script_path = guid_index.resolve_path(comp.script_guid)
                     if script_path:
                         comp_data["script_path"] = str(script_path)
-            comp_data["properties"] = comp.data
+            filtered = {
+                k: v
+                for k, v in comp.data.items()
+                if k
+                not in {
+                    "m_ObjectHideFlags",
+                    "m_CorrespondingSourceObject",
+                    "m_PrefabInstance",
+                    "m_PrefabAsset",
+                    "m_GameObject",
+                    "m_Script",
+                }
+            }
+            comp_data["properties"] = humanize_references(filtered, guid_index, hier, resolved_project_root)
             result["components"].append(comp_data)
 
         click.echo(json_module.dumps(result, indent=2, default=str))
     else:
-        # Helper function to resolve file_id to path
-        def resolve_reference(file_id: int, guid: str = "") -> str:
-            """Resolve a reference to a human-readable path."""
-            if file_id == 0 and not guid:
-                return "None"
 
-            # Try to resolve internal reference (same file)
-            if file_id and not guid:
-                ref_node = hier._nodes_by_file_id.get(file_id)
-                if ref_node:
-                    return ref_node.path
-
-                # Try to find component by file_id
-                for n in hier.iter_all():
-                    for c in n.components:
-                        if c.file_id == file_id:
-                            return f"{n.path}/{c.script_name or c.class_name}"
-
-                return f"(internal ref #{file_id})"
-
-            # External reference (different asset)
-            if guid and guid_index:
-                asset_path = guid_index.get_path(guid)
-                if asset_path:
-                    return f"@{asset_path}"
-
-            return "(external ref)"
+        def format_value(value):
+            resolved = humanize_references(value, guid_index, hier, resolved_project_root)
+            if isinstance(resolved, str):
+                return resolved if resolved else "None"
+            if isinstance(resolved, dict):
+                if "fileID" in resolved:
+                    return f"(unresolved ref fileID={resolved['fileID']})"
+                return "{...}"
+            if isinstance(resolved, list):
+                return f"[{len(resolved)} items]"
+            return str(resolved)
 
         # Text output - Inspector-like format
         click.echo(f"GameObject: {node.name}")
@@ -3062,21 +3061,7 @@ def inspect_cmd(
             }
             for key, value in comp.data.items():
                 if key not in skip_keys:
-                    # Format value for display
-                    if isinstance(value, dict) and "fileID" in value:
-                        # Reference field - resolve to path
-                        file_id = value.get("fileID", 0)
-                        guid = value.get("guid", "")
-                        resolved = resolve_reference(file_id, guid)
-                        click.echo(f"  {key}: {resolved}")
-                    elif isinstance(value, dict | list):
-                        # Complex value - show abbreviated
-                        if isinstance(value, list):
-                            click.echo(f"  {key}: [{len(value)} items]")
-                        else:
-                            click.echo(f"  {key}: {{...}}")
-                    else:
-                        click.echo(f"  {key}: {value}")
+                    click.echo(f"  {key}: {format_value(value)}")
 
             click.echo()
 

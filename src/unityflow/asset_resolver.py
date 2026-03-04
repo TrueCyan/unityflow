@@ -758,3 +758,78 @@ def get_asset_info(
             pass
 
     return info
+
+
+def _is_reference_dict(value: Any) -> bool:
+    return isinstance(value, dict) and "fileID" in value
+
+
+def _build_sprite_id_to_name(meta_path: Path) -> dict[int, str]:
+    from unityflow.sprite import parse_sprite_meta
+
+    info = parse_sprite_meta(meta_path)
+    if info is None or not info.is_multiple:
+        return {}
+    return {v: k for k, v in info.internal_id_table.items()}
+
+
+def _humanize_single_reference(
+    ref: dict[str, Any],
+    guid_index: Any,
+    hierarchy: Any | None,
+    project_root: Path | None,
+) -> Any:
+    file_id = ref.get("fileID", 0)
+    guid = ref.get("guid", "")
+
+    if file_id == 0 and not guid:
+        return ""
+
+    if guid:
+        asset_path = guid_index.get_path(guid) if guid_index else None
+        if asset_path is None:
+            return ref
+
+        suffix = asset_path.suffix.lower()
+        is_sprite_ext = suffix in (".png", ".jpg", ".jpeg", ".tga", ".psd", ".tiff", ".gif", ".bmp")
+        if is_sprite_ext and file_id != 21300000 and project_root:
+            meta_path = project_root / str(asset_path) / ".." / (asset_path.name + ".meta")
+            meta_path = (project_root / str(asset_path)).with_suffix(asset_path.suffix + ".meta")
+            id_to_name = _build_sprite_id_to_name(meta_path)
+            sprite_name = id_to_name.get(file_id)
+            if sprite_name:
+                return f"@{asset_path}:{sprite_name}"
+
+        return f"@{asset_path}"
+
+    if file_id and hierarchy:
+        ref_node = hierarchy._nodes_by_file_id.get(file_id)
+        if ref_node:
+            return f"#{ref_node.path}"
+
+        for n in hierarchy.iter_all():
+            for c in n.components:
+                if c.file_id == file_id:
+                    return f"#{n.path}/{c.script_name or c.class_name}"
+
+        return ref
+
+    return ref
+
+
+def humanize_references(
+    value: Any,
+    guid_index: Any,
+    hierarchy: Any | None = None,
+    project_root: Path | None = None,
+) -> Any:
+    if _is_reference_dict(value):
+        return _humanize_single_reference(value, guid_index, hierarchy, project_root)
+
+    if isinstance(value, dict):
+        return {k: humanize_references(v, guid_index, hierarchy, project_root) for k, v in value.items()}
+
+    if isinstance(value, list):
+        return [humanize_references(item, guid_index, hierarchy, project_root) for item in value]
+
+    return value
