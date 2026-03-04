@@ -621,35 +621,28 @@ def resolve_internal_reference(
 ) -> dict[str, int]:
     """Resolve an internal # reference to a fileID dict.
 
-    Args:
-        value: Internal reference string (e.g., "#Player/Child/Button")
-        doc: UnityYAMLDocument instance
-        hierarchy: Hierarchy instance built from the document
-
-    Returns:
-        Dict with fileID (e.g., {"fileID": 12345})
-
-    Raises:
-        ValueError: If the reference cannot be resolved
+    Resolution strategy:
+    1. Try the full path as a GameObject path
+    2. If not found, split last segment as component type on its parent
     """
-    ref_path, component_type = parse_internal_reference(value)
+    raw_path = value[1:] if value.startswith("#") else value
 
-    target_node = hierarchy.find(ref_path)
-    if target_node is None:
-        raise ValueError(f"Internal reference not found: {ref_path}")
+    target_node = hierarchy.find(raw_path)
+    if target_node is not None:
+        return {"fileID": target_node.file_id}
 
-    if component_type:
-        target_comp = None
-        for comp in target_node.components:
-            comp_name = comp.script_name or comp.class_name
-            if comp_name == component_type:
-                target_comp = comp
-                break
-        if target_comp is None:
-            raise ValueError(f"Component '{component_type}' not found on '{ref_path}'")
-        return {"fileID": target_comp.file_id}
+    parts = raw_path.rsplit("/", 1)
+    if len(parts) == 2:
+        parent_path, comp_name = parts
+        parent_node = hierarchy.find(parent_path)
+        if parent_node is not None:
+            for comp in parent_node.components:
+                name = comp.script_name or comp.class_name
+                if name == comp_name:
+                    return {"fileID": comp.file_id}
+            raise ValueError(f"Component '{comp_name}' not found on '{parent_path}'")
 
-    return {"fileID": target_node.file_id}
+    raise ValueError(f"Internal reference not found: {raw_path}")
 
 
 def resolve_value(

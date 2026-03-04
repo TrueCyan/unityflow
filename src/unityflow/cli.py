@@ -986,6 +986,18 @@ def _build_disambiguation_message(
     return "\n".join(error_lines)
 
 
+def _resolve_script_name(guid_index, script_guid: str, script_file_id: int | None = None) -> str | None:
+    resolved = guid_index.resolve_name(script_guid)
+    if resolved:
+        path = guid_index.get_path(script_guid)
+        if path and path.suffix.lower() == ".dll" and script_file_id is not None:
+            dll_name = guid_index.resolve_dll_class_name(script_guid, script_file_id)
+            if dll_name:
+                return dll_name
+        return resolved
+    return None
+
+
 def _resolve_component_path(
     doc: UnityYAMLDocument,
     path_spec: str,
@@ -1089,7 +1101,11 @@ def _resolve_component_path(
                     comp_content = comp.get_content()
                     if comp_content:
                         script_ref = comp_content.get("m_Script", {})
-                        script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+                        if isinstance(script_ref, dict):
+                            script_guid = script_ref.get("guid", "")
+                            script_fid = script_ref.get("fileID")
+                        else:
+                            script_guid, script_fid = "", None
                         if script_guid:
                             for key, guid in PACKAGE_COMPONENT_GUIDS.items():
                                 if key.lower() == last_component_type_lower and script_guid.lower() == guid.lower():
@@ -1097,7 +1113,7 @@ def _resolve_component_path(
                                     matched = True
                                     break
                             if not matched and guid_index:
-                                resolved = guid_index.resolve_name(script_guid)
+                                resolved = _resolve_script_name(guid_index, script_guid, script_fid)
                                 if resolved and resolved.lower() == last_component_type_lower:
                                     matching_components.append(comp_id)
 
@@ -1178,7 +1194,11 @@ def _resolve_component_path(
                     comp_content = comp.get_content()
                     if comp_content:
                         script_ref = comp_content.get("m_Script", {})
-                        script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+                        if isinstance(script_ref, dict):
+                            script_guid = script_ref.get("guid", "")
+                            script_fid = script_ref.get("fileID")
+                        else:
+                            script_guid, script_fid = "", None
                         if script_guid:
                             for key, guid in PACKAGE_COMPONENT_GUIDS.items():
                                 if key.lower() == component_type_lower and script_guid.lower() == guid.lower():
@@ -1186,7 +1206,7 @@ def _resolve_component_path(
                                     matched = True
                                     break
                             if not matched and guid_index:
-                                resolved = guid_index.resolve_name(script_guid)
+                                resolved = _resolve_script_name(guid_index, script_guid, script_fid)
                                 if resolved and resolved.lower() == component_type_lower:
                                     matching_components.append(comp_id)
 
@@ -1245,6 +1265,7 @@ def _handle_add_component(
     output: Path | None,
     project_root: Path | None,
     explicit_script_guid: str | None = None,
+    before: str | None = None,
 ) -> None:
     from unityflow.asset_tracker import get_cached_guid_index
     from unityflow.formats import CLASS_NAME_TO_ID
@@ -1441,7 +1462,30 @@ def _handle_add_component(
         go_content = go_obj.get_content()
         if go_content:
             components = go_content.get("m_Component", [])
-            components.append({"component": {"fileID": new_file_id}})
+            new_entry = {"component": {"fileID": new_file_id}}
+            insert_idx = len(components)
+            if before is not None:
+                before_lower = before.lower()
+                for idx, comp_ref in enumerate(components):
+                    cid = comp_ref.get("component", {}).get("fileID", 0)
+                    comp_obj = doc.get_by_file_id(cid)
+                    if comp_obj:
+                        comp_name = comp_obj.class_name.lower()
+                        if comp_name == before_lower:
+                            insert_idx = idx
+                            break
+                        if comp_obj.class_id == 114 and guid_index:
+                            comp_content = comp_obj.get_content()
+                            if comp_content:
+                                sr = comp_content.get("m_Script", {})
+                                if isinstance(sr, dict):
+                                    sg = sr.get("guid", "")
+                                    sf = sr.get("fileID")
+                                    resolved = _resolve_script_name(guid_index, sg, sf) if sg else None
+                                    if resolved and resolved.lower() == before_lower:
+                                        insert_idx = idx
+                                        break
+            components.insert(insert_idx, new_entry)
             go_content["m_Component"] = components
 
     _normalize_and_save(doc, output_path, project_root)
@@ -1850,6 +1894,12 @@ def get_value_cmd(
     default=None,
     help="Script GUID for --add-component (for DLL-based scripts not discoverable by filename)",
 )
+@click.option(
+    "--before",
+    "before_component",
+    default=None,
+    help="Insert component before this component type (for --add-component ordering)",
+)
 def set_value_cmd(
     file: Path,
     set_path: str,
@@ -1864,6 +1914,7 @@ def set_value_cmd(
     remove_object: str | None,
     object_type: str,
     script_guid: str | None,
+    before_component: str | None,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
@@ -1991,7 +2042,9 @@ def set_value_cmd(
 
     # Handle --add-component
     if add_component is not None:
-        _handle_add_component(doc, set_path, add_component, output_path, output, project_root, script_guid)
+        _handle_add_component(
+            doc, set_path, add_component, output_path, output, project_root, script_guid, before_component
+        )
         return
 
     # Handle --remove-component
