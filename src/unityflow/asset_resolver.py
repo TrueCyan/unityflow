@@ -533,6 +533,7 @@ def resolve_asset_reference(
     value: str,
     project_root: Path | None = None,
     auto_generate_meta: bool = True,
+    guid_index: Any = None,
 ) -> AssetResolveResult | None:
     """Resolve an asset reference to a Unity reference.
 
@@ -540,14 +541,10 @@ def resolve_asset_reference(
         value: Asset reference string (e.g., "@Assets/Scripts/Player.cs")
         project_root: Unity project root for resolving relative paths
         auto_generate_meta: If True, automatically generate .meta file if missing
+        guid_index: Optional GUIDIndex/LazyGUIDIndex for GUID lookup without filesystem
 
     Returns:
         AssetResolveResult with fileID and guid, or None if resolution failed
-
-    Examples:
-        >>> result = resolve_asset_reference("@Assets/Scripts/Player.cs", project_root)
-        >>> print(result.to_dict())
-        {'fileID': 11500000, 'guid': 'abc123...', 'type': 3}
     """
     import logging
 
@@ -557,51 +554,48 @@ def resolve_asset_reference(
         return None
 
     asset_path, sub_asset = parse_asset_reference(value)
+    normalized_path = asset_path.replace("\\", "/")
 
-    # Resolve to absolute path
+    suffix = Path(normalized_path).suffix.lower()
+
+    if guid_index:
+        guid = guid_index.get_guid(Path(normalized_path))
+        if guid:
+            file_id = _resolve_file_id_for_asset(suffix, sub_asset, normalized_path, project_root)
+            if file_id is not None:
+                return AssetResolveResult(
+                    file_id=file_id,
+                    guid=guid,
+                    ref_type=REF_TYPE_ASSET,
+                    asset_path=normalized_path,
+                    sub_asset=sub_asset,
+                )
+
     if project_root:
-        full_path = project_root / asset_path
+        full_path = project_root / normalized_path
     else:
-        full_path = Path(asset_path)
+        full_path = Path(normalized_path)
 
     meta_path = Path(str(full_path) + ".meta")
 
-    # Check if meta file exists, auto-generate if needed
     if not meta_path.is_file():
         if auto_generate_meta and full_path.is_file():
-            # Auto-generate .meta file
             from unityflow.meta_generator import generate_meta_file
 
             try:
                 generate_meta_file(full_path)
-                logger.info(f"Auto-generated .meta file for: {asset_path}")
+                logger.info(f"Auto-generated .meta file for: {normalized_path}")
             except Exception as e:
-                logger.warning(f"Failed to auto-generate .meta for {asset_path}: {e}")
+                logger.warning(f"Failed to auto-generate .meta for {normalized_path}: {e}")
                 return None
         else:
             return None
 
-    # Get GUID from meta file
     guid = get_guid_from_meta(meta_path)
     if not guid:
         return None
 
-    # Determine fileID based on asset type
-    suffix = full_path.suffix.lower()
-    file_id: int | None = None
-
-    # Special handling for sprites (check mode and sub-sprite)
-    if suffix in (".png", ".jpg", ".jpeg", ".tga", ".psd", ".tiff", ".gif", ".bmp", ".exr", ".hdr"):
-        file_id = get_sprite_file_id(meta_path, sub_asset)
-
-    # Special handling for prefabs
-    elif suffix == ".prefab":
-        file_id = get_prefab_root_file_id(full_path)
-
-    # Use standard fileID for known types
-    elif suffix in ASSET_TYPE_FILE_IDS:
-        file_id = ASSET_TYPE_FILE_IDS[suffix]
-
+    file_id = _resolve_file_id_for_asset(suffix, sub_asset, normalized_path, project_root)
     if file_id is None:
         return None
 
@@ -609,9 +603,37 @@ def resolve_asset_reference(
         file_id=file_id,
         guid=guid,
         ref_type=REF_TYPE_ASSET,
-        asset_path=asset_path,
+        asset_path=normalized_path,
         sub_asset=sub_asset,
     )
+
+
+def _resolve_file_id_for_asset(
+    suffix: str,
+    sub_asset: str | None,
+    asset_path: str,
+    project_root: Path | None,
+) -> int | None:
+    if project_root:
+        full_path = project_root / asset_path
+    else:
+        full_path = Path(asset_path)
+    meta_path = Path(str(full_path) + ".meta")
+
+    if suffix in SPRITE_EXTENSIONS:
+        return get_sprite_file_id(meta_path, sub_asset)
+
+    if suffix == ".prefab":
+        return get_prefab_root_file_id(full_path)
+
+    if suffix in ASSET_TYPE_FILE_IDS:
+        if sub_asset:
+            if sub_asset.startswith("fileID="):
+                return int(sub_asset[7:])
+            return _resolve_name_to_file_id(meta_path, sub_asset)
+        return ASSET_TYPE_FILE_IDS[suffix]
+
+    return None
 
 
 def resolve_internal_reference(
@@ -651,6 +673,7 @@ def resolve_value(
     field_name: str | None = None,
     doc: Any = None,
     hierarchy: Any = None,
+    guid_index: Any = None,
 ) -> Any:
     """Resolve a value, converting asset/internal references to Unity reference dicts.
 
@@ -663,6 +686,7 @@ def resolve_value(
         field_name: The field name being set (for type validation)
         doc: UnityYAMLDocument (required for # internal references)
         hierarchy: Hierarchy instance (required for # internal references)
+        guid_index: Optional GUIDIndex/LazyGUIDIndex for GUID lookup
 
     Returns:
         Processed value with references resolved
@@ -673,11 +697,10 @@ def resolve_value(
     """
     if isinstance(value, str):
         if is_asset_reference(value):
-            result = resolve_asset_reference(value, project_root)
+            result = resolve_asset_reference(value, project_root, guid_index=guid_index)
             if result is None:
                 raise ValueError(f"Could not resolve asset reference: {value}")
 
-            # Validate asset type if field name is provided
             if field_name and result.asset_path:
                 suffix = Path(result.asset_path).suffix.lower()
                 asset_type = get_asset_type_from_extension(suffix)
@@ -693,10 +716,16 @@ def resolve_value(
         return value
 
     elif isinstance(value, dict):
-        return {k: resolve_value(v, project_root, field_name=k, doc=doc, hierarchy=hierarchy) for k, v in value.items()}
+        return {
+            k: resolve_value(v, project_root, field_name=k, doc=doc, hierarchy=hierarchy, guid_index=guid_index)
+            for k, v in value.items()
+        }
 
     elif isinstance(value, list):
-        return [resolve_value(item, project_root, field_name, doc=doc, hierarchy=hierarchy) for item in value]
+        return [
+            resolve_value(item, project_root, field_name, doc=doc, hierarchy=hierarchy, guid_index=guid_index)
+            for item in value
+        ]
 
     return value
 
@@ -764,13 +793,51 @@ def _is_reference_dict(value: Any) -> bool:
     return isinstance(value, dict) and "fileID" in value
 
 
-def _build_sprite_id_to_name(meta_path: Path) -> dict[int, str]:
-    from unityflow.sprite import parse_sprite_meta
+SPRITE_EXTENSIONS = frozenset((".png", ".jpg", ".jpeg", ".tga", ".psd", ".tiff", ".gif", ".bmp"))
 
-    info = parse_sprite_meta(meta_path)
-    if info is None or not info.is_multiple:
-        return {}
-    return {v: k for k, v in info.internal_id_table.items()}
+
+_INTERNAL_ID_PATTERN = re.compile(
+    r"-\s+first:\s*\n\s+(\d+):\s*(-?\d+)\s*\n\s+second:\s*(.+)",
+    re.MULTILINE,
+)
+
+
+def _parse_internal_id_table(content: str) -> dict[int, str]:
+    result: dict[int, str] = {}
+    for match in _INTERNAL_ID_PATTERN.finditer(content):
+        file_id = int(match.group(2))
+        name = match.group(3).strip()
+        result[file_id] = name
+    return result
+
+
+def _resolve_sub_object_name(file_id: int, suffix: str, asset_path: Path, project_root: Path) -> str | None:
+    meta_path = (project_root / asset_path.as_posix()).with_suffix(suffix + ".meta")
+    if suffix in SPRITE_EXTENSIONS:
+        from unityflow.sprite import parse_sprite_meta
+
+        info = parse_sprite_meta(meta_path)
+        if info and info.is_multiple:
+            id_to_name = {v: k for k, v in info.internal_id_table.items()}
+            return id_to_name.get(file_id)
+        return None
+    try:
+        content = meta_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return _parse_internal_id_table(content).get(file_id)
+
+
+def _resolve_name_to_file_id(meta_path: Path, sub_asset_name: str) -> int | None:
+    try:
+        content = meta_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for match in _INTERNAL_ID_PATTERN.finditer(content):
+        name = match.group(3).strip()
+        if name == sub_asset_name:
+            return int(match.group(2))
+    return None
 
 
 def _humanize_single_reference(
@@ -790,17 +857,22 @@ def _humanize_single_reference(
         if asset_path is None:
             return ref
 
+        posix_path = asset_path.as_posix()
         suffix = asset_path.suffix.lower()
-        is_sprite_ext = suffix in (".png", ".jpg", ".jpeg", ".tga", ".psd", ".tiff", ".gif", ".bmp")
-        if is_sprite_ext and file_id != 21300000 and project_root:
-            meta_path = project_root / str(asset_path) / ".." / (asset_path.name + ".meta")
-            meta_path = (project_root / str(asset_path)).with_suffix(asset_path.suffix + ".meta")
-            id_to_name = _build_sprite_id_to_name(meta_path)
-            sprite_name = id_to_name.get(file_id)
-            if sprite_name:
-                return f"@{asset_path}:{sprite_name}"
 
-        return f"@{asset_path}"
+        standard_id = ASSET_TYPE_FILE_IDS.get(suffix)
+        if standard_id is not None and file_id == standard_id:
+            return f"@{posix_path}"
+        if suffix not in ASSET_TYPE_FILE_IDS:
+            return f"@{posix_path}"
+
+        if project_root and file_id != standard_id:
+            name = _resolve_sub_object_name(file_id, suffix, asset_path, project_root)
+            if name:
+                return f"@{posix_path}:{name}"
+            return f"@{posix_path}:fileID={file_id}"
+
+        return f"@{posix_path}"
 
     if file_id and hierarchy:
         ref_node = hierarchy._nodes_by_file_id.get(file_id)

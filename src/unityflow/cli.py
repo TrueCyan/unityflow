@@ -1250,6 +1250,16 @@ def _contains_internal_reference(value: object) -> bool:
     return False
 
 
+def _contains_asset_reference(value: object) -> bool:
+    if isinstance(value, str):
+        return value.startswith("@")
+    if isinstance(value, dict):
+        return any(_contains_asset_reference(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_contains_asset_reference(v) for v in value)
+    return False
+
+
 def _normalize_and_save(doc: UnityYAMLDocument, output_path: Path, project_root: Path | None) -> None:
     if project_root:
         normalizer = UnityPrefabNormalizer(project_root=project_root)
@@ -2093,18 +2103,21 @@ def set_value_cmd(
                 click.echo(f"Error: {error_msg}", err=True)
                 sys.exit(1)
 
-        # Build hierarchy if any value (including nested) contains # reference
-        batch_hier = None
         has_internal_refs = _contains_internal_reference(parsed_values)
-        if has_internal_refs:
+        has_asset_refs = _contains_asset_reference(parsed_values)
+        guid_index = None
+        if (has_internal_refs or has_asset_refs) and project_root:
             from unityflow.asset_tracker import get_cached_guid_index
 
-            guid_index = get_cached_guid_index(project_root) if project_root else None
+            guid_index = get_cached_guid_index(project_root)
+        batch_hier = None
+        if has_internal_refs and guid_index:
             batch_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
-        # Resolve asset/internal references in batch values (keys are used as field names)
         try:
-            resolved_values = resolve_value(parsed_values, project_root, doc=doc, hierarchy=batch_hier)
+            resolved_values = resolve_value(
+                parsed_values, project_root, doc=doc, hierarchy=batch_hier, guid_index=guid_index
+            )
         except AssetTypeMismatchError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
@@ -2130,25 +2143,31 @@ def set_value_cmd(
             parsed_value = value
 
         is_internal_ref = is_internal_reference(value) if isinstance(value, str) else False
+        is_asset_ref = is_asset_reference(value) if isinstance(value, str) else False
 
-        # Validate field type (skip for # references)
         if not is_internal_ref:
             is_valid, error_msg = _validate_field_value(field_name, parsed_value)
             if not is_valid:
                 click.echo(f"Error: {error_msg}", err=True)
                 sys.exit(1)
 
-        # Build hierarchy if needed for # reference
-        single_hier = None
-        if is_internal_ref:
+        guid_index = None
+        if (is_internal_ref or is_asset_ref) and project_root:
             from unityflow.asset_tracker import get_cached_guid_index
 
-            guid_index = get_cached_guid_index(project_root) if project_root else None
+            guid_index = get_cached_guid_index(project_root)
+        single_hier = None
+        if is_internal_ref and guid_index:
             single_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
         try:
             resolved_value = resolve_value(
-                parsed_value, project_root, field_name=field_name, doc=doc, hierarchy=single_hier
+                parsed_value,
+                project_root,
+                field_name=field_name,
+                doc=doc,
+                hierarchy=single_hier,
+                guid_index=guid_index,
             )
         except AssetTypeMismatchError as e:
             click.echo(f"Error: {e}", err=True)
@@ -2156,9 +2175,6 @@ def set_value_cmd(
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
-
-        # Show resolved info
-        is_asset_ref = is_asset_reference(value) if isinstance(value, str) else False
 
         if set_value(doc, set_path, resolved_value, create=True):
             _normalize_and_save(doc, output_path, project_root)

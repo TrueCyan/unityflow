@@ -1034,7 +1034,7 @@ class CachedGUIDIndex:
             with self._db_lock, self._get_db_connection() as conn:
                 cursor = conn.execute("SELECT guid, path FROM guid_cache")
                 for guid, path_str in cursor:
-                    path = Path(path_str)
+                    path = Path(path_str.replace("\\", "/"))
                     index.guid_to_path[guid] = path
                     index.path_to_guid[path] = guid
 
@@ -1590,7 +1590,7 @@ class LazyGUIDIndex:
                 cursor = conn.execute("SELECT path FROM guid_cache WHERE guid = ?", (guid,))
                 row = cursor.fetchone()
                 if row:
-                    path = Path(row[0])
+                    path = Path(row[0].replace("\\", "/"))
                     self._add_to_cache(guid, path)
                     return path
         except sqlite3.Error:
@@ -1631,7 +1631,8 @@ class LazyGUIDIndex:
             with self._db_lock:
                 conn = self._get_connection()
                 for p in paths_to_check:
-                    cursor = conn.execute("SELECT guid FROM guid_cache WHERE path = ?", (str(p),))
+                    normalized = str(p).replace("\\", "/")
+                    cursor = conn.execute("SELECT guid FROM guid_cache WHERE path = ?", (normalized,))
                     row = cursor.fetchone()
                     if row:
                         guid = row[0]
