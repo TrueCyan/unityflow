@@ -1632,11 +1632,15 @@ class LazyGUIDIndex:
                 conn = self._get_connection()
                 for p in paths_to_check:
                     normalized = str(p).replace("\\", "/")
-                    cursor = conn.execute("SELECT guid FROM guid_cache WHERE path = ?", (normalized,))
+                    backslash = normalized.replace("/", "\\")
+                    cursor = conn.execute(
+                        "SELECT guid FROM guid_cache WHERE path IN (?, ?)",
+                        (normalized, backslash),
+                    )
                     row = cursor.fetchone()
                     if row:
                         guid = row[0]
-                        self._add_to_cache(guid, p)
+                        self._add_to_cache(guid, Path(normalized))
                         return guid
         except sqlite3.Error:
             pass
