@@ -35,7 +35,7 @@ uvx unityflow hierarchy MainScene.unity
 uvx unityflow hierarchy Player.prefab --no-components
 
 # Output in JSON format
-uvx unityflow hierarchy Player.prefab --format json
+uvx unityflow hierarchy Player.prefab --no-components
 
 # Display only up to specific depth
 uvx unityflow hierarchy Scene.unity --depth 2
@@ -53,7 +53,7 @@ uvx unityflow inspect Player.prefab "Player/Transform"
 uvx unityflow inspect Scene.unity "Player/SpriteRenderer"
 
 # Output in JSON format
-uvx unityflow inspect Player.prefab "Player/Transform" --format json
+uvx unityflow inspect Player.prefab "Player/Transform"
 ```
 
 ### Querying Values (get)
@@ -75,7 +75,7 @@ uvx unityflow get Player.prefab "Player/Transform"
 uvx unityflow get Scene.unity "Canvas/Panel/Image[1]/m_Color"
 
 # Output in text format
-uvx unityflow get Player.prefab "Player/Transform/m_LocalPosition" --format text
+uvx unityflow get Player.prefab "Player/Transform/m_LocalPosition"
 ```
 
 ### Modifying Values (set)
@@ -228,7 +228,7 @@ uvx unityflow normalize MainScene.unity
 uvx unityflow diff old.prefab new.prefab
 
 # Compare in summary format
-uvx unityflow diff old.prefab new.prefab --format summary
+uvx unityflow diff old.prefab new.prefab
 
 # 3-way merge
 uvx unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
@@ -249,7 +249,7 @@ uvx unityflow merge base.prefab ours.prefab theirs.prefab -o merged.prefab
 ### When Parsing Errors Occur
 
 ```bash
-uvx unityflow validate problematic.prefab --format json
+uvx unityflow validate problematic.prefab
 ```
 
 ---

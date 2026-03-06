@@ -26,7 +26,7 @@ uvx unityflow hierarchy MainMenu.prefab
 uvx unityflow hierarchy MainMenu.prefab --no-components
 
 # Output in JSON format
-uvx unityflow hierarchy Scene.unity --format json
+uvx unityflow hierarchy Scene.unity --no-components
 ```
 
 ---

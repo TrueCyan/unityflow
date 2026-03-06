@@ -160,22 +160,6 @@ class TestValidateCommand:
 
         assert result.exit_code == 0
 
-    def test_validate_json_output(self, runner):
-        """Test validate with JSON output."""
-        result = runner.invoke(
-            main,
-            [
-                "validate",
-                str(FIXTURES_DIR / "basic_prefab.prefab"),
-                "--format",
-                "json",
-            ],
-        )
-
-        assert result.exit_code == 0
-        assert '"valid"' in result.output
-        assert '"path"' in result.output
-
     def test_validate_quiet_mode(self, runner):
         """Test validate in quiet mode."""
         result = runner.invoke(

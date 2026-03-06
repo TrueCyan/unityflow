@@ -33,9 +33,6 @@ Found 3 references to Assets/Scripts/Player.cs:
 ### Options
 
 ```bash
-# JSON output
-uvx unityflow refs Assets/Scripts/Player.cs --format json
-
 # Specify Unity project root
 uvx unityflow refs Assets/Scripts/Player.cs --project-root /path/to/unity
 
@@ -46,25 +43,6 @@ uvx unityflow refs Assets/Scripts/Player.cs --include-packages
 uvx unityflow refs Assets/Scripts/Player.cs --progress
 ```
 
-### JSON Output
-
-```bash
-uvx unityflow refs Assets/Scripts/Player.cs --format json
-```
-
-```json
-{
-  "asset": "Assets/Scripts/Player.cs",
-  "guid": "abc123...",
-  "references": [
-    {"file": "Assets/Prefabs/Player.prefab", "count": 2},
-    {"file": "Assets/Scenes/Main.unity", "count": 1},
-    {"file": "Assets/Prefabs/UI/HUD.prefab", "count": 1}
-  ],
-  "total_files": 3,
-  "total_refs": 4
-}
-```
 
 ---
 
@@ -99,7 +77,7 @@ Before renaming, moving, or deleting an asset, check what depends on it:
 
 ```bash
 # Find all files that will break if this asset is removed
-uvx unityflow refs Assets/Scripts/LegacySystem.cs --format json
+uvx unityflow refs Assets/Scripts/LegacySystem.cs
 ```
 
 ### Package Dependency Check
