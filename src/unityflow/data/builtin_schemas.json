@@ -3,7 +3,8 @@
     "m_CorrespondingSourceObject",
     "m_ObjectHideFlags",
     "m_PrefabAsset",
-    "m_PrefabInstance"
+    "m_PrefabInstance",
+    "serializedVersion"
   ],
   "1": [
     "m_Component",
