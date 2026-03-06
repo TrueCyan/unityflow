@@ -281,8 +281,10 @@ ASSET_TYPE_FILE_IDS: dict[str, int] = {
 }
 
 # Reference type values
-REF_TYPE_ASSET = 3  # External asset
-REF_TYPE_BUILTIN = 2  # Built-in or internal
+REF_TYPE_NATIVE = 2  # Native/compiled asset (textures, audio, prefabs, etc.)
+REF_TYPE_SOURCE = 3  # Source asset (scripts like .cs)
+
+SOURCE_EXTENSIONS = frozenset((".cs",))
 
 
 @dataclass
@@ -291,7 +293,7 @@ class AssetResolveResult:
 
     file_id: int
     guid: str
-    ref_type: int = REF_TYPE_ASSET
+    ref_type: int = REF_TYPE_NATIVE
     asset_path: str | None = None
     sub_asset: str | None = None
 
@@ -557,6 +559,7 @@ def resolve_asset_reference(
     normalized_path = asset_path.replace("\\", "/")
 
     suffix = Path(normalized_path).suffix.lower()
+    ref_type = REF_TYPE_SOURCE if suffix in SOURCE_EXTENSIONS else REF_TYPE_NATIVE
 
     if guid_index:
         guid = guid_index.get_guid(Path(normalized_path))
@@ -566,7 +569,7 @@ def resolve_asset_reference(
                 return AssetResolveResult(
                     file_id=file_id,
                     guid=guid,
-                    ref_type=REF_TYPE_ASSET,
+                    ref_type=ref_type,
                     asset_path=normalized_path,
                     sub_asset=sub_asset,
                 )
@@ -602,7 +605,7 @@ def resolve_asset_reference(
     return AssetResolveResult(
         file_id=file_id,
         guid=guid,
-        ref_type=REF_TYPE_ASSET,
+        ref_type=ref_type,
         asset_path=normalized_path,
         sub_asset=sub_asset,
     )
@@ -700,6 +703,9 @@ def resolve_value(
         AssetTypeMismatchError: If the asset type doesn't match the field type
     """
     if isinstance(value, str):
+        if value == "":
+            return {"fileID": 0}
+
         if is_asset_reference(value):
             result = resolve_asset_reference(value, project_root, guid_index=guid_index)
             if result is None:

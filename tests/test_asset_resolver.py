@@ -242,7 +242,7 @@ class TestResolveAssetReferenceIntegration:
         assert result == {
             "fileID": 21300000,
             "guid": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
-            "type": 3,
+            "type": 2,
         }
 
     def test_resolve_audio_reference(self, tmp_path):
@@ -263,7 +263,7 @@ class TestResolveAssetReferenceIntegration:
         assert result == {
             "fileID": 8300000,
             "guid": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
-            "type": 3,
+            "type": 2,
         }
 
     def test_resolve_batch_with_mixed_values(self, tmp_path):
@@ -322,7 +322,7 @@ class TestResolveAssetReferenceIntegration:
         assert result == {
             "fileID": 2222222222,
             "guid": "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1",
-            "type": 3,
+            "type": 2,
         }
 
 
