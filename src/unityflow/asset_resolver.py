@@ -633,7 +633,11 @@ def _resolve_file_id_for_asset(
             return _resolve_name_to_file_id(meta_path, sub_asset)
         return ASSET_TYPE_FILE_IDS[suffix]
 
-    return None
+    if sub_asset:
+        if sub_asset.startswith("fileID="):
+            return int(sub_asset[7:])
+        return _resolve_name_to_file_id(meta_path, sub_asset)
+    return _get_main_object_file_id(meta_path)
 
 
 def resolve_internal_reference(
@@ -840,6 +844,17 @@ def _resolve_name_to_file_id(meta_path: Path, sub_asset_name: str) -> int | None
     return None
 
 
+def _get_main_object_file_id(meta_path: Path) -> int | None:
+    try:
+        content = meta_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    match = re.search(r"mainObjectFileID:\s*(-?\d+)", content)
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def _humanize_single_reference(
     ref: dict[str, Any],
     guid_index: Any,
@@ -864,6 +879,14 @@ def _humanize_single_reference(
         if standard_id is not None and file_id == standard_id:
             return f"@{posix_path}"
         if suffix not in ASSET_TYPE_FILE_IDS:
+            if project_root and file_id:
+                meta_path = (project_root / posix_path).with_suffix(suffix + ".meta")
+                main_id = _get_main_object_file_id(meta_path)
+                if main_id is not None and file_id != main_id:
+                    name = _resolve_sub_object_name(file_id, suffix, asset_path, project_root)
+                    if name:
+                        return f"@{posix_path}:{name}"
+                    return f"@{posix_path}:fileID={file_id}"
             return f"@{posix_path}"
 
         if project_root and file_id != standard_id:
