@@ -1,7 +1,7 @@
 {
   "name": "unityflow",
   "version": "0.9.7",
-  "description": "Let Claude edit Unity prefabs, scenes, and animations directly. Visual feedback from Unity Editor via MCP.",
+  "description": "Edit Unity prefabs, scenes, and animations via CLI. Create, modify, diff, and merge Unity YAML files. Visual feedback from Unity Editor via MCP.",
   "author": {
     "name": "TrueCyan",
     "url": "https://github.com/TrueCyan"
