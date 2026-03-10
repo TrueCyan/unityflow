@@ -134,6 +134,13 @@ uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-component "Image"
 uvx unityflow set Prefab.prefab --path "Canvas/Panel" --remove-component "Button"
 uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-object "Child" --type rect-transform
 uvx unityflow set Prefab.prefab --path "Canvas/Panel" --remove-object "Child"
+
+# Add nested prefab instance (@ prefix)
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-object "@Assets/Prefabs/Button.prefab"
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-object "@Assets/Prefabs/Panel.prefab" --instance-name "MyPanel"
+
+# Move component order
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --move-component "Mask[0]" --before "Image"
 ```
 
 ## Multiple Components of Same Type

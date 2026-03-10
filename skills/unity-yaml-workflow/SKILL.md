@@ -102,12 +102,20 @@ uvx unityflow create MyUI.prefab --name "Root" --type rect-transform
 ### Add/Remove Objects and Components
 
 ```bash
+# Add empty child GameObject
 uvx unityflow set Player.prefab --path "Player" --add-object "Child"
 uvx unityflow set Player.prefab --path "Player" --add-object "Panel" --type rect-transform
 uvx unityflow set Player.prefab --path "Player" --remove-object "Child"
 
+# Add nested prefab instance (@ prefix)
+uvx unityflow set file.prefab --path "Root" --add-object "@Assets/Prefabs/Button.prefab"
+uvx unityflow set file.prefab --path "Root" --add-object "@Assets/Prefabs/Panel.prefab" --instance-name "MyPanel"
+
 uvx unityflow set Player.prefab --path "Player" --add-component "Button"
 uvx unityflow set Player.prefab --path "Player" --remove-component "OldComponent"
+
+# Move component order
+uvx unityflow set file.prefab --path "Root" --move-component "Mask[0]" --before "Image"
 ```
 
 ---
