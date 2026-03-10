@@ -5,6 +5,7 @@ Provides commands for normalizing, diffing, and validating Unity YAML files.
 
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -1221,6 +1222,44 @@ def _contains_asset_reference(value: object) -> bool:
     return False
 
 
+def _parse_component_spec(spec: str) -> tuple[str, int]:
+    match = re.match(r"^(.+?)(?:\[(\d+)\])?$", spec)
+    if match:
+        return match.group(1), int(match.group(2)) if match.group(2) else 0
+    return spec, 0
+
+
+def _find_component_index_in_m_component(
+    components: list[dict],
+    comp_name: str,
+    comp_idx: int,
+    doc: UnityYAMLDocument,
+    guid_index: object | None,
+) -> int | None:
+    count = 0
+    for i, comp_ref in enumerate(components):
+        cid = comp_ref.get("component", {}).get("fileID", 0)
+        comp_obj = doc.get_by_file_id(cid)
+        if not comp_obj:
+            continue
+        name = comp_obj.class_name
+        if comp_obj.class_id == 114 and guid_index:
+            comp_content = comp_obj.get_content()
+            if comp_content:
+                sr = comp_content.get("m_Script", {})
+                if isinstance(sr, dict):
+                    sg = sr.get("guid", "")
+                    sf = sr.get("fileID")
+                    resolved = _resolve_script_name(guid_index, sg, sf) if sg else None
+                    if resolved:
+                        name = resolved
+        if name.lower() == comp_name.lower():
+            if count == comp_idx:
+                return i
+            count += 1
+    return None
+
+
 def _normalize_and_save(doc: UnityYAMLDocument, output_path: Path, project_root: Path | None) -> None:
     if project_root:
         normalizer = UnityPrefabNormalizer(project_root=project_root)
@@ -1509,6 +1548,67 @@ def _handle_remove_component(
 
     _normalize_and_save(doc, output_path, project_root)
     click.echo(f"Removed {comp_type} from {go_path}")
+    if output:
+        click.echo(f"Saved to: {output}")
+
+
+def _handle_move_component(
+    doc: UnityYAMLDocument,
+    go_path: str,
+    move_spec: str,
+    before_spec: str | None,
+    output_path: Path,
+    output: Path | None,
+    project_root: Path | None,
+) -> None:
+    from unityflow.asset_tracker import get_cached_guid_index
+    from unityflow.hierarchy import Hierarchy
+
+    guid_index = get_cached_guid_index(project_root) if project_root else None
+    hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+    target_node = hier.find(go_path)
+    if target_node is None:
+        click.echo(f"Error: GameObject not found: {go_path}", err=True)
+        sys.exit(1)
+
+    go_obj = doc.get_by_file_id(target_node.file_id)
+    if not go_obj:
+        click.echo(f"Error: GameObject data not found: {go_path}", err=True)
+        sys.exit(1)
+
+    go_content = go_obj.get_content()
+    if not go_content:
+        click.echo(f"Error: GameObject content not found: {go_path}", err=True)
+        sys.exit(1)
+
+    components = go_content.get("m_Component", [])
+
+    move_name, move_idx = _parse_component_spec(move_spec)
+    source_pos = _find_component_index_in_m_component(components, move_name, move_idx, doc, guid_index)
+    if source_pos is None:
+        click.echo(f"Error: Component '{move_spec}' not found on '{go_path}'", err=True)
+        sys.exit(1)
+
+    entry = components.pop(source_pos)
+
+    if before_spec is not None:
+        before_name, before_idx = _parse_component_spec(before_spec)
+        target_pos = _find_component_index_in_m_component(components, before_name, before_idx, doc, guid_index)
+        if target_pos is None:
+            click.echo(f"Error: Component '{before_spec}' not found on '{go_path}'", err=True)
+            sys.exit(1)
+        components.insert(target_pos, entry)
+    else:
+        components.append(entry)
+
+    go_content["m_Component"] = components
+
+    _normalize_and_save(doc, output_path, project_root)
+    if before_spec:
+        click.echo(f"Moved {move_spec} before {before_spec} on {go_path}")
+    else:
+        click.echo(f"Moved {move_spec} to end on {go_path}")
     if output:
         click.echo(f"Saved to: {output}")
 
@@ -1846,7 +1946,13 @@ def get_value_cmd(
     "--before",
     "before_component",
     default=None,
-    help="Insert component before this component type (for --add-component ordering)",
+    help="Insert/move component before this component (for --add-component/--move-component)",
+)
+@click.option(
+    "--move-component",
+    "move_component",
+    default=None,
+    help="Move a component's position (e.g., --move-component 'Mask[0]' --before 'Image')",
 )
 def set_value_cmd(
     file: Path,
@@ -1863,6 +1969,7 @@ def set_value_cmd(
     object_type: str,
     script_guid: str | None,
     before_component: str | None,
+    move_component: str | None,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
@@ -1888,6 +1995,9 @@ def set_value_cmd(
 
         # Remove a child GameObject
         unityflow set file.prefab --path "Root" --remove-object "Child"
+
+        # Move a component before another
+        unityflow set file.prefab --path "Root" --move-component "Mask[0]" --before "Image"
 
         # Set multiple fields at once (batch mode)
         unityflow set Scene.unity \\
@@ -1954,6 +2064,7 @@ def set_value_cmd(
             value is not None or batch_values_json is not None,
             add_component is not None,
             remove_component is not None,
+            move_component is not None,
             add_object is not None,
             remove_object is not None,
         ]
@@ -1963,7 +2074,7 @@ def set_value_cmd(
     if operation_modes == 0:
         click.echo(
             "Error: One of --value, --batch, --add-component, --remove-component,"
-            " --add-object, or --remove-object is required",
+            " --move-component, --add-object, or --remove-object is required",
             err=True,
         )
         sys.exit(1)
@@ -1998,6 +2109,11 @@ def set_value_cmd(
     # Handle --remove-component
     if remove_component is not None:
         _handle_remove_component(doc, set_path, remove_component, output_path, output, project_root)
+        return
+
+    # Handle --move-component
+    if move_component is not None:
+        _handle_move_component(doc, set_path, move_component, before_component, output_path, output, project_root)
         return
 
     # Handle --add-object
