@@ -1613,6 +1613,80 @@ def _handle_move_component(
         click.echo(f"Saved to: {output}")
 
 
+def _handle_add_prefab(
+    doc: UnityYAMLDocument,
+    parent_path: str,
+    prefab_ref: str,
+    instance_name: str | None,
+    output_path: Path,
+    output: Path | None,
+    project_root: Path | None,
+) -> None:
+    from unityflow.asset_resolver import get_guid_from_meta, parse_asset_reference
+    from unityflow.asset_tracker import get_cached_guid_index
+    from unityflow.hierarchy import Hierarchy
+
+    guid_index = get_cached_guid_index(project_root) if project_root else None
+    hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+    parent_node = hier.find(parent_path)
+    if parent_node is None:
+        click.echo(f"Error: GameObject not found: {parent_path}", err=True)
+        sys.exit(1)
+
+    asset_path, _ = parse_asset_reference(prefab_ref) if prefab_ref.startswith("@") else (prefab_ref, None)
+    asset_path = asset_path.replace("\\", "/")
+
+    source_guid = None
+    if guid_index:
+        source_guid = guid_index.get_guid(Path(asset_path))
+    if not source_guid and project_root:
+        meta_path = project_root / asset_path
+        meta_path = Path(str(meta_path) + ".meta")
+        source_guid = get_guid_from_meta(meta_path)
+    if not source_guid:
+        click.echo(f"Error: Could not resolve GUID for '{asset_path}'", err=True)
+        sys.exit(1)
+
+    source_root_go_id = 0
+    source_root_transform_id = 0
+    is_ui = False
+    if project_root:
+        source_path = project_root / asset_path
+        if source_path.is_file():
+            try:
+                source_doc = UnityYAMLDocument.load(source_path)
+                source_hier = Hierarchy.build(source_doc)
+                if source_hier.root_objects:
+                    source_root = source_hier.root_objects[0]
+                    source_root_go_id = source_root.file_id
+                    source_root_transform_id = source_root.transform_id
+                    is_ui = source_root.is_ui
+            except Exception:
+                pass
+
+    if not instance_name:
+        instance_name = Path(asset_path).stem
+
+    node = hier.add_prefab_instance(
+        source_guid=source_guid,
+        parent=parent_node,
+        name=instance_name,
+        source_root_transform_id=source_root_transform_id,
+        source_root_go_id=source_root_go_id,
+        is_ui=is_ui,
+    )
+
+    if node is None:
+        click.echo("Error: Failed to add prefab instance", err=True)
+        sys.exit(1)
+
+    _normalize_and_save(doc, output_path, project_root)
+    click.echo(f"Added prefab instance '{instance_name}' under '{parent_path}'")
+    if output:
+        click.echo(f"Saved to: {output}")
+
+
 def _handle_add_object(
     doc: UnityYAMLDocument,
     parent_path: str,
@@ -1954,6 +2028,12 @@ def get_value_cmd(
     default=None,
     help="Move a component's position (e.g., --move-component 'Mask[0]' --before 'Image')",
 )
+@click.option(
+    "--instance-name",
+    "instance_name",
+    default=None,
+    help="Override name for --add-object prefab instance (default: source prefab filename)",
+)
 def set_value_cmd(
     file: Path,
     set_path: str,
@@ -1970,6 +2050,7 @@ def set_value_cmd(
     script_guid: str | None,
     before_component: str | None,
     move_component: str | None,
+    instance_name: str | None,
 ) -> None:
     """Set a value at a specific path in a Unity YAML file.
 
@@ -1998,6 +2079,13 @@ def set_value_cmd(
 
         # Move a component before another
         unityflow set file.prefab --path "Root" --move-component "Mask[0]" --before "Image"
+
+        # Add a nested prefab instance
+        unityflow set file.prefab --path "Root" --add-object "@Assets/Prefabs/Button.prefab"
+
+        # Add with custom instance name
+        unityflow set file.prefab --path "Root" \\
+            --add-object "@Assets/Prefabs/Panel.prefab" --instance-name "MyPanel"
 
         # Set multiple fields at once (batch mode)
         unityflow set Scene.unity \\
@@ -2118,7 +2206,10 @@ def set_value_cmd(
 
     # Handle --add-object
     if add_object is not None:
-        _handle_add_object(doc, set_path, add_object, object_type, output_path, output, project_root)
+        if add_object.startswith("@"):
+            _handle_add_prefab(doc, set_path, add_object, instance_name, output_path, output, project_root)
+        else:
+            _handle_add_object(doc, set_path, add_object, object_type, output_path, output, project_root)
         return
 
     # Handle --remove-object

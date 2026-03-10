@@ -1473,7 +1473,7 @@ class Hierarchy:
                 "m_SourcePrefab": {
                     "fileID": 100100000,
                     "guid": source_guid,
-                    "type": 3,
+                    "type": 2,
                 },
             }
         }
