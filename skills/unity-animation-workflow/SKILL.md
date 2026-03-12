@@ -7,12 +7,10 @@ description: Edits animation clips (.anim) and animator controller (.controller)
 
 Edit Unity animation files (.anim, .controller) using `unityflow` CLI.
 
-## Core Principle
+## Rules
 
-**NEVER directly edit .anim or .controller files as text.**
-
-Always use `uvx unityflow anim` and `uvx unityflow ctrl` commands. Direct YAML editing will
-corrupt animation data, break curve bindings, and cause Unity import failures.
+1. **Always use `uvx unityflow`** — never call `unityflow` directly; `uvx` ensures the latest published version is used
+2. **Never edit .anim or .controller files as text** — direct YAML editing will corrupt animation data, break curve bindings, and cause Unity import failures
 
 ## Animation Clip Commands
 

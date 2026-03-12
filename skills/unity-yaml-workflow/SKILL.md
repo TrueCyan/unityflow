@@ -11,11 +11,12 @@ Use unity-ui-workflow for UI-specific tasks. Use unity-animation-workflow for an
 
 ## Rules
 
-1. **Use `hierarchy` first** — understand the structure before inspecting or editing individual objects
-2. **Use `--batch` for multiple properties** — set many fields in one call instead of calling set repeatedly
-3. **Verify with `diff` after editing** — always run `unityflow diff original.prefab modified.prefab` to confirm changes are correct
-4. **One `--add-component` per type** — never add the same component type twice to the same GameObject
-5. **Use unityflow CLI for all operations** — never edit Unity YAML files directly; the format requires special handling
+1. **Always use `uvx unityflow`** — never call `unityflow` directly; `uvx` ensures the latest published version is used
+2. **Use `hierarchy` first** — understand the structure before inspecting or editing individual objects
+3. **Use `--batch` for multiple properties** — set many fields in one call instead of calling set repeatedly
+4. **Verify with `diff` after editing** — always run `uvx unityflow diff original.prefab modified.prefab` to confirm changes are correct
+5. **One `--add-component` per type** — never add the same component type twice to the same GameObject
+6. **Never edit Unity YAML files directly** — the format requires special handling
 
 ---
 
