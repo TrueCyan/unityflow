@@ -2830,6 +2830,11 @@ repos:
     help="Hide component information",
 )
 @click.option(
+    "--detail",
+    is_flag=True,
+    help="Show all component properties for each object",
+)
+@click.option(
     "--project-root",
     type=click.Path(exists=True, path_type=Path),
     help="Unity project root (auto-detected if not specified)",
@@ -2839,6 +2844,7 @@ def hierarchy_cmd(
     depth: int | None,
     root_path: str | None,
     no_components: bool,
+    detail: bool,
     project_root: Path | None,
 ) -> None:
     """Show hierarchy structure of a Unity YAML file.
@@ -2864,6 +2870,7 @@ def hierarchy_cmd(
         unityflow hierarchy Player.prefab --no-components
     """
     from unityflow import UnityYAMLDocument, build_hierarchy
+    from unityflow.asset_resolver import humanize_references
     from unityflow.asset_tracker import find_unity_project_root, get_lazy_guid_index
 
     # Load document
@@ -2922,14 +2929,119 @@ def hierarchy_cmd(
                 return f" [Prefab: {source_path}]"
         return " [Prefab]"
 
-    def print_tree(node, prefix: str = "", is_last: bool = True, current_depth: int = 0):
-        connector = "└── " if is_last else "├── "
+    def format_value(value, base_indent=""):
+        resolved = humanize_references(value, guid_index, hier, resolved_project_root)
+        if isinstance(resolved, str):
+            return resolved if resolved else "None"
+        if isinstance(resolved, (int, float, bool)):
+            return str(resolved)
+        if isinstance(resolved, dict):
+            if not resolved:
+                return "{}"
+            if "fileID" in resolved:
+                return f"(unresolved ref fileID={resolved['fileID']})"
+            keys = set(resolved.keys())
+            if keys <= {"x", "y", "z", "w"}:
+                vals = ", ".join(f"{k}: {resolved[k]}" for k in ("x", "y", "z", "w") if k in resolved)
+                return f"({vals})"
+            if keys <= {"r", "g", "b", "a"}:
+                vals = ", ".join(f"{k}: {resolved[k]}" for k in ("r", "g", "b", "a") if k in resolved)
+                return f"({vals})"
+            child_indent = base_indent + "  "
+            lines = []
+            for k, v in resolved.items():
+                lines.append(f"{child_indent}{k}: {format_value(v, child_indent)}")
+            return "\n" + "\n".join(lines)
+        if isinstance(resolved, list):
+            if not resolved:
+                return "[]"
+            child_indent = base_indent + "  "
+            str_items = [format_value(item, child_indent) for item in resolved]
+            if all("\n" not in s for s in str_items) and sum(len(s) for s in str_items) < 80:
+                return f"[{', '.join(str_items)}]"
+            lines = [f"{child_indent}- {s}" for s in str_items]
+            return "\n" + "\n".join(lines)
+        return str(resolved)
 
+    skip_keys = {
+        "m_ObjectHideFlags",
+        "m_CorrespondingSourceObject",
+        "m_PrefabInstance",
+        "m_PrefabAsset",
+        "m_GameObject",
+        "m_Enabled",
+        "m_Script",
+        "m_EditorHideFlags",
+        "m_EditorClassIdentifier",
+        "m_Name",
+        "serializedVersion",
+    }
+
+    transform_skip_keys = skip_keys | {
+        "m_Father",
+        "m_Children",
+        "m_LocalRotation",
+        "m_RootOrder",
+        "m_LocalEulerAnglesHint",
+        "m_ConstrainProportionsScale",
+        "constrainProportionsScale",
+    }
+
+    zero_vec3 = {"x": 0, "y": 0, "z": 0}
+    one_vec3 = {"x": 1, "y": 1, "z": 1}
+    default_transform = {
+        "m_LocalPosition": zero_vec3,
+        "m_LocalScale": one_vec3,
+        "m_AnchoredPosition": {"x": 0, "y": 0},
+        "m_SizeDelta": {"x": 0, "y": 0},
+        "m_AnchorMin": {"x": 0, "y": 0},
+        "m_AnchorMax": {"x": 1, "y": 1},
+        "m_Pivot": {"x": 0.5, "y": 0.5},
+    }
+
+    def _is_default_transform_value(key, value):
+        default = default_transform.get(key)
+        if default is None:
+            return False
+        if isinstance(value, dict) and isinstance(default, dict):
+            return all(value.get(k) == v for k, v in default.items())
+        return value == default
+
+    def print_detail(node, line_prefix: str):
+        if node.transform_id:
+            transform_obj = doc.get_by_file_id(node.transform_id)
+            if transform_obj:
+                tc = transform_obj.get_content() or {}
+                visible = {
+                    k: v
+                    for k, v in tc.items()
+                    if k not in transform_skip_keys and v not in ({}, None) and not _is_default_transform_value(k, v)
+                }
+                if visible:
+                    t_type = "RectTransform" if transform_obj.class_id == 224 else "Transform"
+                    click.echo(f"{line_prefix}  [{t_type}]")
+                    prop_indent = f"{line_prefix}    "
+                    for key, val in visible.items():
+                        display_key = key
+                        if key.startswith("m_"):
+                            display_key = key[2:3].lower() + key[3:]
+                        click.echo(f"{prop_indent}{display_key}: {format_value(val, prop_indent)}")
+
+        for comp in node.components:
+            comp_type = comp.script_name or comp.class_name
+            visible = {k: v for k, v in comp.data.items() if k not in skip_keys and v not in ({}, None)}
+            if not visible:
+                continue
+            click.echo(f"{line_prefix}  [{comp_type}]")
+            prop_indent = f"{line_prefix}    "
+            for key, value in visible.items():
+                click.echo(f"{prop_indent}{key}: {format_value(value, prop_indent)}")
+
+    def build_node_line(node):
         name = node.name
         if not get_active_state(node):
             name += " (inactive)"
         name += get_prefab_tag(node)
-
         comp_str = ""
         if not no_components and node.components:
             comp_names = []
@@ -2940,8 +3052,15 @@ def hierarchy_cmd(
                     comp_names.append(c.class_name)
             if comp_names:
                 comp_str = f" [{', '.join(comp_names)}]"
+        return f"{name}{comp_str}"
 
-        click.echo(f"{prefix}{connector}{name}{comp_str}")
+    def print_tree(node, prefix: str = "", is_last: bool = True, current_depth: int = 0):
+        connector = "└── " if is_last else "├── "
+        click.echo(f"{prefix}{connector}{build_node_line(node)}")
+
+        if detail:
+            detail_prefix = prefix + ("    " if is_last else "│   ")
+            print_detail(node, detail_prefix)
 
         if depth is not None and current_depth >= depth:
             return
@@ -2956,23 +3075,10 @@ def hierarchy_cmd(
 
     for i, root in enumerate(root_nodes):
         is_last_root = i == len(root_nodes) - 1
-        name = root.name
-        if not get_active_state(root):
-            name += " (inactive)"
-        name += get_prefab_tag(root)
+        click.echo(build_node_line(root))
 
-        comp_str = ""
-        if not no_components and root.components:
-            comp_names = []
-            for c in root.components:
-                if c.script_name:
-                    comp_names.append(c.script_name)
-                elif c.class_name and c.class_name not in ("Transform", "RectTransform"):
-                    comp_names.append(c.class_name)
-            if comp_names:
-                comp_str = f" [{', '.join(comp_names)}]"
-
-        click.echo(f"{name}{comp_str}")
+        if detail:
+            print_detail(root, "")
 
         children = root.children
         for j, child in enumerate(children):
@@ -3069,16 +3175,38 @@ def inspect_cmd(
     # Get active state from GameObject content
     is_active = go_content.get("m_IsActive", 1) == 1
 
-    def format_value(value):
+    def format_value(value, base_indent=""):
         resolved = humanize_references(value, guid_index, hier, resolved_project_root)
         if isinstance(resolved, str):
             return resolved if resolved else "None"
+        if isinstance(resolved, (int, float, bool)):
+            return str(resolved)
         if isinstance(resolved, dict):
+            if not resolved:
+                return "{}"
             if "fileID" in resolved:
                 return f"(unresolved ref fileID={resolved['fileID']})"
-            return "{...}"
+            keys = set(resolved.keys())
+            if keys <= {"x", "y", "z", "w"}:
+                vals = ", ".join(f"{k}: {resolved[k]}" for k in ("x", "y", "z", "w") if k in resolved)
+                return f"({vals})"
+            if keys <= {"r", "g", "b", "a"}:
+                vals = ", ".join(f"{k}: {resolved[k]}" for k in ("r", "g", "b", "a") if k in resolved)
+                return f"({vals})"
+            child_indent = base_indent + "  "
+            lines = []
+            for k, v in resolved.items():
+                lines.append(f"{child_indent}{k}: {format_value(v, child_indent)}")
+            return "\n" + "\n".join(lines)
         if isinstance(resolved, list):
-            return f"[{len(resolved)} items]"
+            if not resolved:
+                return "[]"
+            child_indent = base_indent + "  "
+            str_items = [format_value(item, child_indent) for item in resolved]
+            if all("\n" not in s for s in str_items) and sum(len(s) for s in str_items) < 80:
+                return f"[{', '.join(str_items)}]"
+            lines = [f"{child_indent}- {s}" for s in str_items]
+            return "\n" + "\n".join(lines)
         return str(resolved)
 
     click.echo(f"GameObject: {node.name}")
@@ -3160,7 +3288,7 @@ def inspect_cmd(
         else:
             click.echo(f"[{comp_type}]")
 
-        skip_keys = {
+        inspect_skip_keys = {
             "m_ObjectHideFlags",
             "m_CorrespondingSourceObject",
             "m_PrefabInstance",
@@ -3168,10 +3296,14 @@ def inspect_cmd(
             "m_GameObject",
             "m_Enabled",
             "m_Script",
+            "m_EditorHideFlags",
+            "m_EditorClassIdentifier",
+            "m_Name",
+            "serializedVersion",
         }
         for key, value in comp.data.items():
-            if key not in skip_keys:
-                click.echo(f"  {key}: {format_value(value)}")
+            if key not in inspect_skip_keys:
+                click.echo(f"  {key}: {format_value(value, '  ')}")
 
         click.echo()
 
