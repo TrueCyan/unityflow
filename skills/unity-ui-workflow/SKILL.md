@@ -26,6 +26,13 @@ uvx unityflow inspect Scene.unity "Canvas/Panel/Button"
 uvx unityflow get Scene.unity "Canvas/Panel/Image/m_Color"
 ```
 
+hierarchy shows PrefabInstance source paths when project root is available:
+
+```
+├── btn_save [Prefab: Assets/UI/common/btn_save.prefab]
+├── board_title [Prefab: Assets/UI/common/board_title.prefab]
+```
+
 ---
 
 ## References
@@ -127,6 +134,15 @@ uvx unityflow create MainMenu.prefab --name "MainMenu" --type rect-transform
 
 ---
 
+## GameObject Properties (batch)
+
+```bash
+# Set multiple GameObject properties at once
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --batch '{"m_Layer": 5, "m_IsActive": 0}'
+```
+
+---
+
 ## Adding/Removing Components and Objects
 
 ```bash
@@ -141,6 +157,22 @@ uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-object "@Assets/Pref
 
 # Move component order
 uvx unityflow set Prefab.prefab --path "Canvas/Panel" --move-component "Mask[0]" --before "Image"
+```
+
+---
+
+## PrefabInstance Properties
+
+Nested prefab instances can be edited with the same path syntax:
+
+```bash
+uvx unityflow set Prefab.prefab \
+    --path "Canvas/MyButton/m_Layer" \
+    --value "5"
+
+uvx unityflow set Prefab.prefab \
+    --path "Canvas/MyButton" \
+    --batch '{"m_Layer": 5, "m_TagString": "Player"}'
 ```
 
 ## Multiple Components of Same Type

@@ -42,6 +42,12 @@ uvx unityflow hierarchy Player.prefab --no-components
 uvx unityflow hierarchy Scene.unity --depth 2
 ```
 
+hierarchy shows PrefabInstance source paths when project root is available:
+
+```
+├── MyButton [Prefab: Assets/Prefabs/Button.prefab]
+```
+
 ### Inspect and Get
 
 ```bash
@@ -62,9 +68,15 @@ uvx unityflow set Player.prefab \
     --path "Player/Transform/m_LocalPosition" \
     --value '{"x": 0, "y": 5, "z": 0}'
 
+# Batch on component
 uvx unityflow set Scene.unity \
     --path "Player/MonoBehaviour" \
     --batch '{"speed": 5.0, "health": 100}'
+
+# Batch on GameObject (m_Layer, m_IsActive, etc.)
+uvx unityflow set Player.prefab \
+    --path "Player" \
+    --batch '{"m_Layer": 5, "m_IsActive": 0}'
 ```
 
 ### Asset References (@)
@@ -116,6 +128,22 @@ uvx unityflow set Player.prefab --path "Player" --remove-component "OldComponent
 
 # Move component order
 uvx unityflow set file.prefab --path "Root" --move-component "Mask[0]" --before "Image"
+```
+
+---
+
+## PrefabInstance Properties
+
+Nested prefab instances can be edited with the same path syntax:
+
+```bash
+uvx unityflow set file.prefab \
+    --path "Root/MyButton/m_Layer" \
+    --value "5"
+
+uvx unityflow set file.prefab \
+    --path "Root/MyButton" \
+    --batch '{"m_Layer": 5, "m_TagString": "Player"}'
 ```
 
 ---

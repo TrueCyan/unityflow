@@ -1208,3 +1208,173 @@ class TestSetAddRemoveObject:
         content = test_file.read_text()
         assert "aabb000011112222aabb000011112222" in content
         assert "eeee000011112222eeee000011112222" not in content
+
+    def test_set_batch_on_gameobject(self, runner, tmp_path):
+        import shutil
+
+        from unityflow.parser import UnityYAMLDocument
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab",
+                "--batch",
+                '{"m_Layer": 5, "m_IsActive": 0}',
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Set 2 fields" in result.output
+
+        doc = UnityYAMLDocument.load(test_file)
+        go = None
+        for game_obj in doc.get_game_objects():
+            content = game_obj.get_content()
+            if content and content.get("m_Name") == "BasicPrefab":
+                go = game_obj
+                break
+        assert go is not None
+        go_content = go.get_content()
+        assert go_content["m_Layer"] == 5
+        assert go_content["m_IsActive"] == 0
+
+    def test_set_value_on_gameobject_single_part_path(self, runner, tmp_path):
+        import shutil
+
+        from unityflow.parser import UnityYAMLDocument
+
+        test_file = tmp_path / "basic.prefab"
+        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "BasicPrefab/m_Layer",
+                "--value",
+                "5",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        doc = UnityYAMLDocument.load(test_file)
+        go = None
+        for game_obj in doc.get_game_objects():
+            content = game_obj.get_content()
+            if content and content.get("m_Name") == "BasicPrefab":
+                go = game_obj
+                break
+        assert go is not None
+        assert go.get_content()["m_Layer"] == 5
+
+
+class TestHierarchyCommand:
+
+    def test_hierarchy_prefab_source_path(self, runner, tmp_path):
+        import shutil
+
+        project_root = tmp_path / "project"
+        (project_root / "Assets").mkdir(parents=True)
+        (project_root / "ProjectSettings").mkdir()
+
+        test_file = project_root / "Assets" / "nested.prefab"
+        shutil.copy(FIXTURES_DIR / "nested_prefab.prefab", test_file)
+
+        source_prefab_dir = project_root / "Assets" / "Prefabs"
+        source_prefab_dir.mkdir(parents=True)
+        source_file = source_prefab_dir / "Button.prefab"
+        source_file.write_text(
+            "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n"
+            "--- !u!1 &9030983452208262516\nGameObject:\n  m_Name: Button\n"
+        )
+        source_meta = source_prefab_dir / "Button.prefab.meta"
+        source_meta.write_text("fileFormatVersion: 2\nguid: a0bd5a356d4dbf94f80d1eb788a92ca0\n")
+
+        result = runner.invoke(
+            main,
+            [
+                "hierarchy",
+                str(test_file),
+                "--project-root",
+                str(project_root),
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "[Prefab: Assets/Prefabs/Button.prefab]" in result.output
+
+
+class TestPrefabInstanceOverride:
+
+    def test_set_override_on_prefab_instance(self, runner, tmp_path):
+        import shutil
+
+        from unityflow.parser import UnityYAMLDocument
+
+        test_file = tmp_path / "nested.prefab"
+        shutil.copy(FIXTURES_DIR / "nested_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "RootCanvas/MyButton/m_Layer",
+                "--value",
+                "5",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "override" in result.output.lower() or "Override" in result.output
+
+        doc = UnityYAMLDocument.load(test_file)
+        pi = doc.get_by_file_id(7876467245726119373)
+        assert pi is not None
+        content = pi.get_content()
+        mods = content["m_Modification"]["m_Modifications"]
+        layer_mod = [m for m in mods if m.get("propertyPath") == "m_Layer"]
+        assert len(layer_mod) == 1
+        assert layer_mod[0]["value"] == 5
+
+    def test_batch_override_on_prefab_instance(self, runner, tmp_path):
+        import shutil
+
+        from unityflow.parser import UnityYAMLDocument
+
+        test_file = tmp_path / "nested.prefab"
+        shutil.copy(FIXTURES_DIR / "nested_prefab.prefab", test_file)
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "RootCanvas/MyButton",
+                "--batch",
+                '{"m_Layer": 5, "m_TagString": "Player"}',
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "override" in result.output.lower() or "Override" in result.output
+
+        doc = UnityYAMLDocument.load(test_file)
+        pi = doc.get_by_file_id(7876467245726119373)
+        content = pi.get_content()
+        mods = content["m_Modification"]["m_Modifications"]
+        layer_mod = [m for m in mods if m.get("propertyPath") == "m_Layer"]
+        tag_mod = [m for m in mods if m.get("propertyPath") == "m_TagString"]
+        assert len(layer_mod) == 1
+        assert len(tag_mod) == 1

@@ -980,8 +980,6 @@ def _resolve_component_path(
         return path_spec, None
 
     parts = path_spec.split("/")
-    if len(parts) < 2:
-        return None, f"Invalid path format: {path_spec}"
 
     # Build reverse mapping: class name -> class IDs
     name_to_ids: dict[str, list[int]] = {}
@@ -1009,6 +1007,12 @@ def _resolve_component_path(
         "inputsystemuiinputmodule",
         "light2d",
     }
+
+    if len(parts) == 1:
+        go_id, error = _resolve_gameobject_by_path(doc, parts[0])
+        if error:
+            return None, error
+        return f"gameObjects/{go_id}", None
 
     # Check if the LAST part is a component type (for batch mode - path ends with component)
     # e.g., "Canvas/Panel/RectTransform" -> path to the component itself, no property
@@ -1613,6 +1617,76 @@ def _handle_move_component(
         click.echo(f"Saved to: {output}")
 
 
+def _try_prefab_instance_override(
+    doc: UnityYAMLDocument,
+    path_spec: str,
+    value: str | None,
+    batch_values_json: str | None,
+    output_path: Path,
+    output: Path | None,
+    project_root: Path | None,
+) -> bool:
+    import json
+
+    from unityflow.hierarchy import Hierarchy
+
+    has_prefab_instance = any(obj.class_id == 1001 for obj in doc.objects)
+    if not has_prefab_instance:
+        return False
+
+    guid_index = None
+    if project_root:
+        from unityflow.asset_tracker import get_cached_guid_index
+
+        guid_index = get_cached_guid_index(project_root)
+
+    hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+
+    parts = path_spec.split("/")
+    for i in range(len(parts), 0, -1):
+        candidate = "/".join(parts[:i])
+        node = hier.find(candidate)
+        if node and node.is_prefab_instance:
+            remaining = parts[i:]
+            if batch_values_json is not None:
+                try:
+                    parsed_values = json.loads(batch_values_json)
+                except json.JSONDecodeError as e:
+                    click.echo(f"Error: Invalid JSON for --batch: {e}", err=True)
+                    sys.exit(1)
+                if not isinstance(parsed_values, dict):
+                    click.echo("Error: --batch value must be a JSON object", err=True)
+                    sys.exit(1)
+                count = 0
+                for key, val in parsed_values.items():
+                    prop_path = "/".join(remaining + [key]) if remaining else key
+                    if node.set_property(prop_path, val):
+                        count += 1
+                if count == 0:
+                    return False
+                _normalize_and_save(doc, output_path, project_root)
+                click.echo(f"Set {count} override(s) on PrefabInstance '{node.name}'")
+                if output:
+                    click.echo(f"Saved to: {output}")
+                return True
+            elif value is not None:
+                try:
+                    parsed_value = json.loads(value)
+                except json.JSONDecodeError:
+                    parsed_value = value
+                prop_path = "/".join(remaining) if remaining else ""
+                if not prop_path:
+                    return False
+                if node.set_property(prop_path, parsed_value):
+                    _normalize_and_save(doc, output_path, project_root)
+                    click.echo(f"Set override '{prop_path}' on PrefabInstance '{node.name}'")
+                    if output:
+                        click.echo(f"Saved to: {output}")
+                    return True
+            return False
+    return False
+
+
 def _handle_add_prefab(
     doc: UnityYAMLDocument,
     parent_path: str,
@@ -2215,6 +2289,10 @@ def set_value_cmd(
     # Handle --remove-object
     if remove_object is not None:
         _handle_remove_object(doc, set_path, remove_object, output_path, output, project_root)
+        return
+
+    # Try PrefabInstance override before normal path resolution
+    if _try_prefab_instance_override(doc, set_path, value, batch_values_json, output_path, output, project_root):
         return
 
     # Resolve path (convert "Player/Transform/localPosition" to "components/12345/localPosition")
@@ -2835,14 +2913,22 @@ def hierarchy_cmd(
                 return content.get("m_IsActive", 1) == 1
         return True
 
+    def get_prefab_tag(node) -> str:
+        if not node.is_prefab_instance:
+            return ""
+        if guid_index and node.source_guid:
+            source_path = guid_index.get_path(node.source_guid)
+            if source_path:
+                return f" [Prefab: {source_path}]"
+        return " [Prefab]"
+
     def print_tree(node, prefix: str = "", is_last: bool = True, current_depth: int = 0):
         connector = "└── " if is_last else "├── "
 
         name = node.name
         if not get_active_state(node):
             name += " (inactive)"
-        if node.is_prefab_instance:
-            name += " [Prefab]"
+        name += get_prefab_tag(node)
 
         comp_str = ""
         if not no_components and node.components:
@@ -2873,8 +2959,7 @@ def hierarchy_cmd(
         name = root.name
         if not get_active_state(root):
             name += " (inactive)"
-        if root.is_prefab_instance:
-            name += " [Prefab]"
+        name += get_prefab_tag(root)
 
         comp_str = ""
         if not no_components and root.components:
