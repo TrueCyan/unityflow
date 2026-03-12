@@ -3096,17 +3096,10 @@ def hierarchy_cmd(
     type=click.Path(exists=True, path_type=Path),
     help="Unity project root (auto-detected if not specified)",
 )
-@click.option(
-    "--detail",
-    is_flag=True,
-    default=False,
-    help="Show script source paths for MonoBehaviour components",
-)
 def inspect_cmd(
     file: Path,
     object_path: str | None,
     project_root: Path | None,
-    detail: bool,
 ) -> None:
     """Inspect a GameObject or component in detail.
 
@@ -3279,12 +3272,11 @@ def inspect_cmd(
 
     for comp in node.components:
         comp_type = comp.script_name or comp.class_name
-        if detail and comp.script_guid and guid_index:
+        script_path = None
+        if comp.script_guid and guid_index:
             script_path = guid_index.resolve_path(comp.script_guid)
-            if script_path:
-                click.echo(f"[{comp_type}] {script_path}")
-            else:
-                click.echo(f"[{comp_type}]")
+        if script_path:
+            click.echo(f"[{comp_type}] {script_path}")
         else:
             click.echo(f"[{comp_type}]")
 
