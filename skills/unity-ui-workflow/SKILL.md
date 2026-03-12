@@ -22,10 +22,13 @@ Edit Unity UI (UGUI) components using `unityflow` CLI.
 
 ```bash
 uvx unityflow hierarchy MainMenu.prefab
+uvx unityflow hierarchy MainMenu.prefab --detail
 uvx unityflow hierarchy MainMenu.prefab --no-components
 uvx unityflow inspect Scene.unity "Canvas/Panel/Button"
 uvx unityflow get Scene.unity "Canvas/Panel/Image/m_Color"
 ```
+
+`--detail` shows all component properties inline in the tree, hiding default transform values and internal fields.
 
 hierarchy shows PrefabInstance source paths when project root is available:
 

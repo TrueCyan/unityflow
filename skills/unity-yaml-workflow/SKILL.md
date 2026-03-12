@@ -39,9 +39,12 @@ Use unity-ui-workflow for UI-specific tasks. Use unity-animation-workflow for an
 
 ```bash
 uvx unityflow hierarchy Player.prefab
+uvx unityflow hierarchy Player.prefab --detail
 uvx unityflow hierarchy Player.prefab --no-components
 uvx unityflow hierarchy Scene.unity --depth 2
 ```
+
+`--detail` shows all component properties inline in the tree, hiding default transform values and internal fields.
 
 hierarchy shows PrefabInstance source paths when project root is available:
 
