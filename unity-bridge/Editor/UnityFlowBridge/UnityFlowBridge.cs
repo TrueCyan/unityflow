@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
 using UnityEditor;
 using UnityEngine;
 using UnityFlow.Bridge.Handlers;
@@ -19,9 +21,34 @@ namespace UnityFlow.Bridge
             {
                 EditorApplication.delayCall += () =>
                 {
-                    int port = EditorPrefs.GetInt(PortPref, DefaultPort);
-                    UnityFlowBridgeWindow.StartServer(port);
+                    int preferredPort = EditorPrefs.GetInt(PortPref, DefaultPort);
+                    int actualPort = FindAvailablePort(preferredPort);
+                    UnityFlowBridgeWindow.StartServer(actualPort);
                 };
+            }
+        }
+
+        private static int FindAvailablePort(int preferred)
+        {
+            for (int p = preferred; p < preferred + 100; p++)
+            {
+                if (IsPortAvailable(p)) return p;
+            }
+            return preferred;
+        }
+
+        private static bool IsPortAvailable(int port)
+        {
+            try
+            {
+                using var listener = new TcpListener(IPAddress.Loopback, port);
+                listener.Start();
+                listener.Stop();
+                return true;
+            }
+            catch (SocketException)
+            {
+                return false;
             }
         }
     }
@@ -68,10 +95,14 @@ namespace UnityFlow.Bridge
 
             _server.Start(port);
             _initialized = true;
+
+            InstanceRegistry.Register(port, Application.dataPath);
         }
 
         public static void StopServer()
         {
+            InstanceRegistry.Unregister();
+
             if (_server != null)
             {
                 _server.Stop();

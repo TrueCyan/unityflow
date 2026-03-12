@@ -161,6 +161,83 @@ class TestUnityClient:
             assert "id=12345" in url
 
 
+class TestAutoDiscovery:
+    def test_env_var_takes_precedence(self, monkeypatch, tmp_path):
+        from unityflow.bridge import config
+
+        registry = tmp_path / ".unityflow" / "instances.json"
+        registry.parent.mkdir(parents=True)
+        registry.write_text('[{"port": 29185, "projectPath": "/some/project", "pid": 1}]')
+
+        monkeypatch.setattr(config, "_REGISTRY_PATH", registry)
+        monkeypatch.setenv("UNITY_BRIDGE_PORT", "9999")
+        assert config.get_port() == 9999
+
+    def test_discover_from_registry(self, monkeypatch, tmp_path):
+        from unityflow.bridge import config
+
+        project_dir = tmp_path / "MyProject"
+        project_dir.mkdir()
+
+        registry = tmp_path / ".unityflow" / "instances.json"
+        registry.parent.mkdir(parents=True)
+        registry.write_text(
+            f'[{{"port": 29185, "projectPath": "{project_dir.as_posix()}", "pid": 1, "startedAt": ""}}]'
+        )
+
+        monkeypatch.setattr(config, "_REGISTRY_PATH", registry)
+        monkeypatch.delenv("UNITY_BRIDGE_PORT", raising=False)
+        monkeypatch.chdir(project_dir)
+        assert config.get_port() == 29185
+
+    def test_subdirectory_matches_project(self, monkeypatch, tmp_path):
+        from unityflow.bridge import config
+
+        project_dir = tmp_path / "MyProject"
+        sub_dir = project_dir / "Assets" / "Scripts"
+        sub_dir.mkdir(parents=True)
+
+        registry = tmp_path / ".unityflow" / "instances.json"
+        registry.parent.mkdir(parents=True)
+        registry.write_text(
+            f'[{{"port": 29186, "projectPath": "{project_dir.as_posix()}", "pid": 1, "startedAt": ""}}]'
+        )
+
+        monkeypatch.setattr(config, "_REGISTRY_PATH", registry)
+        monkeypatch.delenv("UNITY_BRIDGE_PORT", raising=False)
+        monkeypatch.chdir(sub_dir)
+        assert config.get_port() == 29186
+
+    def test_no_registry_falls_back_to_default(self, monkeypatch, tmp_path):
+        from unityflow.bridge import config
+
+        monkeypatch.setattr(config, "_REGISTRY_PATH", tmp_path / "nonexistent.json")
+        monkeypatch.delenv("UNITY_BRIDGE_PORT", raising=False)
+        assert config.get_port() == 29184
+
+    def test_no_matching_project_falls_back(self, monkeypatch, tmp_path):
+        from unityflow.bridge import config
+
+        registry = tmp_path / ".unityflow" / "instances.json"
+        registry.parent.mkdir(parents=True)
+        registry.write_text('[{"port": 29185, "projectPath": "/other/project", "pid": 1, "startedAt": ""}]')
+
+        monkeypatch.setattr(config, "_REGISTRY_PATH", registry)
+        monkeypatch.delenv("UNITY_BRIDGE_PORT", raising=False)
+        monkeypatch.chdir(tmp_path)
+        assert config.get_port() == 29184
+
+    def test_corrupt_registry_falls_back(self, monkeypatch, tmp_path):
+        from unityflow.bridge import config
+
+        registry = tmp_path / "instances.json"
+        registry.write_text("not json at all")
+
+        monkeypatch.setattr(config, "_REGISTRY_PATH", registry)
+        monkeypatch.delenv("UNITY_BRIDGE_PORT", raising=False)
+        assert config.get_port() == 29184
+
+
 class TestMcpServerImport:
     def test_server_module_imports(self):
         from unityflow.bridge.server import mcp
