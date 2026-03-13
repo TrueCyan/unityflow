@@ -41,7 +41,7 @@ namespace UnityFlow.Bridge
         {
             try
             {
-                using var listener = new TcpListener(IPAddress.Loopback, port);
+                var listener = new TcpListener(IPAddress.Loopback, port);
                 listener.Start();
                 listener.Stop();
                 return true;

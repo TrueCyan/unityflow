@@ -110,6 +110,7 @@ namespace UnityEngine
     {
         public static string unityVersion;
         public static string productName;
+        public static string dataPath;
         public static event System.Action<string, string, LogType> logMessageReceived;
     }
     public enum LogType { Log, Warning, Error, Exception, Assert }
