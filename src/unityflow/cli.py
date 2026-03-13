@@ -2895,6 +2895,7 @@ def hierarchy_cmd(
     # Build hierarchy
     try:
         hier = build_hierarchy(doc, guid_index=guid_index)
+        hier.load_all_nested_prefabs()
     except Exception as e:
         click.echo(f"Error: Failed to build hierarchy: {e}", err=True)
         sys.exit(1)
@@ -3144,6 +3145,7 @@ def inspect_cmd(
     # Build hierarchy
     try:
         hier = build_hierarchy(doc, guid_index=guid_index)
+        hier.load_all_nested_prefabs()
     except Exception as e:
         click.echo(f"Error: Failed to build hierarchy: {e}", err=True)
         sys.exit(1)
