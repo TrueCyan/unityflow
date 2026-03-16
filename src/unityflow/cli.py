@@ -1297,12 +1297,12 @@ def _handle_add_component(
     explicit_script_guid: str | None = None,
     before: str | None = None,
 ) -> None:
-    from unityflow.asset_tracker import get_cached_guid_index
+    from unityflow.asset_tracker import get_lazy_guid_index
     from unityflow.formats import CLASS_NAME_TO_ID
     from unityflow.hierarchy import Hierarchy
     from unityflow.parser import CLASS_IDS, UnityYAMLObject
 
-    guid_index = get_cached_guid_index(project_root, include_packages=True) if project_root else None
+    guid_index = get_lazy_guid_index(project_root, include_packages=True) if project_root else None
     hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
     target_node = hier.find(go_path)
@@ -1532,10 +1532,10 @@ def _handle_remove_component(
     output: Path | None,
     project_root: Path | None,
 ) -> None:
-    from unityflow.asset_tracker import get_cached_guid_index
+    from unityflow.asset_tracker import get_lazy_guid_index
     from unityflow.hierarchy import Hierarchy
 
-    guid_index = get_cached_guid_index(project_root) if project_root else None
+    guid_index = get_lazy_guid_index(project_root, include_packages=True) if project_root else None
     hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
     target_node = hier.find(go_path)
@@ -1581,10 +1581,10 @@ def _handle_move_component(
     output: Path | None,
     project_root: Path | None,
 ) -> None:
-    from unityflow.asset_tracker import get_cached_guid_index
+    from unityflow.asset_tracker import get_lazy_guid_index
     from unityflow.hierarchy import Hierarchy
 
-    guid_index = get_cached_guid_index(project_root) if project_root else None
+    guid_index = get_lazy_guid_index(project_root, include_packages=True) if project_root else None
     hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
     target_node = hier.find(go_path)
@@ -1652,9 +1652,9 @@ def _try_prefab_instance_override(
 
     guid_index = None
     if project_root:
-        from unityflow.asset_tracker import get_cached_guid_index
+        from unityflow.asset_tracker import get_lazy_guid_index
 
-        guid_index = get_cached_guid_index(project_root)
+        guid_index = get_lazy_guid_index(project_root, include_packages=True)
 
     hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
     hier.load_all_nested_prefabs()
@@ -1714,10 +1714,10 @@ def _handle_add_prefab(
     project_root: Path | None,
 ) -> None:
     from unityflow.asset_resolver import get_guid_from_meta, parse_asset_reference
-    from unityflow.asset_tracker import get_cached_guid_index
+    from unityflow.asset_tracker import get_lazy_guid_index
     from unityflow.hierarchy import Hierarchy
 
-    guid_index = get_cached_guid_index(project_root) if project_root else None
+    guid_index = get_lazy_guid_index(project_root, include_packages=True) if project_root else None
     hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
 
     parent_node = hier.find(parent_path)
@@ -2347,9 +2347,9 @@ def set_value_cmd(
         has_asset_refs = _contains_asset_reference(parsed_values)
         guid_index = None
         if (has_internal_refs or has_asset_refs) and project_root:
-            from unityflow.asset_tracker import get_cached_guid_index
+            from unityflow.asset_tracker import get_lazy_guid_index
 
-            guid_index = get_cached_guid_index(project_root)
+            guid_index = get_lazy_guid_index(project_root, include_packages=True)
         batch_hier = None
         if has_internal_refs and guid_index:
             batch_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
@@ -2394,9 +2394,9 @@ def set_value_cmd(
 
         guid_index = None
         if (is_internal_ref or is_asset_ref) and project_root:
-            from unityflow.asset_tracker import get_cached_guid_index
+            from unityflow.asset_tracker import get_lazy_guid_index
 
-            guid_index = get_cached_guid_index(project_root)
+            guid_index = get_lazy_guid_index(project_root, include_packages=True)
         single_hier = None
         if is_internal_ref and guid_index:
             single_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
