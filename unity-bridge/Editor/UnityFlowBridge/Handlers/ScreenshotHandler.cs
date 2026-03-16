@@ -156,8 +156,7 @@ namespace UnityFlow.Bridge.Handlers
                 SceneManager.MoveGameObjectToScene(holder, previewScene);
                 holder.SetActive(false);
 
-                var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, previewScene);
-                instance.transform.SetParent(holder.transform, false);
+                var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, holder.transform);
 
                 SuppressSideEffects(instance);
 
@@ -171,6 +170,12 @@ namespace UnityFlow.Bridge.Handlers
                     worldCanvas = SetupUIForCapture(instance);
 
                 var bounds = isUI ? CalculateUIBounds(instance) : CalculateBounds(instance);
+
+                if (isUI && bounds.extents.x < 0.01f && bounds.extents.y < 0.01f)
+                {
+                    bounds = CalculateBounds(instance);
+                    isUI = false;
+                }
 
                 var camGo = new GameObject("PreviewCamera");
                 SceneManager.MoveGameObjectToScene(camGo, previewScene);
@@ -332,6 +337,9 @@ namespace UnityFlow.Bridge.Handlers
 
         private static void SetupLighting(Scene previewScene)
         {
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.5f, 0.5f, 0.5f, 1f);
+
             var lightGo = new GameObject("PreviewLight");
             SceneManager.MoveGameObjectToScene(lightGo, previewScene);
             var light = lightGo.AddComponent<Light>();

@@ -198,6 +198,11 @@ namespace UnityEngine
         public static void FlexibleSpace() {}
         public static GUILayoutOption Width(float w) => null;
     }
+    public class RenderSettings
+    {
+        public static UnityEngine.Rendering.AmbientMode ambientMode;
+        public static Color ambientLight;
+    }
 }
 
 namespace UnityEngine.Rendering
@@ -207,6 +212,7 @@ namespace UnityEngine.Rendering
         public static RenderPipelineAsset currentRenderPipeline;
     }
     public class RenderPipelineAsset : UnityEngine.Object { }
+    public enum AmbientMode { Skybox, Trilight, Flat, Custom }
 }
 
 namespace UnityEngine.SceneManagement
@@ -297,7 +303,11 @@ namespace UnityEditor
         public static UnityEngine.Texture2D GetAssetPreview(UnityEngine.Object o) => null;
         public static void SetPreviewTextureCacheSize(int s) {}
     }
-    public class PrefabUtility { public static UnityEngine.Object InstantiatePrefab(UnityEngine.Object o, UnityEngine.SceneManagement.Scene s) => null; }
+    public class PrefabUtility
+    {
+        public static UnityEngine.Object InstantiatePrefab(UnityEngine.Object o, UnityEngine.SceneManagement.Scene s) => null;
+        public static UnityEngine.Object InstantiatePrefab(UnityEngine.Object o, UnityEngine.Transform parent) => null;
+    }
     public class SerializedObject : System.IDisposable
     {
         public SerializedObject(UnityEngine.Object o) {}
