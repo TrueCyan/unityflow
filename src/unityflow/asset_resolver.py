@@ -643,11 +643,53 @@ def _resolve_file_id_for_asset(
     return _get_main_object_file_id(meta_path)
 
 
+def _make_ref_for_node(node: Any) -> dict[str, Any]:
+    """Build a fileID reference dict for a hierarchy node.
+
+    For nodes in the current document, returns {"fileID": X}.
+    For nodes loaded from nested prefabs, returns {"fileID": X, "guid": Y, "type": 3}
+    using the source prefab's GUID so Unity can resolve the correct instance.
+    When outer_file_id is available (stripped object), uses that for same-file reference.
+    """
+    outer = getattr(node, "outer_file_id", 0)
+    if outer:
+        return {"fileID": outer}
+
+    is_nested = getattr(node, "is_from_nested_prefab", False)
+    if is_nested:
+        pi_node = _find_ancestor_prefab_instance(node)
+        if pi_node and pi_node.source_guid:
+            return {"fileID": node.file_id, "guid": pi_node.source_guid, "type": 3}
+
+    return {"fileID": node.file_id}
+
+
+def _make_ref_for_component(comp: Any, parent_node: Any) -> dict[str, Any]:
+    """Build a fileID reference dict for a component on a hierarchy node."""
+    is_nested = getattr(parent_node, "is_from_nested_prefab", False)
+    if is_nested:
+        pi_node = _find_ancestor_prefab_instance(parent_node)
+        if pi_node and pi_node.source_guid:
+            return {"fileID": comp.file_id, "guid": pi_node.source_guid, "type": 3}
+
+    return {"fileID": comp.file_id}
+
+
+def _find_ancestor_prefab_instance(node: Any) -> Any:
+    """Walk up the hierarchy to find the nearest PrefabInstance ancestor."""
+    current = getattr(node, "parent", None)
+    while current is not None:
+        if getattr(current, "is_prefab_instance", False):
+            return current
+        current = getattr(current, "parent", None)
+    return None
+
+
 def resolve_internal_reference(
     value: str,
     doc: Any,
     hierarchy: Any,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Resolve an internal # reference to a fileID dict.
 
     Resolution strategy:
@@ -658,7 +700,7 @@ def resolve_internal_reference(
 
     target_node = hierarchy.find(raw_path)
     if target_node is not None:
-        return {"fileID": target_node.file_id}
+        return _make_ref_for_node(target_node)
 
     parts = raw_path.rsplit("/", 1)
     if len(parts) == 2:
@@ -684,14 +726,12 @@ def resolve_internal_reference(
             if matches:
                 if comp_index is not None:
                     if comp_index < len(matches):
-                        return {"fileID": matches[comp_index].file_id}
+                        return _make_ref_for_component(matches[comp_index], parent_node)
                     raise ValueError(
                         f"Component index [{comp_index}] out of range. "
                         f"Found {len(matches)} '{comp_name}' on '{parent_path}'"
                     )
-                if len(matches) == 1:
-                    return {"fileID": matches[0].file_id}
-                return {"fileID": matches[0].file_id}
+                return _make_ref_for_component(matches[0], parent_node)
 
             raise ValueError(f"Component '{comp_name}' not found on '{parent_path}'")
 

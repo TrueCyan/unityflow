@@ -169,6 +169,7 @@ class HierarchyNode:
     modifications: list[dict[str, Any]] = field(default_factory=list)
     is_from_nested_prefab: bool = False
     nested_prefab_loaded: bool = False
+    outer_file_id: int = 0
     _document: UnityYAMLDocument | None = field(default=None, repr=False)
     _hierarchy: Hierarchy | None = field(default=None, repr=False)
 
@@ -523,6 +524,34 @@ class HierarchyNode:
         finally:
             _loading_prefabs.discard(self.source_guid)
 
+    def _build_source_to_outer_map(self) -> dict[int, int]:
+        """Build source fileID → outer document stripped fileID mapping.
+
+        Stripped objects in the outer document have m_CorrespondingSourceObject
+        that points to the source prefab's fileID. This mapping allows converting
+        source prefab fileIDs to outer document fileIDs for correct internal references.
+        """
+        source_to_outer: dict[int, int] = {}
+        if self._hierarchy is None or self._document is None:
+            return source_to_outer
+
+        outer_doc = self._hierarchy._document
+        if outer_doc is None:
+            return source_to_outer
+
+        stripped_ids = self._hierarchy._prefab_instances.get(self.file_id, [])
+        for stripped_id in stripped_ids:
+            stripped_obj = outer_doc.get_by_file_id(stripped_id)
+            if stripped_obj and stripped_obj.stripped:
+                content = stripped_obj.get_content()
+                if content:
+                    source_ref = content.get("m_CorrespondingSourceObject", {})
+                    source_fid = source_ref.get("fileID", 0) if isinstance(source_ref, dict) else 0
+                    if source_fid:
+                        source_to_outer[source_fid] = stripped_id
+
+        return source_to_outer
+
     def _merge_nested_node(
         self,
         source_node: HierarchyNode,
@@ -539,6 +568,9 @@ class HierarchyNode:
             guid_index: GUIDIndex for script resolution
             loading_prefabs: Set of GUIDs being loaded (for circular reference prevention)
         """
+        # Build source fileID → outer stripped fileID mapping
+        source_to_outer = self._build_source_to_outer_map()
+
         # Group modifications by target fileID for component linking
         mods_by_target: dict[int, list[dict[str, Any]]] = {}
         for mod in self.modifications:
@@ -566,19 +598,10 @@ class HierarchyNode:
                 )
             )
 
-        # Resolve instance name from modifications (m_Name override)
-        instance_name = source_node.name
-        for mod in self.modifications:
-            if mod.get("propertyPath") == "m_Name":
-                target = mod.get("target", {})
-                if target.get("fileID") == source_node.file_id:
-                    instance_name = str(mod.get("value", instance_name))
-                    break
-
         # Create a copy of the node marked as from nested prefab
         merged_node = HierarchyNode(
             file_id=source_node.file_id,
-            name=instance_name,
+            name=source_node.name,
             transform_id=source_node.transform_id,
             is_ui=source_node.is_ui,
             parent=self,
@@ -592,6 +615,7 @@ class HierarchyNode:
             modifications=list(source_node.modifications),
             is_from_nested_prefab=True,
             nested_prefab_loaded=source_node.nested_prefab_loaded,
+            outer_file_id=source_to_outer.get(source_node.file_id, 0),
             _document=source_node._document,
             _hierarchy=self._hierarchy,
         )
@@ -600,7 +624,7 @@ class HierarchyNode:
 
         # Recursively merge children with inherited modifications
         for child in source_node.children:
-            merged_node._merge_nested_child(child, guid_index, loading_prefabs, mods_by_target)
+            merged_node._merge_nested_child(child, guid_index, loading_prefabs, mods_by_target, source_to_outer)
 
         if merged_node.is_prefab_instance and not merged_node.nested_prefab_loaded and merged_node.source_guid:
             merged_node.load_source_prefab(guid_index=guid_index, _loading_prefabs=loading_prefabs)
@@ -611,6 +635,7 @@ class HierarchyNode:
         guid_index: GUIDIndex | None,
         loading_prefabs: set[str],
         mods_by_target: dict[int, list[dict[str, Any]]] | None = None,
+        source_to_outer: dict[int, int] | None = None,
     ) -> None:
         """Recursively merge child nodes from nested prefab.
 
@@ -619,6 +644,7 @@ class HierarchyNode:
             guid_index: GUIDIndex for script resolution
             loading_prefabs: Set of GUIDs being loaded (for circular reference prevention)
             mods_by_target: Modifications grouped by target fileID (from parent PrefabInstance)
+            source_to_outer: Source fileID → outer document stripped fileID mapping
         """
         # Copy components with modifications linked
         merged_components = []
@@ -637,18 +663,11 @@ class HierarchyNode:
                 )
             )
 
-        # Resolve instance name from modifications (m_Name override)
-        child_name = source_child.name
-        if mods_by_target:
-            go_mods = mods_by_target.get(source_child.file_id, [])
-            for mod in go_mods:
-                if mod.get("propertyPath") == "m_Name":
-                    child_name = str(mod.get("value", child_name))
-                    break
+        outer_fid = source_to_outer.get(source_child.file_id, 0) if source_to_outer else 0
 
         merged_child = HierarchyNode(
             file_id=source_child.file_id,
-            name=child_name,
+            name=source_child.name,
             transform_id=source_child.transform_id,
             is_ui=source_child.is_ui,
             parent=self,
@@ -662,6 +681,7 @@ class HierarchyNode:
             modifications=list(source_child.modifications),
             is_from_nested_prefab=True,
             nested_prefab_loaded=source_child.nested_prefab_loaded,
+            outer_file_id=outer_fid,
             _document=source_child._document,
             _hierarchy=self._hierarchy,
         )
@@ -670,7 +690,7 @@ class HierarchyNode:
 
         # Recursively merge grandchildren
         for grandchild in source_child.children:
-            merged_child._merge_nested_child(grandchild, guid_index, loading_prefabs, mods_by_target)
+            merged_child._merge_nested_child(grandchild, guid_index, loading_prefabs, mods_by_target, source_to_outer)
 
         if merged_child.is_prefab_instance and not merged_child.nested_prefab_loaded and merged_child.source_guid:
             merged_child.load_source_prefab(guid_index=guid_index, _loading_prefabs=loading_prefabs)
