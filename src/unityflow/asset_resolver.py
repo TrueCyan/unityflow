@@ -758,17 +758,16 @@ def _make_ref_for_node(node: Any, doc: Any = None, use_game_object: bool = False
             pi_ids = [a.file_id for a in ancestors]
             local_id = _compute_chained_file_id(pi_ids, ref_id)
             nearest_pi = ancestors[0]
-            outer_pi_ids = pi_ids[1:] if len(pi_ids) > 1 else []
-            outer_pi_file_id = (
-                _compute_chained_file_id(outer_pi_ids, nearest_pi.file_id) if outer_pi_ids else nearest_pi.file_id
-            )
+            outermost_pi = ancestors[-1]
+            inner_pi_ids = pi_ids[:-1] if len(pi_ids) > 1 else []
+            corr_source_id = _compute_chained_file_id(inner_pi_ids, ref_id) if inner_pi_ids else ref_id
             _ensure_stripped_entry(
                 doc,
                 local_id,
                 ref_class_id,
-                ref_id,
+                corr_source_id,
                 nearest_pi.source_guid,
-                outer_pi_file_id,
+                outermost_pi.file_id,
             )
             return {"fileID": local_id}
 
@@ -784,17 +783,16 @@ def _make_ref_for_component(comp: Any, parent_node: Any, doc: Any = None) -> dic
             pi_ids = [a.file_id for a in ancestors]
             local_id = _compute_chained_file_id(pi_ids, comp.file_id)
             nearest_pi = ancestors[0]
-            outer_pi_ids = pi_ids[1:] if len(pi_ids) > 1 else []
-            outer_pi_file_id = (
-                _compute_chained_file_id(outer_pi_ids, nearest_pi.file_id) if outer_pi_ids else nearest_pi.file_id
-            )
+            outermost_pi = ancestors[-1]
+            inner_pi_ids = pi_ids[:-1] if len(pi_ids) > 1 else []
+            corr_source_id = _compute_chained_file_id(inner_pi_ids, comp.file_id) if inner_pi_ids else comp.file_id
             _ensure_stripped_entry(
                 doc,
                 local_id,
                 comp.class_id,
-                comp.file_id,
+                corr_source_id,
                 nearest_pi.source_guid,
-                outer_pi_file_id,
+                outermost_pi.file_id,
             )
             return {"fileID": local_id}
 
