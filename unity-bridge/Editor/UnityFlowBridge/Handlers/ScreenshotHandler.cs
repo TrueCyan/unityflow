@@ -163,13 +163,13 @@ namespace UnityFlow.Bridge.Handlers
                 instance.transform.SetParent(null, false);
                 holder.SetActive(true);
 
-                RebuildTextMeshPro(instance);
-
                 bool isUI = instance.GetComponentsInChildren<Canvas>().Length > 0;
 
                 Canvas worldCanvas = null;
                 if (isUI)
                     worldCanvas = SetupUIForCapture(instance);
+
+                RebuildTextMeshPro(instance);
 
                 var bounds = isUI ? CalculateUIBounds(instance) : CalculateBounds(instance);
 
@@ -181,6 +181,9 @@ namespace UnityFlow.Bridge.Handlers
 
                 if (bounds.size.sqrMagnitude < 0.001f)
                     bounds = new Bounds(instance.transform.position, Vector3.one);
+
+                var prevScene = SceneManager.GetActiveScene();
+                SceneManager.SetActiveScene(previewScene);
 
                 var camGo = new GameObject("PreviewCamera");
                 SceneManager.MoveGameObjectToScene(camGo, previewScene);
@@ -206,6 +209,8 @@ namespace UnityFlow.Bridge.Handlers
 
                 cam.targetTexture = rt;
                 cam.Render();
+
+                SceneManager.SetActiveScene(prevScene);
 
                 var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
                 RenderTexture.active = rt;
@@ -292,19 +297,14 @@ namespace UnityFlow.Bridge.Handlers
 
             foreach (var canvas in canvases)
             {
-                if (canvas.transform.parent == null ||
-                    canvas.transform.parent.GetComponent<Canvas>() == null)
-                {
+                canvas.renderMode = RenderMode.WorldSpace;
+
+                if (rootCanvas == null)
                     rootCanvas = canvas;
-                    break;
-                }
             }
 
-            if (rootCanvas == null && canvases.Length > 0)
-                rootCanvas = canvases[0];
-
-            if (rootCanvas != null)
-                rootCanvas.renderMode = RenderMode.WorldSpace;
+            foreach (var scaler in instance.GetComponentsInChildren<CanvasScaler>())
+                scaler.enabled = false;
 
             return rootCanvas;
         }

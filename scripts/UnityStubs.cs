@@ -232,6 +232,8 @@ namespace UnityEngine.SceneManagement
     public class SceneManager
     {
         public static Scene GetSceneByPath(string p) => default;
+        public static Scene GetActiveScene() => default;
+        public static bool SetActiveScene(Scene scene) => true;
         public static void MoveGameObjectToScene(GameObject go, Scene s) {}
         public static int sceneCountInBuildSettings => 0;
     }
