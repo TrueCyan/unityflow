@@ -22,7 +22,9 @@ namespace UnityEngine
         public T GetComponent<T>() where T : class => default;
         public T[] GetComponents<T>() where T : class => new T[0];
         public T[] GetComponentsInChildren<T>() where T : class => new T[0];
+        public T[] GetComponentsInChildren<T>(bool includeInactive) where T : class => new T[0];
         public T AddComponent<T>() where T : Component => default;
+        public Component AddComponent(System.Type t) => null;
         public static GameObject Find(string name) => null;
         public bool activeSelf => true;
         public string tag;
@@ -83,6 +85,8 @@ namespace UnityEngine
         public Color backgroundColor;
         public float nearClipPlane;
         public float farClipPlane;
+        public bool orthographic;
+        public float orthographicSize;
         public UnityEngine.SceneManagement.Scene scene;
     }
     public enum CameraClearFlags { Skybox, SolidColor, Depth, Nothing }
@@ -116,6 +120,18 @@ namespace UnityEngine
     public enum LogType { Log, Warning, Error, Exception, Assert }
     public class Renderer : Behaviour { public Bounds bounds; }
     public class Collider : Behaviour { }
+    public class Canvas : Behaviour
+    {
+        public RenderMode renderMode;
+        public Camera worldCamera;
+    }
+    public class CanvasScaler : Behaviour { }
+    public class CanvasRenderer : Component { }
+    public enum RenderMode { ScreenSpaceOverlay, ScreenSpaceCamera, WorldSpace }
+    public class RectTransform : Transform
+    {
+        public void GetWorldCorners(Vector3[] fourCornersArray) {}
+    }
     public class Light : Behaviour { public LightType type; public float intensity; }
     public enum LightType { Directional, Point, Spot }
     public class Animator : Behaviour
@@ -178,6 +194,15 @@ namespace UnityEngine
         public static void FlexibleSpace() {}
         public static GUILayoutOption Width(float w) => null;
     }
+}
+
+namespace UnityEngine.Rendering
+{
+    public class GraphicsSettings
+    {
+        public static RenderPipelineAsset currentRenderPipeline;
+    }
+    public class RenderPipelineAsset : UnityEngine.Object { }
 }
 
 namespace UnityEngine.SceneManagement

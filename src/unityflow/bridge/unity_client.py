@@ -57,8 +57,11 @@ class UnityClient:
     def screenshot(self, view="scene", width=1024, height=768):
         return self.get_png("/api/screenshot", {"view": view, "width": width, "height": height})
 
-    def prefab_preview(self, path, width=512, height=512, mode="render"):
-        return self.get_png("/api/prefab_preview", {"path": path, "width": width, "height": height, "mode": mode})
+    def prefab_preview(self, path, width=512, height=512, mode="render", angle=None):
+        params = {"path": path, "width": width, "height": height, "mode": mode}
+        if angle:
+            params["angle"] = angle
+        return self.get_png("/api/prefab_preview", params)
 
     def hierarchy(self, scene_path=None):
         return self.get_json("/api/hierarchy", {"scene": scene_path})

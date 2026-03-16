@@ -10,6 +10,22 @@ namespace UnityFlow.Bridge.Handlers
 {
     public static class ScreenshotHandler
     {
+        private static readonly Vector3[] AnglePresets = new Vector3[]
+        {
+            new Vector3(0.5f, 0.7f, -1f),   // default (isometric)
+            new Vector3(0f, 0f, -1f),         // front
+            new Vector3(0f, 0f, 1f),          // back
+            new Vector3(-1f, 0f, 0f),         // left
+            new Vector3(1f, 0f, 0f),          // right
+            new Vector3(0f, 1f, 0f),          // top
+            new Vector3(0f, -1f, 0f),         // bottom
+        };
+
+        private static readonly string[] AngleNames = new string[]
+        {
+            "default", "front", "back", "left", "right", "top", "bottom"
+        };
+
         public static void Register(UnityFlowHttpServer server)
         {
             server.RegisterBinaryRoute("/api/screenshot", HandleScreenshot);
@@ -79,6 +95,7 @@ namespace UnityFlow.Bridge.Handlers
         {
             string prefabPath = request.QueryString["path"];
             string mode = request.QueryString["mode"] ?? "preview";
+            string angle = request.QueryString["angle"];
             int width = ParseInt(request.QueryString["width"], 512);
             int height = ParseInt(request.QueryString["height"], 512);
             width = Mathf.Clamp(width, 64, 2048);
@@ -102,7 +119,7 @@ namespace UnityFlow.Bridge.Handlers
             if (mode == "preview")
                 return CaptureAssetPreview(prefab, width, height, ctx);
 
-            return CaptureOffscreenRender(prefab, width, height, ctx);
+            return CaptureOffscreenRender(prefab, width, height, angle, ctx);
         }
 
         private static byte[] CaptureAssetPreview(GameObject prefab, int width, int height, RequestContext ctx)
@@ -116,7 +133,7 @@ namespace UnityFlow.Bridge.Handlers
 
             if (preview == null)
             {
-                return CaptureOffscreenRender(prefab, width, height, ctx);
+                return CaptureOffscreenRender(prefab, width, height, null, ctx);
             }
 
             var readableTex = new Texture2D(preview.width, preview.height, preview.format, false);
@@ -128,7 +145,8 @@ namespace UnityFlow.Bridge.Handlers
             return png;
         }
 
-        private static byte[] CaptureOffscreenRender(GameObject prefab, int width, int height, RequestContext ctx)
+        private static byte[] CaptureOffscreenRender(
+            GameObject prefab, int width, int height, string angle, RequestContext ctx)
         {
             var previewScene = EditorSceneManager.NewPreviewScene();
 
@@ -137,7 +155,15 @@ namespace UnityFlow.Bridge.Handlers
                 var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, previewScene);
                 SceneManager.MoveGameObjectToScene(instance, previewScene);
 
-                var bounds = CalculateBounds(instance);
+                SuppressSideEffects(instance);
+
+                bool isUI = instance.GetComponentsInChildren<Canvas>().Length > 0;
+
+                Canvas worldCanvas = null;
+                if (isUI)
+                    worldCanvas = SetupUIForCapture(instance);
+
+                var bounds = isUI ? CalculateUIBounds(instance) : CalculateBounds(instance);
 
                 var camGo = new GameObject("PreviewCamera");
                 SceneManager.MoveGameObjectToScene(camGo, previewScene);
@@ -146,28 +172,21 @@ namespace UnityFlow.Bridge.Handlers
                 cam.clearFlags = CameraClearFlags.SolidColor;
                 cam.backgroundColor = new Color(0.2f, 0.2f, 0.2f, 1f);
 
-                float maxExtent = Mathf.Max(bounds.extents.x, bounds.extents.y, bounds.extents.z);
-                float distance = maxExtent * 2.5f;
-                cam.transform.position = bounds.center + new Vector3(0.5f, 0.7f, -1f).normalized * distance;
-                cam.transform.LookAt(bounds.center);
-                cam.nearClipPlane = distance * 0.01f;
-                cam.farClipPlane = distance * 10f;
+                TrySetupRenderPipeline(camGo);
 
-                var lightGo = new GameObject("PreviewLight");
-                SceneManager.MoveGameObjectToScene(lightGo, previewScene);
-                var light = lightGo.AddComponent<Light>();
-                light.type = LightType.Directional;
-                lightGo.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
-                light.intensity = 1.0f;
+                if (isUI)
+                    SetupUICameraPosition(cam, bounds);
+                else
+                    Setup3DCameraPosition(cam, bounds, ResolveAngle(angle));
 
-                var fillGo = new GameObject("FillLight");
-                SceneManager.MoveGameObjectToScene(fillGo, previewScene);
-                var fill = fillGo.AddComponent<Light>();
-                fill.type = LightType.Directional;
-                fillGo.transform.rotation = Quaternion.Euler(-20f, 120f, 0f);
-                fill.intensity = 0.5f;
+                if (!isUI)
+                    SetupLighting(previewScene);
 
                 var rt = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.ARGB32);
+
+                if (isUI && worldCanvas != null)
+                    worldCanvas.worldCamera = cam;
+
                 cam.targetTexture = rt;
                 cam.Render();
 
@@ -188,6 +207,138 @@ namespace UnityFlow.Bridge.Handlers
             {
                 EditorSceneManager.ClosePreviewScene(previewScene);
             }
+        }
+
+        private static void SuppressSideEffects(GameObject instance)
+        {
+            var monoBehaviours = instance.GetComponentsInChildren<MonoBehaviour>();
+            foreach (var mb in monoBehaviours)
+            {
+                if (mb == null)
+                    continue;
+                var typeName = mb.GetType().FullName;
+                if (typeName != null &&
+                    (typeName.StartsWith("UnityEngine.UI.") ||
+                     typeName == "UnityEngine.Canvas" ||
+                     typeName == "UnityEngine.CanvasScaler" ||
+                     typeName == "UnityEngine.CanvasRenderer"))
+                    continue;
+                mb.enabled = false;
+            }
+        }
+
+        private static Canvas SetupUIForCapture(GameObject instance)
+        {
+            var canvases = instance.GetComponentsInChildren<Canvas>();
+            Canvas rootCanvas = null;
+
+            foreach (var canvas in canvases)
+            {
+                if (canvas.transform.parent == null ||
+                    canvas.transform.parent.GetComponent<Canvas>() == null)
+                {
+                    rootCanvas = canvas;
+                    break;
+                }
+            }
+
+            if (rootCanvas == null && canvases.Length > 0)
+                rootCanvas = canvases[0];
+
+            if (rootCanvas != null)
+                rootCanvas.renderMode = RenderMode.WorldSpace;
+
+            return rootCanvas;
+        }
+
+        private static Bounds CalculateUIBounds(GameObject go)
+        {
+            var rectTransforms = go.GetComponentsInChildren<RectTransform>();
+            if (rectTransforms.Length == 0)
+                return new Bounds(go.transform.position, Vector3.one);
+
+            var first = rectTransforms[0];
+            var corners = new Vector3[4];
+            first.GetWorldCorners(corners);
+            var bounds = new Bounds(corners[0], Vector3.zero);
+            for (int i = 1; i < 4; i++)
+                bounds.Encapsulate(corners[i]);
+
+            for (int i = 1; i < rectTransforms.Length; i++)
+            {
+                rectTransforms[i].GetWorldCorners(corners);
+                for (int j = 0; j < 4; j++)
+                    bounds.Encapsulate(corners[j]);
+            }
+
+            return bounds;
+        }
+
+        private static void SetupUICameraPosition(Camera cam, Bounds bounds)
+        {
+            cam.orthographic = true;
+            float orthoHeight = bounds.extents.y;
+            float orthoWidth = bounds.extents.x;
+            cam.orthographicSize = Mathf.Max(orthoHeight, orthoWidth) * 1.05f;
+            cam.transform.position = bounds.center + new Vector3(0f, 0f, -10f);
+            cam.transform.LookAt(bounds.center);
+            cam.nearClipPlane = 0.1f;
+            cam.farClipPlane = 100f;
+        }
+
+        private static void Setup3DCameraPosition(Camera cam, Bounds bounds, Vector3 direction)
+        {
+            float maxExtent = Mathf.Max(bounds.extents.x, bounds.extents.y, bounds.extents.z);
+            float distance = maxExtent * 2.5f;
+            cam.transform.position = bounds.center + direction.normalized * distance;
+            cam.transform.LookAt(bounds.center);
+            cam.nearClipPlane = distance * 0.01f;
+            cam.farClipPlane = distance * 10f;
+        }
+
+        private static void SetupLighting(Scene previewScene)
+        {
+            var lightGo = new GameObject("PreviewLight");
+            SceneManager.MoveGameObjectToScene(lightGo, previewScene);
+            var light = lightGo.AddComponent<Light>();
+            light.type = LightType.Directional;
+            lightGo.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+            light.intensity = 1.0f;
+
+            var fillGo = new GameObject("FillLight");
+            SceneManager.MoveGameObjectToScene(fillGo, previewScene);
+            var fill = fillGo.AddComponent<Light>();
+            fill.type = LightType.Directional;
+            fillGo.transform.rotation = Quaternion.Euler(-20f, 120f, 0f);
+            fill.intensity = 0.5f;
+        }
+
+        private static void TrySetupRenderPipeline(GameObject camGo)
+        {
+            var pipelineAsset = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+            if (pipelineAsset == null)
+                return;
+
+            var urpDataType = Type.GetType(
+                "UnityEngine.Rendering.Universal.UniversalAdditionalCameraData, Unity.RenderPipelines.Universal.Runtime");
+            if (urpDataType == null)
+                return;
+
+            camGo.AddComponent(urpDataType);
+        }
+
+        private static Vector3 ResolveAngle(string angle)
+        {
+            if (string.IsNullOrEmpty(angle))
+                return AnglePresets[0];
+
+            for (int i = 0; i < AngleNames.Length; i++)
+            {
+                if (string.Equals(AngleNames[i], angle, StringComparison.OrdinalIgnoreCase))
+                    return AnglePresets[i];
+            }
+
+            return AnglePresets[0];
         }
 
         private static Bounds CalculateBounds(GameObject go)

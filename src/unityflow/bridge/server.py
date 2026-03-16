@@ -35,19 +35,31 @@ def capture_screenshot(view: str = "scene", width: int = 1024, height: int = 768
 
 
 @mcp.tool()
-def capture_prefab_preview(prefab_path: str, width: int = 512, height: int = 512, mode: str = "render") -> Image:
+def capture_prefab_preview(
+    prefab_path: str,
+    width: int = 512,
+    height: int = 512,
+    mode: str = "render",
+    angle: str = "default",
+) -> Image:
     """Render a preview of a Unity prefab.
+
+    Automatically detects UI (Canvas-based) prefabs and renders them with an
+    orthographic front-facing camera. 3D prefabs use perspective with lighting.
+
+    Non-rendering MonoBehaviours are disabled during capture to suppress side effects.
 
     Args:
         prefab_path: Asset path of the prefab (e.g. "Assets/Prefabs/Player.prefab")
         width: Image width in pixels (64-2048)
         height: Image height in pixels (64-2048)
-        mode: "preview" for AssetPreview thumbnail, "render" for full offscreen render with lighting
+        mode: "preview" for AssetPreview thumbnail, "render" for full offscreen render
+        angle: Camera angle for 3D prefabs: "default", "front", "back", "left", "right", "top", "bottom"
 
     Returns:
         PNG image of the prefab
     """
-    png_data = _client.prefab_preview(path=prefab_path, width=width, height=height, mode=mode)
+    png_data = _client.prefab_preview(path=prefab_path, width=width, height=height, mode=mode, angle=angle)
     return Image(data=png_data, format="png")
 
 
