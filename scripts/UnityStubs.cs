@@ -11,7 +11,7 @@ namespace UnityEngine
         public static T Instantiate<T>(T original) where T : Object => original;
         public static Object Instantiate(Object original) => original;
     }
-    public class Component : Object { public GameObject gameObject; }
+    public class Component : Object { public GameObject gameObject; public Transform transform; }
     public class Behaviour : Component { public bool enabled; }
     public class MonoBehaviour : Behaviour { }
     public class GameObject : Object
@@ -73,6 +73,7 @@ namespace UnityEngine
         public Vector3 size;
         public Bounds(Vector3 center, Vector3 size) { this.center = center; this.size = size; this.extents = size; }
         public void Encapsulate(Bounds b) {}
+        public void Encapsulate(Vector3 point) {}
     }
     public struct Quaternion { public static Quaternion identity; public static Quaternion Euler(float x, float y, float z) => identity; public Vector3 eulerAngles; }
     public class Camera : Behaviour
