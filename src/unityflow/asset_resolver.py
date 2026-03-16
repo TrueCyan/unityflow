@@ -667,7 +667,13 @@ def _ensure_stripped_entry(
     """
     if doc is None:
         return
-    if doc.get_by_file_id(local_id) is not None:
+
+    existing = doc.get_by_file_id(local_id)
+    if existing is not None:
+        content = existing.get_content()
+        if content:
+            content["m_PrefabInstance"] = {"fileID": pi_file_id}
+            content["m_CorrespondingSourceObject"] = {"fileID": source_file_id, "guid": source_guid, "type": 3}
         return
 
     from unityflow.parser import UnityYAMLObject
