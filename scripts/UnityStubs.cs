@@ -41,6 +41,7 @@ namespace UnityEngine
         public Transform GetChild(int i) => null;
         public Transform parent;
         public void LookAt(Vector3 target) {}
+        public T GetComponent<T>() where T : class => default;
     }
     public struct Vector2 { public float x, y; }
     public struct Vector3
