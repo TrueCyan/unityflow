@@ -27,6 +27,7 @@ namespace UnityEngine
         public Component AddComponent(System.Type t) => null;
         public static GameObject Find(string name) => null;
         public bool activeSelf => true;
+        public void SetActive(bool value) {}
         public string tag;
         public int layer;
     }
@@ -41,6 +42,7 @@ namespace UnityEngine
         public Transform GetChild(int i) => null;
         public Transform parent;
         public void LookAt(Vector3 target) {}
+        public void SetParent(Transform parent, bool worldPositionStays) {}
         public T GetComponent<T>() where T : class => default;
     }
     public struct Vector2 { public float x, y; }

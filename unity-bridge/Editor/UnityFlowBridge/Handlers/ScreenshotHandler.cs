@@ -152,10 +152,17 @@ namespace UnityFlow.Bridge.Handlers
 
             try
             {
+                var holder = new GameObject("__holder__");
+                SceneManager.MoveGameObjectToScene(holder, previewScene);
+                holder.SetActive(false);
+
                 var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, previewScene);
-                SceneManager.MoveGameObjectToScene(instance, previewScene);
+                instance.transform.SetParent(holder.transform, false);
 
                 SuppressSideEffects(instance);
+
+                instance.transform.SetParent(null, false);
+                holder.SetActive(true);
 
                 bool isUI = instance.GetComponentsInChildren<Canvas>().Length > 0;
 
@@ -211,20 +218,47 @@ namespace UnityFlow.Bridge.Handlers
 
         private static void SuppressSideEffects(GameObject instance)
         {
-            var monoBehaviours = instance.GetComponentsInChildren<MonoBehaviour>();
+            var monoBehaviours = instance.GetComponentsInChildren<MonoBehaviour>(true);
             foreach (var mb in monoBehaviours)
             {
                 if (mb == null)
                     continue;
                 var typeName = mb.GetType().FullName;
-                if (typeName != null &&
-                    (typeName.StartsWith("UnityEngine.UI.") ||
-                     typeName == "UnityEngine.Canvas" ||
-                     typeName == "UnityEngine.CanvasScaler" ||
-                     typeName == "UnityEngine.CanvasRenderer"))
+                if (typeName == null)
+                    continue;
+                if (IsRenderingComponent(typeName))
                     continue;
                 mb.enabled = false;
             }
+        }
+
+        private static bool IsRenderingComponent(string typeName)
+        {
+            if (typeName.StartsWith("UnityEngine.UI."))
+                return true;
+            if (typeName.StartsWith("TMPro."))
+                return true;
+            if (typeName.StartsWith("UnityEngine.Rendering."))
+                return true;
+
+            switch (typeName)
+            {
+                case "UnityEngine.Canvas":
+                case "UnityEngine.CanvasScaler":
+                case "UnityEngine.CanvasRenderer":
+                case "UnityEngine.CanvasGroup":
+                case "UnityEngine.Animator":
+                case "UnityEngine.Animation":
+                case "UnityEngine.SpriteRenderer":
+                case "UnityEngine.MeshRenderer":
+                case "UnityEngine.SkinnedMeshRenderer":
+                case "UnityEngine.ParticleSystemRenderer":
+                case "UnityEngine.LineRenderer":
+                case "UnityEngine.TrailRenderer":
+                    return true;
+            }
+
+            return false;
         }
 
         private static Canvas SetupUIForCapture(GameObject instance)
@@ -324,7 +358,9 @@ namespace UnityFlow.Bridge.Handlers
             if (urpDataType == null)
                 return;
 
-            camGo.AddComponent(urpDataType);
+            var urpData = camGo.AddComponent(urpDataType);
+            var setRendererMethod = urpDataType.GetMethod("SetRenderer", new[] { typeof(int) });
+            setRendererMethod?.Invoke(urpData, new object[] { 0 });
         }
 
         private static Vector3 ResolveAngle(string angle)
