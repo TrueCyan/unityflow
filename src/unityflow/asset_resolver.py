@@ -757,7 +757,6 @@ def _make_ref_for_node(node: Any, doc: Any = None, use_game_object: bool = False
         if ancestors:
             pi_ids = [a.file_id for a in ancestors]
             local_id = _compute_chained_file_id(pi_ids, ref_id)
-            nearest_pi = ancestors[0]
             outermost_pi = ancestors[-1]
             inner_pi_ids = pi_ids[:-1] if len(pi_ids) > 1 else []
             corr_source_id = _compute_chained_file_id(inner_pi_ids, ref_id) if inner_pi_ids else ref_id
@@ -766,7 +765,7 @@ def _make_ref_for_node(node: Any, doc: Any = None, use_game_object: bool = False
                 local_id,
                 ref_class_id,
                 corr_source_id,
-                nearest_pi.source_guid,
+                outermost_pi.source_guid,
                 outermost_pi.file_id,
             )
             return {"fileID": local_id}
@@ -782,7 +781,6 @@ def _make_ref_for_component(comp: Any, parent_node: Any, doc: Any = None) -> dic
         if ancestors:
             pi_ids = [a.file_id for a in ancestors]
             local_id = _compute_chained_file_id(pi_ids, comp.file_id)
-            nearest_pi = ancestors[0]
             outermost_pi = ancestors[-1]
             inner_pi_ids = pi_ids[:-1] if len(pi_ids) > 1 else []
             corr_source_id = _compute_chained_file_id(inner_pi_ids, comp.file_id) if inner_pi_ids else comp.file_id
@@ -791,7 +789,7 @@ def _make_ref_for_component(comp: Any, parent_node: Any, doc: Any = None) -> dic
                 local_id,
                 comp.class_id,
                 corr_source_id,
-                nearest_pi.source_guid,
+                outermost_pi.source_guid,
                 outermost_pi.file_id,
             )
             return {"fileID": local_id}
