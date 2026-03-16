@@ -23,6 +23,7 @@ namespace UnityEngine
         public T[] GetComponents<T>() where T : class => new T[0];
         public T[] GetComponentsInChildren<T>() where T : class => new T[0];
         public T[] GetComponentsInChildren<T>(bool includeInactive) where T : class => new T[0];
+        public Component[] GetComponentsInChildren(System.Type t, bool includeInactive) => new Component[0];
         public T AddComponent<T>() where T : Component => default;
         public Component AddComponent(System.Type t) => null;
         public static GameObject Find(string name) => null;
@@ -52,6 +53,7 @@ namespace UnityEngine
         public static Vector3 zero;
         public static Vector3 one;
         public Vector3 normalized => this;
+        public float sqrMagnitude => x * x + y * y + z * z;
         public static Vector3 operator +(Vector3 a, Vector3 b) => a;
         public static Vector3 operator *(Vector3 a, float b) => a;
         public Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
@@ -74,7 +76,7 @@ namespace UnityEngine
         public Vector3 center;
         public Vector3 extents;
         public Vector3 size;
-        public Bounds(Vector3 center, Vector3 size) { this.center = center; this.size = size; this.extents = size; }
+        public Bounds(Vector3 center, Vector3 size) { this.center = center; this.size = new Vector3 { x = size.x, y = size.y, z = size.z }; this.extents = size; }
         public void Encapsulate(Bounds b) {}
         public void Encapsulate(Vector3 point) {}
     }
@@ -202,6 +204,7 @@ namespace UnityEngine
     {
         public static UnityEngine.Rendering.AmbientMode ambientMode;
         public static Color ambientLight;
+        public static float ambientIntensity;
     }
 }
 

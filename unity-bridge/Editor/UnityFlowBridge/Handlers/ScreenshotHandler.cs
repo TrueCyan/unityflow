@@ -163,6 +163,8 @@ namespace UnityFlow.Bridge.Handlers
                 instance.transform.SetParent(null, false);
                 holder.SetActive(true);
 
+                RebuildTextMeshPro(instance);
+
                 bool isUI = instance.GetComponentsInChildren<Canvas>().Length > 0;
 
                 Canvas worldCanvas = null;
@@ -171,11 +173,14 @@ namespace UnityFlow.Bridge.Handlers
 
                 var bounds = isUI ? CalculateUIBounds(instance) : CalculateBounds(instance);
 
-                if (isUI && bounds.extents.x < 0.01f && bounds.extents.y < 0.01f)
+                if (bounds.size.sqrMagnitude < 0.001f)
                 {
                     bounds = CalculateBounds(instance);
                     isUI = false;
                 }
+
+                if (bounds.size.sqrMagnitude < 0.001f)
+                    bounds = new Bounds(instance.transform.position, Vector3.one);
 
                 var camGo = new GameObject("PreviewCamera");
                 SceneManager.MoveGameObjectToScene(camGo, previewScene);
@@ -266,6 +271,20 @@ namespace UnityFlow.Bridge.Handlers
             return false;
         }
 
+        private static void RebuildTextMeshPro(GameObject instance)
+        {
+            var tmpTextType = Type.GetType("TMPro.TMP_Text, Unity.TextMeshPro");
+            if (tmpTextType == null)
+                return;
+
+            var forceMeshUpdate = tmpTextType.GetMethod("ForceMeshUpdate", Type.EmptyTypes);
+            if (forceMeshUpdate == null)
+                return;
+
+            foreach (var comp in instance.GetComponentsInChildren(tmpTextType, true))
+                forceMeshUpdate.Invoke(comp, null);
+        }
+
         private static Canvas SetupUIForCapture(GameObject instance)
         {
             var canvases = instance.GetComponentsInChildren<Canvas>();
@@ -339,6 +358,7 @@ namespace UnityFlow.Bridge.Handlers
         {
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(0.5f, 0.5f, 0.5f, 1f);
+            RenderSettings.ambientIntensity = 1.0f;
 
             var lightGo = new GameObject("PreviewLight");
             SceneManager.MoveGameObjectToScene(lightGo, previewScene);
