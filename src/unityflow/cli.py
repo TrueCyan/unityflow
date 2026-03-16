@@ -91,7 +91,23 @@ def main() -> None:
     A tool for canonical serialization of Unity YAML files (.prefab, .unity,
     .asset, etc.) to eliminate non-deterministic changes and reduce VCS noise.
     """
-    pass
+    import io
+
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    elif sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    elif sys.stderr.encoding and sys.stderr.encoding.lower() not in ("utf-8", "utf8"):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 
 @main.command()
@@ -1641,6 +1657,7 @@ def _try_prefab_instance_override(
         guid_index = get_cached_guid_index(project_root)
 
     hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+    hier.load_all_nested_prefabs()
 
     parts = path_spec.split("/")
     for i in range(len(parts), 0, -1):
@@ -3150,12 +3167,22 @@ def inspect_cmd(
         click.echo(f"Error: Failed to build hierarchy: {e}", err=True)
         sys.exit(1)
 
-    # Find target node
+    # Find target node (and optional component filter)
+    component_filter = None
     if object_path:
         node = hier.find(object_path)
         if node is None:
-            click.echo(f"Error: Object not found: {object_path}", err=True)
-            sys.exit(1)
+            # Try treating the last segment as a component type
+            last_slash = object_path.rfind("/")
+            if last_slash > 0:
+                go_path = object_path[:last_slash]
+                comp_part = object_path[last_slash + 1 :]
+                node = hier.find(go_path)
+                if node is not None:
+                    component_filter = comp_part
+            if node is None:
+                click.echo(f"Error: Object not found: {object_path}", err=True)
+                sys.exit(1)
     else:
         # Use first root
         if not hier.root_objects:
@@ -3272,8 +3299,42 @@ def inspect_cmd(
 
             click.echo()
 
+    # Parse component filter index (e.g., "Image[1]")
+    filter_name = None
+    filter_index = None
+    if component_filter:
+        filter_match = re.match(r"^(.+)\[(\d+)\]$", component_filter)
+        if filter_match:
+            filter_name = filter_match.group(1)
+            filter_index = int(filter_match.group(2))
+        else:
+            filter_name = component_filter
+
+    inspect_skip_keys = {
+        "m_ObjectHideFlags",
+        "m_CorrespondingSourceObject",
+        "m_PrefabInstance",
+        "m_PrefabAsset",
+        "m_GameObject",
+        "m_Enabled",
+        "m_Script",
+        "m_EditorHideFlags",
+        "m_EditorClassIdentifier",
+        "m_Name",
+        "serializedVersion",
+    }
+
+    filter_match_count = 0
     for comp in node.components:
         comp_type = comp.script_name or comp.class_name
+        if filter_name:
+            if comp_type.lower() != filter_name.lower() and comp.class_name.lower() != filter_name.lower():
+                continue
+            if filter_index is not None and filter_match_count != filter_index:
+                filter_match_count += 1
+                continue
+            filter_match_count += 1
+
         script_path = None
         if comp.script_guid and guid_index:
             script_path = guid_index.resolve_path(comp.script_guid)
@@ -3282,24 +3343,14 @@ def inspect_cmd(
         else:
             click.echo(f"[{comp_type}]")
 
-        inspect_skip_keys = {
-            "m_ObjectHideFlags",
-            "m_CorrespondingSourceObject",
-            "m_PrefabInstance",
-            "m_PrefabAsset",
-            "m_GameObject",
-            "m_Enabled",
-            "m_Script",
-            "m_EditorHideFlags",
-            "m_EditorClassIdentifier",
-            "m_Name",
-            "serializedVersion",
-        }
         for key, value in comp.data.items():
             if key not in inspect_skip_keys:
                 click.echo(f"  {key}: {format_value(value, '  ')}")
 
         click.echo()
+
+    if filter_name and filter_match_count == 0:
+        click.echo(f"Warning: No component '{filter_name}' found on '{node.name}'", err=True)
 
 
 @main.command(name="refs")
