@@ -689,82 +689,125 @@ def _ensure_stripped_entry(
     doc.add_object(obj)
 
 
-def _make_ref_for_node(node: Any, doc: Any = None) -> dict[str, Any]:
+def _compute_chained_file_id(ancestor_pi_ids: list[int], source_object_id: int) -> int:
+    """Compute the local fileID by XOR-chaining all ancestor PrefabInstance IDs.
+
+    For N-level nesting: localID = PI_0 ^ PI_1 ^ ... ^ PI_N ^ source_object_id
+    All masked with 0x7FFFFFFFFFFFFFFF.
+    """
+    result = source_object_id
+    for pi_id in ancestor_pi_ids:
+        result ^= pi_id
+    return result & 0x7FFFFFFFFFFFFFFF
+
+
+def _collect_ancestor_prefab_instances(node: Any) -> list[Any]:
+    """Collect all ancestor PrefabInstance nodes from innermost to outermost."""
+    ancestors = []
+    current = getattr(node, "parent", None)
+    while current is not None:
+        if getattr(current, "is_prefab_instance", False):
+            ancestors.append(current)
+        current = getattr(current, "parent", None)
+    return ancestors
+
+
+def _get_node_ref_id(node: Any) -> tuple[int, int]:
+    """Get the reference fileID and class_id for a node.
+
+    When a bare #path points to a GameObject, Unity typically expects the
+    Transform/RectTransform component, not the GameObject itself (matching
+    Unity Editor drag-and-drop behavior). Returns (fileID, class_id).
+    """
+    transform_id = getattr(node, "transform_id", 0)
+    if transform_id:
+        is_ui = getattr(node, "is_ui", False)
+        class_id = 224 if is_ui else 4
+        return transform_id, class_id
+    return node.file_id, 1
+
+
+def _make_ref_for_node(node: Any, doc: Any = None, use_game_object: bool = False) -> dict[str, Any]:
     """Build a fileID reference dict for a hierarchy node.
 
-    For nodes in the current document, returns {"fileID": X}.
-    For nodes loaded from nested prefabs, computes the local fileID
-    using XOR(PrefabInstance.fileID, source.fileID) and ensures a
-    stripped entry exists in the document.
+    For bare #path references (no component suffix), returns the
+    Transform/RectTransform fileID to match Unity Editor behavior.
+    When use_game_object=True, returns the GameObject fileID instead.
+    For nested prefab nodes, computes the local fileID by XOR-chaining
+    all ancestor PrefabInstance fileIDs.
     """
+    if use_game_object:
+        ref_id, ref_class_id = node.file_id, 1
+    else:
+        ref_id, ref_class_id = _get_node_ref_id(node)
+
     outer = getattr(node, "outer_file_id", 0)
     if outer:
         return {"fileID": outer}
 
     is_nested = getattr(node, "is_from_nested_prefab", False)
     if is_nested:
-        pi_node = _find_ancestor_prefab_instance(node)
-        if pi_node:
-            local_id = _compute_nested_file_id(pi_node.file_id, node.file_id)
+        ancestors = _collect_ancestor_prefab_instances(node)
+        if ancestors:
+            pi_ids = [a.file_id for a in ancestors]
+            local_id = _compute_chained_file_id(pi_ids, ref_id)
+            nearest_pi = ancestors[0]
             _ensure_stripped_entry(
                 doc,
                 local_id,
-                1,
-                node.file_id,
-                pi_node.source_guid,
-                pi_node.file_id,
+                ref_class_id,
+                ref_id,
+                nearest_pi.source_guid,
+                nearest_pi.file_id,
             )
             return {"fileID": local_id}
 
-    return {"fileID": node.file_id}
+    return {"fileID": ref_id}
 
 
 def _make_ref_for_component(comp: Any, parent_node: Any, doc: Any = None) -> dict[str, Any]:
     """Build a fileID reference dict for a component on a hierarchy node."""
     is_nested = getattr(parent_node, "is_from_nested_prefab", False)
     if is_nested:
-        pi_node = _find_ancestor_prefab_instance(parent_node)
-        if pi_node:
-            local_id = _compute_nested_file_id(pi_node.file_id, comp.file_id)
+        ancestors = _collect_ancestor_prefab_instances(parent_node)
+        if ancestors:
+            pi_ids = [a.file_id for a in ancestors]
+            local_id = _compute_chained_file_id(pi_ids, comp.file_id)
+            nearest_pi = ancestors[0]
             _ensure_stripped_entry(
                 doc,
                 local_id,
                 comp.class_id,
                 comp.file_id,
-                pi_node.source_guid,
-                pi_node.file_id,
+                nearest_pi.source_guid,
+                nearest_pi.file_id,
             )
             return {"fileID": local_id}
 
     return {"fileID": comp.file_id}
 
 
-def _find_ancestor_prefab_instance(node: Any) -> Any:
-    """Walk up the hierarchy to find the nearest PrefabInstance ancestor."""
-    current = getattr(node, "parent", None)
-    while current is not None:
-        if getattr(current, "is_prefab_instance", False):
-            return current
-        current = getattr(current, "parent", None)
-    return None
-
-
 def resolve_internal_reference(
     value: str,
     doc: Any,
     hierarchy: Any,
+    field_type: str | None = None,
 ) -> dict[str, Any]:
     """Resolve an internal # reference to a fileID dict.
 
     Resolution strategy:
     1. Try the full path as a GameObject path
     2. If not found, split last segment as component type on its parent
+
+    When field_type is "GameObject", returns the GameObject fileID instead of
+    the default Transform/RectTransform.
     """
     raw_path = value[1:] if value.startswith("#") else value
 
     target_node = hierarchy.find(raw_path)
     if target_node is not None:
-        return _make_ref_for_node(target_node, doc=doc)
+        use_game_object = field_type == "GameObject" if field_type else False
+        return _make_ref_for_node(target_node, doc=doc, use_game_object=use_game_object)
 
     parts = raw_path.rsplit("/", 1)
     if len(parts) == 2:
@@ -802,6 +845,69 @@ def resolve_internal_reference(
     raise ValueError(f"Internal reference not found: {raw_path}")
 
 
+_UNITY_BUILTIN_TYPES = frozenset(
+    {
+        "GameObject",
+        "Transform",
+        "RectTransform",
+        "Object",
+        "Sprite",
+        "Texture2D",
+        "Material",
+        "Mesh",
+        "AudioClip",
+        "AnimationClip",
+        "RuntimeAnimatorController",
+        "Font",
+        "Shader",
+        "TextAsset",
+        "ScriptableObject",
+    }
+)
+
+
+def _try_resolve_prefab_component(
+    result: AssetResolveResult,
+    field_type: str,
+    project_root: Path | None,
+    guid_index: Any,
+) -> dict[str, Any] | None:
+    """Try to resolve a prefab asset reference to a specific component inside.
+
+    When field_type is a MonoBehaviour (not a Unity built-in type), the reference
+    should point to the component inside the prefab, not the prefab asset itself.
+    """
+    if field_type in _UNITY_BUILTIN_TYPES:
+        return None
+
+    from unityflow.hierarchy import Hierarchy
+    from unityflow.parser import UnityYAMLDocument
+
+    prefab_path = None
+    if project_root and result.asset_path:
+        prefab_path = project_root / result.asset_path
+    if prefab_path is None or not prefab_path.exists():
+        return None
+
+    try:
+        source_doc = UnityYAMLDocument.load(prefab_path)
+        source_hier = Hierarchy.build(source_doc, guid_index=guid_index)
+    except Exception:
+        return None
+
+    for root in source_hier.root_objects:
+        for comp in root.components:
+            comp_name = comp.script_name or comp.class_name
+            if comp_name == field_type:
+                return {
+                    "fileID": comp.file_id,
+                    "guid": result.guid,
+                    "type": REF_TYPE_SOURCE,
+                }
+
+    return None
+
+
 def resolve_value(
     value: Any,
     project_root: Path | None = None,
@@ -809,6 +915,8 @@ def resolve_value(
     doc: Any = None,
     hierarchy: Any = None,
     guid_index: Any = None,
+    field_type: str | None = None,
+    script_info: Any = None,
 ) -> Any:
     """Resolve a value, converting asset/internal references to Unity reference dicts.
 
@@ -844,20 +952,45 @@ def resolve_value(
                 asset_type = get_asset_type_from_extension(suffix)
                 validate_asset_type_for_field(field_name, result.asset_path, asset_type)
 
+            if field_type and result.asset_path and Path(result.asset_path).suffix.lower() == ".prefab":
+                component_ref = _try_resolve_prefab_component(
+                    result,
+                    field_type,
+                    project_root,
+                    guid_index,
+                )
+                if component_ref is not None:
+                    return component_ref
+
             return result.to_dict()
 
         if is_internal_reference(value):
             if doc is None or hierarchy is None:
                 raise ValueError(f"Internal reference '{value}' requires document context")
-            return resolve_internal_reference(value, doc, hierarchy)
+            return resolve_internal_reference(value, doc, hierarchy, field_type=field_type)
 
         return value
 
     elif isinstance(value, dict):
-        return {
-            k: resolve_value(v, project_root, field_name=k, doc=doc, hierarchy=hierarchy, guid_index=guid_index)
-            for k, v in value.items()
-        }
+        result = {}
+        for k, v in value.items():
+            ft = None
+            if script_info:
+                for f in script_info.fields:
+                    if f.unity_name == k:
+                        ft = f.field_type
+                        break
+            result[k] = resolve_value(
+                v,
+                project_root,
+                field_name=k,
+                doc=doc,
+                hierarchy=hierarchy,
+                guid_index=guid_index,
+                field_type=ft,
+                script_info=script_info,
+            )
+        return result
 
     elif isinstance(value, list):
         return [

@@ -1280,6 +1280,41 @@ def _find_component_index_in_m_component(
     return None
 
 
+def _get_script_info_for_component(
+    doc: UnityYAMLDocument,
+    resolved_path: str,
+    project_root: Path | None,
+) -> object | None:
+    """Get ScriptInfo for a component at the given resolved path (components/{fileID})."""
+    if not project_root or not resolved_path.startswith("components/"):
+        return None
+
+    parts = resolved_path.split("/")
+    if len(parts) < 2:
+        return None
+
+    try:
+        comp_file_id = int(parts[1])
+    except ValueError:
+        return None
+
+    comp_obj = doc.get_by_file_id(comp_file_id)
+    if comp_obj is None or comp_obj.class_id != 114:
+        return None
+
+    comp_content = comp_obj.get_content()
+    if not comp_content:
+        return None
+
+    script_ref = comp_content.get("m_Script", {})
+    script_guid = script_ref.get("guid", "") if isinstance(script_ref, dict) else ""
+    if not script_guid:
+        return None
+
+    normalizer = UnityPrefabNormalizer(project_root=project_root)
+    return normalizer._get_script_info(script_guid)
+
+
 def _normalize_and_save(doc: UnityYAMLDocument, output_path: Path, project_root: Path | None) -> None:
     if project_root:
         normalizer = UnityPrefabNormalizer(project_root=project_root)
@@ -2355,9 +2390,16 @@ def set_value_cmd(
             batch_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
             batch_hier.load_all_nested_prefabs()
 
+        batch_script_info = _get_script_info_for_component(doc, set_path, project_root)
+
         try:
             resolved_values = resolve_value(
-                parsed_values, project_root, doc=doc, hierarchy=batch_hier, guid_index=guid_index
+                parsed_values,
+                project_root,
+                doc=doc,
+                hierarchy=batch_hier,
+                guid_index=guid_index,
+                script_info=batch_script_info,
             )
         except AssetTypeMismatchError as e:
             click.echo(f"Error: {e}", err=True)
