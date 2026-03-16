@@ -143,6 +143,8 @@ def _query_value(
                 _query_value(v, rest, f"{current_path}/{k}", results)
         elif key in value:
             _query_value(value[key], rest, f"{current_path}/{key}", results)
+        elif "properties" in value and isinstance(value["properties"], dict) and key in value["properties"]:
+            _query_value(value["properties"][key], rest, f"{current_path}/{key}", results)
     elif isinstance(value, list):
         if key == "*":
             for i, item in enumerate(value):
