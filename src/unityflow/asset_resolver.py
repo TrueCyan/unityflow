@@ -652,12 +652,50 @@ def _compute_nested_file_id(prefab_instance_id: int, source_object_id: int) -> i
     return (prefab_instance_id ^ source_object_id) & 0x7FFFFFFFFFFFFFFF
 
 
-def _make_ref_for_node(node: Any) -> dict[str, Any]:
+def _ensure_stripped_entry(
+    doc: Any,
+    local_id: int,
+    class_id: int,
+    source_file_id: int,
+    source_guid: str,
+    pi_file_id: int,
+) -> None:
+    """Create a stripped YAML entry if it doesn't exist.
+
+    Unity requires a stripped entry for each computed local fileID so it can
+    resolve the reference back to the source prefab object.
+    """
+    if doc is None:
+        return
+    if doc.get_by_file_id(local_id) is not None:
+        return
+
+    from unityflow.parser import UnityYAMLObject
+
+    class_id_to_name = {1: "GameObject", 4: "Transform", 114: "MonoBehaviour", 224: "RectTransform"}
+    class_name = class_id_to_name.get(class_id, "MonoBehaviour")
+
+    obj = UnityYAMLObject(
+        class_id=class_id,
+        file_id=local_id,
+        data={
+            class_name: {
+                "m_CorrespondingSourceObject": {"fileID": source_file_id, "guid": source_guid, "type": 3},
+                "m_PrefabInstance": {"fileID": pi_file_id},
+            }
+        },
+        stripped=True,
+    )
+    doc.add_object(obj)
+
+
+def _make_ref_for_node(node: Any, doc: Any = None) -> dict[str, Any]:
     """Build a fileID reference dict for a hierarchy node.
 
     For nodes in the current document, returns {"fileID": X}.
     For nodes loaded from nested prefabs, computes the local fileID
-    using XOR(PrefabInstance.fileID, source.fileID).
+    using XOR(PrefabInstance.fileID, source.fileID) and ensures a
+    stripped entry exists in the document.
     """
     outer = getattr(node, "outer_file_id", 0)
     if outer:
@@ -668,18 +706,34 @@ def _make_ref_for_node(node: Any) -> dict[str, Any]:
         pi_node = _find_ancestor_prefab_instance(node)
         if pi_node:
             local_id = _compute_nested_file_id(pi_node.file_id, node.file_id)
+            _ensure_stripped_entry(
+                doc,
+                local_id,
+                1,
+                node.file_id,
+                pi_node.source_guid,
+                pi_node.file_id,
+            )
             return {"fileID": local_id}
 
     return {"fileID": node.file_id}
 
 
-def _make_ref_for_component(comp: Any, parent_node: Any) -> dict[str, Any]:
+def _make_ref_for_component(comp: Any, parent_node: Any, doc: Any = None) -> dict[str, Any]:
     """Build a fileID reference dict for a component on a hierarchy node."""
     is_nested = getattr(parent_node, "is_from_nested_prefab", False)
     if is_nested:
         pi_node = _find_ancestor_prefab_instance(parent_node)
         if pi_node:
             local_id = _compute_nested_file_id(pi_node.file_id, comp.file_id)
+            _ensure_stripped_entry(
+                doc,
+                local_id,
+                comp.class_id,
+                comp.file_id,
+                pi_node.source_guid,
+                pi_node.file_id,
+            )
             return {"fileID": local_id}
 
     return {"fileID": comp.file_id}
@@ -710,7 +764,7 @@ def resolve_internal_reference(
 
     target_node = hierarchy.find(raw_path)
     if target_node is not None:
-        return _make_ref_for_node(target_node)
+        return _make_ref_for_node(target_node, doc=doc)
 
     parts = raw_path.rsplit("/", 1)
     if len(parts) == 2:
@@ -736,12 +790,12 @@ def resolve_internal_reference(
             if matches:
                 if comp_index is not None:
                     if comp_index < len(matches):
-                        return _make_ref_for_component(matches[comp_index], parent_node)
+                        return _make_ref_for_component(matches[comp_index], parent_node, doc=doc)
                     raise ValueError(
                         f"Component index [{comp_index}] out of range. "
                         f"Found {len(matches)} '{comp_name}' on '{parent_path}'"
                     )
-                return _make_ref_for_component(matches[0], parent_node)
+                return _make_ref_for_component(matches[0], parent_node, doc=doc)
 
             raise ValueError(f"Component '{comp_name}' not found on '{parent_path}'")
 
