@@ -643,13 +643,21 @@ def _resolve_file_id_for_asset(
     return _get_main_object_file_id(meta_path)
 
 
+def _compute_nested_file_id(prefab_instance_id: int, source_object_id: int) -> int:
+    """Compute the local fileID for an object inside a PrefabInstance.
+
+    Unity XORs the PrefabInstance's fileID with the source object's fileID
+    to produce a deterministic, unique local identifier in the outer document.
+    """
+    return (prefab_instance_id ^ source_object_id) & 0x7FFFFFFFFFFFFFFF
+
+
 def _make_ref_for_node(node: Any) -> dict[str, Any]:
     """Build a fileID reference dict for a hierarchy node.
 
     For nodes in the current document, returns {"fileID": X}.
-    For nodes loaded from nested prefabs, returns {"fileID": X, "guid": Y, "type": 3}
-    using the source prefab's GUID so Unity can resolve the correct instance.
-    When outer_file_id is available (stripped object), uses that for same-file reference.
+    For nodes loaded from nested prefabs, computes the local fileID
+    using XOR(PrefabInstance.fileID, source.fileID).
     """
     outer = getattr(node, "outer_file_id", 0)
     if outer:
@@ -658,8 +666,9 @@ def _make_ref_for_node(node: Any) -> dict[str, Any]:
     is_nested = getattr(node, "is_from_nested_prefab", False)
     if is_nested:
         pi_node = _find_ancestor_prefab_instance(node)
-        if pi_node and pi_node.source_guid:
-            return {"fileID": node.file_id, "guid": pi_node.source_guid, "type": 3}
+        if pi_node:
+            local_id = _compute_nested_file_id(pi_node.file_id, node.file_id)
+            return {"fileID": local_id}
 
     return {"fileID": node.file_id}
 
@@ -669,8 +678,9 @@ def _make_ref_for_component(comp: Any, parent_node: Any) -> dict[str, Any]:
     is_nested = getattr(parent_node, "is_from_nested_prefab", False)
     if is_nested:
         pi_node = _find_ancestor_prefab_instance(parent_node)
-        if pi_node and pi_node.source_guid:
-            return {"fileID": comp.file_id, "guid": pi_node.source_guid, "type": 3}
+        if pi_node:
+            local_id = _compute_nested_file_id(pi_node.file_id, comp.file_id)
+            return {"fileID": local_id}
 
     return {"fileID": comp.file_id}
 
