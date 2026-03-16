@@ -1603,7 +1603,7 @@ Transform:
             for pi in all_pi:
                 assert pi.nested_prefab_loaded is True, f"{pi.name} (source={pi.source_guid[:8]}) should be loaded"
 
-            leaf_nodes = [n for n in hierarchy.iter_all() if n.name == "LeafRoot"]
+            leaf_nodes = [n for n in hierarchy.iter_all() if "Leaf" in n.name]
             assert len(leaf_nodes) >= 1, "Leaf content should be present through 3-level variant chain"
 
     def test_load_nested_children_traverses_on_failed_load(self):

@@ -566,10 +566,19 @@ class HierarchyNode:
                 )
             )
 
+        # Resolve instance name from modifications (m_Name override)
+        instance_name = source_node.name
+        for mod in self.modifications:
+            if mod.get("propertyPath") == "m_Name":
+                target = mod.get("target", {})
+                if target.get("fileID") == source_node.file_id:
+                    instance_name = str(mod.get("value", instance_name))
+                    break
+
         # Create a copy of the node marked as from nested prefab
         merged_node = HierarchyNode(
             file_id=source_node.file_id,
-            name=source_node.name,
+            name=instance_name,
             transform_id=source_node.transform_id,
             is_ui=source_node.is_ui,
             parent=self,
@@ -628,9 +637,18 @@ class HierarchyNode:
                 )
             )
 
+        # Resolve instance name from modifications (m_Name override)
+        child_name = source_child.name
+        if mods_by_target:
+            go_mods = mods_by_target.get(source_child.file_id, [])
+            for mod in go_mods:
+                if mod.get("propertyPath") == "m_Name":
+                    child_name = str(mod.get("value", child_name))
+                    break
+
         merged_child = HierarchyNode(
             file_id=source_child.file_id,
-            name=source_child.name,
+            name=child_name,
             transform_id=source_child.transform_id,
             is_ui=source_child.is_ui,
             parent=self,
