@@ -1,6 +1,6 @@
 ---
 name: unity-ui-workflow
-description: Creates and edits Unity UI (UGUI) prefabs and components. Use when user asks to create, modify, or build UI elements. Keywords: UI, Canvas, Button, Image, Text, TextMeshPro, RectTransform, anchor, pivot, layout, UGUI, create, modify, build, edit
+description: "MUST READ before any Unity UI work. Creates and edits Unity UI (UGUI) prefabs via unityflow CLI. Trigger: any task involving .prefab UI files, Canvas, Button, Image, Text, RectTransform, UGUI components. Contains required CLI usage rules, command reference, and examples."
 ---
 
 # Unity UI Workflow Skill

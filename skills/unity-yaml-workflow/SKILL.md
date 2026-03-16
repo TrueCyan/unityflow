@@ -1,6 +1,6 @@
 ---
 name: unity-yaml-workflow
-description: Creates and edits Unity YAML files (.prefab, .unity, .asset). Use when user asks to create, modify, or build prefabs, scenes, or assets. Keywords: prefab, scene, create, modify, build, edit, Transform, component, asset linking, ScriptableObject
+description: "MUST READ before any Unity YAML work. Creates and edits .prefab, .unity, .asset files via unityflow CLI. Trigger: any task involving Unity files, prefabs, scenes, GameObjects, components, hierarchy. Contains required CLI usage rules, command reference, and examples."
 ---
 
 # Unity YAML Workflow Skill
