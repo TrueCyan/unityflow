@@ -19,9 +19,10 @@ description: "버전 업데이트, 커밋, 푸시, GitHub 릴리즈 생성"
 
 ## 3. 버전 업데이트
 
-두 파일의 버전을 동시에 업데이트합니다:
+세 파일의 버전을 동시에 업데이트합니다:
 - `pyproject.toml` → `version = "새버전"`
 - `.claude-plugin/plugin.json` → `"version": "새버전"`
+- `unity-bridge/package.json` → `"version": "새버전"`
 
 ## 4. 검증
 
@@ -41,7 +42,7 @@ PYTHONPATH=src .venv/bin/pytest tests/ -v
 버전 범프 커밋, 푸시, 릴리즈 생성을 **하나의 bash 명령으로** 실행합니다:
 
 ```bash
-git add pyproject.toml .claude-plugin/plugin.json uv.lock && \
+git add pyproject.toml .claude-plugin/plugin.json unity-bridge/package.json uv.lock && \
 git commit -m "chore: bump version to v{새버전}" && \
 git push && \
 gh release create v{새버전} --title "v{새버전}" --notes "{릴리즈 노트}"
