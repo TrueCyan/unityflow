@@ -2353,6 +2353,7 @@ def set_value_cmd(
         batch_hier = None
         if has_internal_refs and guid_index:
             batch_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+            batch_hier.load_all_nested_prefabs()
 
         try:
             resolved_values = resolve_value(
@@ -2399,6 +2400,7 @@ def set_value_cmd(
         single_hier = None
         if is_internal_ref and guid_index:
             single_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
+            single_hier.load_all_nested_prefabs()
 
         try:
             resolved_value = resolve_value(

@@ -662,13 +662,37 @@ def resolve_internal_reference(
 
     parts = raw_path.rsplit("/", 1)
     if len(parts) == 2:
-        parent_path, comp_name = parts
+        parent_path, comp_spec = parts
         parent_node = hierarchy.find(parent_path)
         if parent_node is not None:
+            import re
+
+            idx_match = re.match(r"^(.+)\[(\d+)\]$", comp_spec)
+            if idx_match:
+                comp_name = idx_match.group(1)
+                comp_index = int(idx_match.group(2))
+            else:
+                comp_name = comp_spec
+                comp_index = None
+
+            matches = []
             for comp in parent_node.components:
                 name = comp.script_name or comp.class_name
                 if name == comp_name:
-                    return {"fileID": comp.file_id}
+                    matches.append(comp)
+
+            if matches:
+                if comp_index is not None:
+                    if comp_index < len(matches):
+                        return {"fileID": matches[comp_index].file_id}
+                    raise ValueError(
+                        f"Component index [{comp_index}] out of range. "
+                        f"Found {len(matches)} '{comp_name}' on '{parent_path}'"
+                    )
+                if len(matches) == 1:
+                    return {"fileID": matches[0].file_id}
+                return {"fileID": matches[0].file_id}
+
             raise ValueError(f"Component '{comp_name}' not found on '{parent_path}'")
 
     raise ValueError(f"Internal reference not found: {raw_path}")
