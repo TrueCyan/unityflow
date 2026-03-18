@@ -329,17 +329,53 @@ namespace UnityFlow.Bridge.Handlers
 
             foreach (var canvas in canvases)
             {
-                Debug.Log($"[UnityFlow] Canvas '{canvas.name}': {canvas.renderMode} -> WorldSpace");
-                canvas.renderMode = RenderMode.WorldSpace;
-
                 if (rootCanvas == null)
                     rootCanvas = canvas;
             }
 
+            if (rootCanvas == null)
+                return null;
+
+            var scaler = rootCanvas.GetComponent<CanvasScaler>();
+            var refResolution = scaler != null
+                ? scaler.referenceResolution
+                : new Vector2(1080, 1920);
+            Debug.Log($"[UnityFlow] Reference resolution: {refResolution}");
+
+            foreach (var canvas in canvases)
+            {
+                Debug.Log($"[UnityFlow] Canvas '{canvas.name}': {canvas.renderMode} -> WorldSpace");
+                canvas.renderMode = RenderMode.WorldSpace;
+            }
+
+            var rt = rootCanvas.GetComponent<RectTransform>();
+            if (rt != null)
+            {
+                rt.sizeDelta = refResolution;
+                rt.localScale = Vector3.one * (1f / refResolution.y);
+            }
+
             var scalers = instance.GetComponentsInChildren<CanvasScaler>();
             Debug.Log($"[UnityFlow] CanvasScaler disabled: {scalers.Length}");
-            foreach (var scaler in scalers)
-                scaler.enabled = false;
+            foreach (var s in scalers)
+                s.enabled = false;
+
+            Canvas.ForceUpdateCanvases();
+
+            if (rt != null)
+            {
+                var rebuilderType = Type.GetType("UnityEngine.UI.LayoutRebuilder, UnityEngine.UI");
+                if (rebuilderType != null)
+                {
+                    var forceRebuild = rebuilderType.GetMethod(
+                        "ForceRebuildLayoutImmediate",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
+                        null,
+                        new[] { typeof(RectTransform) },
+                        null);
+                    forceRebuild?.Invoke(null, new object[] { rt });
+                }
+            }
 
             return rootCanvas;
         }

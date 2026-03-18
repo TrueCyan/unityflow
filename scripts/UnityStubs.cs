@@ -130,6 +130,7 @@ namespace UnityEngine
     {
         public RenderMode renderMode;
         public Camera worldCamera;
+        public static void ForceUpdateCanvases() {}
     }
     public class CanvasRenderer : Component { }
     public enum RenderMode { ScreenSpaceOverlay, ScreenSpaceCamera, WorldSpace }
@@ -365,5 +366,8 @@ namespace UnityEditor.SceneManagement
 
 namespace UnityEngine.UI
 {
-    public class CanvasScaler : UnityEngine.Behaviour { }
+    public class CanvasScaler : UnityEngine.Behaviour
+    {
+        public UnityEngine.Vector2 referenceResolution;
+    }
 }
