@@ -131,7 +131,6 @@ namespace UnityEngine
         public RenderMode renderMode;
         public Camera worldCamera;
     }
-    public class CanvasScaler : Behaviour { }
     public class CanvasRenderer : Component { }
     public enum RenderMode { ScreenSpaceOverlay, ScreenSpaceCamera, WorldSpace }
     public class RectTransform : Transform
@@ -362,4 +361,9 @@ namespace UnityEditor.SceneManagement
         public static UnityEngine.SceneManagement.Scene OpenScene(string scenePath, OpenSceneMode mode = OpenSceneMode.Single) => default;
         public static bool SaveCurrentModifiedScenesIfUserWantsTo() => true;
     }
+}
+
+namespace UnityEngine.UI
+{
+    public class CanvasScaler : UnityEngine.Behaviour { }
 }
