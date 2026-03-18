@@ -293,7 +293,9 @@ namespace UnityFlow.Bridge.Handlers
             var forceMeshUpdate = tmpTextType.GetMethod("ForceMeshUpdate", Type.EmptyTypes);
             if (forceMeshUpdate == null)
                 forceMeshUpdate = tmpTextType.GetMethod("ForceMeshUpdate", new[] { typeof(bool) });
-            Debug.Log($"[UnityFlow] ForceMeshUpdate method: {forceMeshUpdate != null}");
+            if (forceMeshUpdate == null)
+                forceMeshUpdate = tmpTextType.GetMethod("ForceMeshUpdate", new[] { typeof(bool), typeof(bool) });
+            Debug.Log($"[UnityFlow] ForceMeshUpdate method: {forceMeshUpdate != null} (params: {forceMeshUpdate?.GetParameters().Length})");
             if (forceMeshUpdate == null)
                 return;
 
@@ -304,10 +306,13 @@ namespace UnityFlow.Bridge.Handlers
             {
                 try
                 {
-                    if (forceMeshUpdate.GetParameters().Length == 0)
+                    int paramCount = forceMeshUpdate.GetParameters().Length;
+                    if (paramCount == 0)
                         forceMeshUpdate.Invoke(comp, null);
-                    else
+                    else if (paramCount == 1)
                         forceMeshUpdate.Invoke(comp, new object[] { true });
+                    else
+                        forceMeshUpdate.Invoke(comp, new object[] { true, false });
                 }
                 catch (Exception e)
                 {
@@ -341,12 +346,25 @@ namespace UnityFlow.Bridge.Handlers
 
         private static Bounds CalculateUIBounds(GameObject go)
         {
+            var rootRT = go.GetComponent<RectTransform>();
+            var corners = new Vector3[4];
+
+            if (rootRT != null)
+            {
+                rootRT.GetWorldCorners(corners);
+                var rootBounds = new Bounds(corners[0], Vector3.zero);
+                for (int i = 1; i < 4; i++)
+                    rootBounds.Encapsulate(corners[i]);
+
+                if (rootBounds.size.x < 10000f && rootBounds.size.y < 10000f)
+                    return rootBounds;
+            }
+
             var rectTransforms = go.GetComponentsInChildren<RectTransform>();
             if (rectTransforms.Length == 0)
                 return new Bounds(go.transform.position, Vector3.one);
 
             var first = rectTransforms[0];
-            var corners = new Vector3[4];
             first.GetWorldCorners(corners);
             var bounds = new Bounds(corners[0], Vector3.zero);
             for (int i = 1; i < 4; i++)
@@ -357,6 +375,17 @@ namespace UnityFlow.Bridge.Handlers
                 rectTransforms[i].GetWorldCorners(corners);
                 for (int j = 0; j < 4; j++)
                     bounds.Encapsulate(corners[j]);
+            }
+
+            if (bounds.size.x > 10000f || bounds.size.y > 10000f)
+            {
+                if (rootRT != null)
+                {
+                    rootRT.GetWorldCorners(corners);
+                    bounds = new Bounds(corners[0], Vector3.zero);
+                    for (int i = 1; i < 4; i++)
+                        bounds.Encapsulate(corners[i]);
+                }
             }
 
             return bounds;

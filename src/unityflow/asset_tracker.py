@@ -758,7 +758,7 @@ def analyze_dependencies(
 
 CACHE_DIR_NAME = ".unityflow"
 CACHE_DB_NAME = "guid_cache.db"
-CACHE_VERSION = 3  # Bumped for dll_class_cache table
+CACHE_VERSION = 4  # Bumped for forward-slash path normalization
 
 # Type alias for progress callback
 ProgressCallback = Callable[[int, int], None] | None
@@ -1131,7 +1131,7 @@ class CachedGUIDIndex:
 
                 index.guid_to_path[guid] = path
                 index.path_to_guid[path] = guid
-                db_updates.append((guid, str(path), mtime))
+                db_updates.append((guid, str(path).replace("\\", "/"), mtime))
 
         # Remove deleted files from index
         for path_str in deleted_paths:
@@ -1403,7 +1403,7 @@ class CachedGUIDIndex:
         for guid, path, mtime in results:
             index.guid_to_path[guid] = path
             index.path_to_guid[path] = guid
-            db_entries.append((guid, str(path), mtime))
+            db_entries.append((guid, str(path).replace("\\", "/"), mtime))
 
         return index, db_entries
 
