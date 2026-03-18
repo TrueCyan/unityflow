@@ -188,10 +188,6 @@ namespace UnityFlow.Bridge.Handlers
                     Debug.Log("[UnityFlow] Last resort bounds: Vector3.one");
                 }
 
-                var prevScene = SceneManager.GetActiveScene();
-                Debug.Log($"[UnityFlow] Active scene before: {prevScene.name} (valid: {prevScene.IsValid()})");
-                bool setResult = SceneManager.SetActiveScene(previewScene);
-                Debug.Log($"[UnityFlow] SetActiveScene result: {setResult}, preview valid: {previewScene.IsValid()}");
 
                 var camGo = new GameObject("PreviewCamera");
                 SceneManager.MoveGameObjectToScene(camGo, previewScene);
@@ -217,8 +213,6 @@ namespace UnityFlow.Bridge.Handlers
 
                 cam.targetTexture = rt;
                 cam.Render();
-
-                SceneManager.SetActiveScene(prevScene);
 
                 var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
                 RenderTexture.active = rt;
@@ -392,10 +386,6 @@ namespace UnityFlow.Bridge.Handlers
 
         private static void SetupLighting(Scene previewScene)
         {
-            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.5f, 0.5f, 0.5f, 1f);
-            RenderSettings.ambientIntensity = 1.0f;
-
             var lightGo = new GameObject("PreviewLight");
             SceneManager.MoveGameObjectToScene(lightGo, previewScene);
             var light = lightGo.AddComponent<Light>();
