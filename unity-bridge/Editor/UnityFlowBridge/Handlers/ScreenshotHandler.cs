@@ -346,17 +346,14 @@ namespace UnityFlow.Bridge.Handlers
 
         private static Bounds CalculateUIBounds(GameObject go)
         {
-            var rootRT = go.GetComponent<RectTransform>();
             var corners = new Vector3[4];
 
+            var rootRT = go.GetComponent<RectTransform>();
             if (rootRT != null)
             {
                 rootRT.GetWorldCorners(corners);
-                var rootBounds = new Bounds(corners[0], Vector3.zero);
-                for (int i = 1; i < 4; i++)
-                    rootBounds.Encapsulate(corners[i]);
-
-                if (rootBounds.size.x < 10000f && rootBounds.size.y < 10000f)
+                var rootBounds = BoundsFromCorners(corners);
+                if (rootBounds.size.sqrMagnitude > 0.001f && rootBounds.size.x < 10000f && rootBounds.size.y < 10000f)
                     return rootBounds;
             }
 
@@ -366,29 +363,35 @@ namespace UnityFlow.Bridge.Handlers
 
             var first = rectTransforms[0];
             first.GetWorldCorners(corners);
-            var bounds = new Bounds(corners[0], Vector3.zero);
-            for (int i = 1; i < 4; i++)
-                bounds.Encapsulate(corners[i]);
+            var allBounds = BoundsFromCorners(corners);
 
             for (int i = 1; i < rectTransforms.Length; i++)
             {
                 rectTransforms[i].GetWorldCorners(corners);
                 for (int j = 0; j < 4; j++)
-                    bounds.Encapsulate(corners[j]);
+                    allBounds.Encapsulate(corners[j]);
             }
 
-            if (bounds.size.x > 10000f || bounds.size.y > 10000f)
+            if (allBounds.size.x > 10000f || allBounds.size.y > 10000f)
             {
                 if (rootRT != null)
                 {
                     rootRT.GetWorldCorners(corners);
-                    bounds = new Bounds(corners[0], Vector3.zero);
-                    for (int i = 1; i < 4; i++)
-                        bounds.Encapsulate(corners[i]);
+                    var rootFallback = BoundsFromCorners(corners);
+                    if (rootFallback.size.sqrMagnitude > 0.001f)
+                        return rootFallback;
                 }
             }
 
-            return bounds;
+            return allBounds;
+        }
+
+        private static Bounds BoundsFromCorners(Vector3[] corners)
+        {
+            var b = new Bounds(corners[0], Vector3.zero);
+            for (int i = 1; i < 4; i++)
+                b.Encapsulate(corners[i]);
+            return b;
         }
 
         private static void SetupUICameraPosition(Camera cam, Bounds bounds)
