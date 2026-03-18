@@ -1069,13 +1069,13 @@ def _resolve_component_path(
                 doc, last_component_type, go_path, matching_components, guid_index
             )
 
-    # Last part is the property name
-    property_name = parts[-1]
+    # Search for component type in the path (scan from right to left)
+    # Supports: GO/Component/property and GO/Component/property/subproperty/...
+    for comp_pos in range(len(parts) - 2, 0, -1):
+        component_match = re.match(r"^([A-Za-z][A-Za-z0-9]*)(?:\[(\d+)\])?$", parts[comp_pos])
+        if not component_match:
+            continue
 
-    # Check if second-to-last part is a component type (with optional index)
-    component_match = re.match(r"^([A-Za-z][A-Za-z0-9]*)(?:\[(\d+)\])?$", parts[-2])
-
-    if component_match:
         component_type = component_match.group(1)
         component_index = int(component_match.group(2)) if component_match.group(2) else None
         component_type_lower = component_type.lower()
@@ -1083,74 +1083,76 @@ def _resolve_component_path(
         is_component = (
             component_type_lower in name_to_ids or component_type == "MonoBehaviour" or guid_index is not None
         )
+        if not is_component:
+            continue
 
-        if is_component:
-            # Path format: GameObject.../ComponentType/property
-            go_path = "/".join(parts[:-2])
-            if not go_path:
-                return None, f"Invalid path: missing GameObject path before {component_type}"
+        go_path = "/".join(parts[:comp_pos])
+        property_path = "/".join(parts[comp_pos + 1 :])
+        if not go_path:
+            continue
 
-            # Resolve GameObject
-            go_id, error = _resolve_gameobject_by_path(doc, go_path)
-            if error:
-                return None, error
+        go_id, error = _resolve_gameobject_by_path(doc, go_path)
+        if error:
+            continue
 
-            # Find the component
-            go = doc.get_by_file_id(go_id)
-            if not go:
-                return None, "GameObject not found"
+        go = doc.get_by_file_id(go_id)
+        if not go:
+            continue
 
-            go_content = go.get_content()
-            if not go_content or "m_Component" not in go_content:
-                return None, "GameObject has no components"
+        go_content = go.get_content()
+        if not go_content or "m_Component" not in go_content:
+            continue
 
-            matching_components: list[int] = []
-            for comp_ref in go_content["m_Component"]:
-                comp_id = comp_ref.get("component", {}).get("fileID", 0)
-                comp = doc.get_by_file_id(comp_id)
-                if not comp:
-                    continue
+        matching_components: list[int] = []
+        for comp_ref in go_content["m_Component"]:
+            comp_id = comp_ref.get("component", {}).get("fileID", 0)
+            comp = doc.get_by_file_id(comp_id)
+            if not comp:
+                continue
 
-                comp_class_name = comp.class_name.lower()
-                matched = False
+            comp_class_name = comp.class_name.lower()
+            matched = False
 
-                if comp_class_name == component_type_lower:
-                    matching_components.append(comp_id)
-                    matched = True
+            if comp_class_name == component_type_lower:
+                matching_components.append(comp_id)
+                matched = True
 
-                if not matched and comp.class_id == 114:
-                    comp_content = comp.get_content()
-                    if comp_content:
-                        script_ref = comp_content.get("m_Script", {})
-                        if isinstance(script_ref, dict):
-                            script_guid = script_ref.get("guid", "")
-                            script_fid = script_ref.get("fileID")
-                        else:
-                            script_guid, script_fid = "", None
-                        if script_guid and guid_index:
-                            resolved = _resolve_script_name(guid_index, script_guid, script_fid)
-                            if resolved and resolved.lower() == component_type_lower:
-                                matching_components.append(comp_id)
+            if not matched and comp.class_id == 114:
+                comp_content = comp.get_content()
+                if comp_content:
+                    script_ref = comp_content.get("m_Script", {})
+                    if isinstance(script_ref, dict):
+                        script_guid = script_ref.get("guid", "")
+                        script_fid = script_ref.get("fileID")
+                    else:
+                        script_guid, script_fid = "", None
+                    if script_guid and guid_index:
+                        resolved = _resolve_script_name(guid_index, script_guid, script_fid)
+                        if resolved and resolved.lower() == component_type_lower:
+                            matching_components.append(comp_id)
 
-            if not matching_components:
-                return None, f"Component '{component_type}' not found on '{go_path}'"
+        if not matching_components:
+            continue
 
-            if len(matching_components) == 1:
-                return f"components/{matching_components[0]}/{property_name}", None
+        if len(matching_components) == 1:
+            return f"components/{matching_components[0]}/{property_path}", None
 
-            # Multiple matches
-            if component_index is not None:
-                if component_index < len(matching_components):
-                    comp_id = matching_components[component_index]
-                    return f"components/{comp_id}/{property_name}", None
-                else:
-                    count = len(matching_components)
-                    return None, f"Index [{component_index}] out of range. Found {count}"
+        if component_index is not None:
+            if component_index < len(matching_components):
+                comp_id = matching_components[component_index]
+                return f"components/{comp_id}/{property_path}", None
+            else:
+                count = len(matching_components)
+                return None, f"Index [{component_index}] out of range. Found {count}"
 
-            # No index specified
-            return None, _build_disambiguation_message(
-                doc, component_type, go_path, matching_components, guid_index, suffix="/..."
-            )
+        return None, _build_disambiguation_message(
+            doc, component_type, go_path, matching_components, guid_index, suffix="/..."
+        )
+
+    # Try full path as a GameObject (for batch mode targeting a GO directly)
+    full_go_id, full_go_error = _resolve_gameobject_by_path(doc, path_spec)
+    if full_go_id is not None:
+        return f"gameObjects/{full_go_id}", None
 
     # Not a component path - treat as GameObject property
     # Path format: GameObject.../property
@@ -1159,7 +1161,7 @@ def _resolve_component_path(
     if error:
         return None, error
 
-    return f"gameObjects/{go_id}/{property_name}", None
+    return f"gameObjects/{go_id}/{parts[-1]}", None
 
 
 def _contains_internal_reference(value: object) -> bool:
