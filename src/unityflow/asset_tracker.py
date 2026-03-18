@@ -1901,26 +1901,29 @@ def get_lazy_guid_index(
     project_root = Path(project_root)
     cache_db = project_root / CACHE_DIR_NAME / CACHE_DB_NAME
 
-    # Ensure cache exists
-    if not cache_db.exists():
+    # Ensure cache exists with correct include_packages setting.
+    # CachedGUIDIndex.get_index checks metadata and triggers full rebuild
+    # if include_packages changed, so this is safe to call every time.
+    # When cache is up-to-date, this returns instantly (no I/O beyond metadata check).
+    needs_build = not cache_db.exists()
+    if not needs_build and include_packages:
+        try:
+            import sqlite3
+
+            with sqlite3.connect(str(cache_db)) as conn:
+                row = conn.execute("SELECT value FROM metadata WHERE key = 'include_packages'").fetchone()
+                if not row or (row[0] == "1") != include_packages:
+                    needs_build = True
+        except Exception:
+            needs_build = True
+
+    if needs_build:
         cache = CachedGUIDIndex(project_root=project_root)
         cache.get_index(
             include_packages=include_packages,
             progress_callback=progress_callback,
             max_workers=max_workers,
         )
-    elif include_packages:
-        # Check if packages are in cache; rebuild if missing
-        lazy_check = LazyGUIDIndex(project_root=project_root)
-        has_packages = lazy_check.get_path("fe87c0e1cc204ed48ad3b37840f39efc") is not None  # Image GUID
-        if not has_packages:
-            cache = CachedGUIDIndex(project_root=project_root)
-            cache.invalidate()
-            cache.get_index(
-                include_packages=True,
-                progress_callback=progress_callback,
-                max_workers=max_workers,
-            )
 
     # Create lazy index
     lazy_index = LazyGUIDIndex(project_root=project_root)
