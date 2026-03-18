@@ -761,30 +761,6 @@ class TestSetAddComponent:
         assert result.exit_code == 0, f"Command failed: {result.output}"
         assert "Removed CanvasRenderer from BasicPrefab" in result.output
 
-    def test_add_package_component_via_guid_fallback(self, runner, tmp_path):
-        import shutil
-
-        test_file = tmp_path / "basic.prefab"
-        shutil.copy(FIXTURES_DIR / "basic_prefab.prefab", test_file)
-
-        result = runner.invoke(
-            main,
-            [
-                "set",
-                str(test_file),
-                "--path",
-                "BasicPrefab",
-                "--add-component",
-                "GraphicRaycaster",
-            ],
-        )
-
-        assert result.exit_code == 0, f"Command failed: {result.output}"
-        assert "Added GraphicRaycaster to BasicPrefab" in result.output
-
-        content = test_file.read_text()
-        assert "dc42784cf147c0c48a680349fa168899" in content
-
     def test_add_package_component_via_meta(self, runner, tmp_path):
         import shutil
 

@@ -1903,13 +1903,24 @@ def get_lazy_guid_index(
 
     # Ensure cache exists
     if not cache_db.exists():
-        # Build the cache first
         cache = CachedGUIDIndex(project_root=project_root)
         cache.get_index(
             include_packages=include_packages,
             progress_callback=progress_callback,
             max_workers=max_workers,
         )
+    elif include_packages:
+        # Check if packages are in cache; rebuild if missing
+        lazy_check = LazyGUIDIndex(project_root=project_root)
+        has_packages = lazy_check.get_path("fe87c0e1cc204ed48ad3b37840f39efc") is not None  # Image GUID
+        if not has_packages:
+            cache = CachedGUIDIndex(project_root=project_root)
+            cache.invalidate()
+            cache.get_index(
+                include_packages=True,
+                progress_callback=progress_callback,
+                max_workers=max_workers,
+            )
 
     # Create lazy index
     lazy_index = LazyGUIDIndex(project_root=project_root)

@@ -558,26 +558,6 @@ def validate(
 # Component GUID Mappings
 # ============================================================================
 
-PACKAGE_COMPONENT_GUIDS: dict[str, str] = {
-    # Unity UI (com.unity.ugui)
-    "Image": "fe87c0e1cc204ed48ad3b37840f39efc",
-    "Button": "4e29b1a8efbd4b44bb3f3716e73f07ff",
-    "ScrollRect": "1aa08ab6e0800fa44ae55d278d1423e3",
-    "Mask": "31a19414c41e5ae4aae2af33fee712f6",
-    "RectMask2D": "3312d7739989d2b4e91e6319e9a96d76",
-    "GraphicRaycaster": "dc42784cf147c0c48a680349fa168899",
-    "CanvasScaler": "0cd44c1031e13a943bb63640046fad76",
-    "VerticalLayoutGroup": "59f8146938fff824cb5fd77236b75775",
-    "HorizontalLayoutGroup": "30649d3a9faa99c48a7b1166b86bf2a0",
-    "ContentSizeFitter": "3245ec927659c4140ac4f8d17403cc18",
-    "TextMeshProUGUI": "f4688fdb7df04437aeb418b961361dc5",
-    "TMP_InputField": "2da0c512f12947e489f739169773d7ca",
-    "EventSystem": "76c392e42b5098c458856cdf6ecaaaa1",
-    "InputSystemUIInputModule": "01614664b831546d2ae94a42149d80ac",
-    # URP 2D Lighting
-    "Light2D": "073797afb82c5a1438f328866b10b3f0",
-}
-
 # Built-in component types (native Unity components)
 BUILTIN_COMPONENT_TYPES = [
     # Renderer
@@ -621,9 +601,6 @@ BUILTIN_COMPONENT_TYPES = [
     "ParticleSystem",
     "SpriteMask",
 ]
-
-# All supported component types for --type option
-ALL_COMPONENT_TYPES = BUILTIN_COMPONENT_TYPES + list(PACKAGE_COMPONENT_GUIDS.keys())
 
 
 # ============================================================================
@@ -1005,25 +982,6 @@ def _resolve_component_path(
             name_to_ids[name_lower] = []
         name_to_ids[name_lower].append(class_id)
 
-    # Also add package component names (they're MonoBehaviour)
-    package_components = {
-        "image",
-        "button",
-        "scrollrect",
-        "mask",
-        "rectmask2d",
-        "graphicraycaster",
-        "canvasscaler",
-        "verticallayoutgroup",
-        "horizontallayoutgroup",
-        "contentsizefitter",
-        "textmeshprougui",
-        "tmp_inputfield",
-        "eventsystem",
-        "inputsystemuiinputmodule",
-        "light2d",
-    }
-
     if len(parts) == 1:
         go_id, error = _resolve_gameobject_by_path(doc, parts[0])
         if error:
@@ -1039,10 +997,7 @@ def _resolve_component_path(
         last_component_type_lower = last_component_type.lower()
 
         last_is_component = (
-            last_component_type_lower in name_to_ids
-            or last_component_type_lower in package_components
-            or last_component_type == "MonoBehaviour"
-            or guid_index is not None
+            last_component_type_lower in name_to_ids or last_component_type == "MonoBehaviour" or guid_index is not None
         )
 
         if last_is_component:
@@ -1088,16 +1043,10 @@ def _resolve_component_path(
                             script_fid = script_ref.get("fileID")
                         else:
                             script_guid, script_fid = "", None
-                        if script_guid:
-                            for key, guid in PACKAGE_COMPONENT_GUIDS.items():
-                                if key.lower() == last_component_type_lower and script_guid.lower() == guid.lower():
-                                    matching_components.append(comp_id)
-                                    matched = True
-                                    break
-                            if not matched and guid_index:
-                                resolved = _resolve_script_name(guid_index, script_guid, script_fid)
-                                if resolved and resolved.lower() == last_component_type_lower:
-                                    matching_components.append(comp_id)
+                        if script_guid and guid_index:
+                            resolved = _resolve_script_name(guid_index, script_guid, script_fid)
+                            if resolved and resolved.lower() == last_component_type_lower:
+                                matching_components.append(comp_id)
 
             if not matching_components:
                 return None, f"Component '{last_component_type}' not found on '{go_path}'"
@@ -1132,10 +1081,7 @@ def _resolve_component_path(
         component_type_lower = component_type.lower()
 
         is_component = (
-            component_type_lower in name_to_ids
-            or component_type_lower in package_components
-            or component_type == "MonoBehaviour"
-            or guid_index is not None
+            component_type_lower in name_to_ids or component_type == "MonoBehaviour" or guid_index is not None
         )
 
         if is_component:
@@ -1181,16 +1127,10 @@ def _resolve_component_path(
                             script_fid = script_ref.get("fileID")
                         else:
                             script_guid, script_fid = "", None
-                        if script_guid:
-                            for key, guid in PACKAGE_COMPONENT_GUIDS.items():
-                                if key.lower() == component_type_lower and script_guid.lower() == guid.lower():
-                                    matching_components.append(comp_id)
-                                    matched = True
-                                    break
-                            if not matched and guid_index:
-                                resolved = _resolve_script_name(guid_index, script_guid, script_fid)
-                                if resolved and resolved.lower() == component_type_lower:
-                                    matching_components.append(comp_id)
+                        if script_guid and guid_index:
+                            resolved = _resolve_script_name(guid_index, script_guid, script_fid)
+                            if resolved and resolved.lower() == component_type_lower:
+                                matching_components.append(comp_id)
 
             if not matching_components:
                 return None, f"Component '{component_type}' not found on '{go_path}'"
@@ -1399,12 +1339,6 @@ def _handle_add_component(
             script_matches = guid_index.find_paths_by_stem_and_suffix(comp_type, ".cs")
             for path, guid in script_matches:
                 candidates.append(("script", str(path), 114, guid, 11500000))
-
-        if not any(c[0] == "script" for c in candidates):
-            for name, guid in PACKAGE_COMPONENT_GUIDS.items():
-                if name.lower() == comp_type.lower():
-                    candidates.append(("package", name, 114, guid, 11500000))
-                    break
 
         if not candidates and guid_index:
             dll_result = guid_index.find_dll_class(comp_type)
