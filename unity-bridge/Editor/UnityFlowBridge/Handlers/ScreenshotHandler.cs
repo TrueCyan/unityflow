@@ -172,18 +172,25 @@ namespace UnityFlow.Bridge.Handlers
                 RebuildTextMeshPro(instance);
 
                 var bounds = isUI ? CalculateUIBounds(instance) : CalculateBounds(instance);
+                Debug.Log($"[UnityFlow] Bounds (isUI={isUI}): center={bounds.center}, size={bounds.size}, sqrMag={bounds.size.sqrMagnitude}");
 
                 if (bounds.size.sqrMagnitude < 0.001f)
                 {
                     bounds = CalculateBounds(instance);
+                    Debug.Log($"[UnityFlow] Fallback to 3D bounds: size={bounds.size}, sqrMag={bounds.size.sqrMagnitude}");
                     isUI = false;
                 }
 
                 if (bounds.size.sqrMagnitude < 0.001f)
+                {
                     bounds = new Bounds(instance.transform.position, Vector3.one);
+                    Debug.Log("[UnityFlow] Last resort bounds: Vector3.one");
+                }
 
                 var prevScene = SceneManager.GetActiveScene();
-                SceneManager.SetActiveScene(previewScene);
+                Debug.Log($"[UnityFlow] Active scene before: {prevScene.name} (valid: {prevScene.IsValid()})");
+                bool setResult = SceneManager.SetActiveScene(previewScene);
+                Debug.Log($"[UnityFlow] SetActiveScene result: {setResult}, preview valid: {previewScene.IsValid()}");
 
                 var camGo = new GameObject("PreviewCamera");
                 SceneManager.MoveGameObjectToScene(camGo, previewScene);
@@ -279,31 +286,59 @@ namespace UnityFlow.Bridge.Handlers
         private static void RebuildTextMeshPro(GameObject instance)
         {
             var tmpTextType = Type.GetType("TMPro.TMP_Text, Unity.TextMeshPro");
+            Debug.Log($"[UnityFlow] TMP_Text type resolved: {tmpTextType != null}");
             if (tmpTextType == null)
-                return;
+            {
+                tmpTextType = Type.GetType("TMPro.TMP_Text, Unity.TextMeshPro.Runtime");
+                Debug.Log($"[UnityFlow] TMP_Text fallback (Runtime): {tmpTextType != null}");
+                if (tmpTextType == null)
+                    return;
+            }
 
             var forceMeshUpdate = tmpTextType.GetMethod("ForceMeshUpdate", Type.EmptyTypes);
             if (forceMeshUpdate == null)
+                forceMeshUpdate = tmpTextType.GetMethod("ForceMeshUpdate", new[] { typeof(bool) });
+            Debug.Log($"[UnityFlow] ForceMeshUpdate method: {forceMeshUpdate != null}");
+            if (forceMeshUpdate == null)
                 return;
 
-            foreach (var comp in instance.GetComponentsInChildren(tmpTextType, true))
-                forceMeshUpdate.Invoke(comp, null);
+            var components = instance.GetComponentsInChildren(tmpTextType, true);
+            Debug.Log($"[UnityFlow] TMP components found: {components.Length}");
+
+            foreach (var comp in components)
+            {
+                try
+                {
+                    if (forceMeshUpdate.GetParameters().Length == 0)
+                        forceMeshUpdate.Invoke(comp, null);
+                    else
+                        forceMeshUpdate.Invoke(comp, new object[] { true });
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[UnityFlow] ForceMeshUpdate failed on {comp.name}: {e.Message}");
+                }
+            }
         }
 
         private static Canvas SetupUIForCapture(GameObject instance)
         {
             var canvases = instance.GetComponentsInChildren<Canvas>();
+            Debug.Log($"[UnityFlow] Canvas count: {canvases.Length}");
             Canvas rootCanvas = null;
 
             foreach (var canvas in canvases)
             {
+                Debug.Log($"[UnityFlow] Canvas '{canvas.name}': {canvas.renderMode} -> WorldSpace");
                 canvas.renderMode = RenderMode.WorldSpace;
 
                 if (rootCanvas == null)
                     rootCanvas = canvas;
             }
 
-            foreach (var scaler in instance.GetComponentsInChildren<CanvasScaler>())
+            var scalers = instance.GetComponentsInChildren<CanvasScaler>();
+            Debug.Log($"[UnityFlow] CanvasScaler disabled: {scalers.Length}");
+            foreach (var scaler in scalers)
                 scaler.enabled = false;
 
             return rootCanvas;
