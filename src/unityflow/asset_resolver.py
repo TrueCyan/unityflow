@@ -718,34 +718,51 @@ def _collect_ancestor_prefab_instances(node: Any) -> list[Any]:
     return ancestors
 
 
-def _get_node_ref_id(node: Any) -> tuple[int, int]:
-    """Get the reference fileID and class_id for a node.
+_TRANSFORM_TYPES = frozenset({"Transform", "RectTransform"})
 
-    When a bare #path points to a GameObject, Unity typically expects the
-    Transform/RectTransform component, not the GameObject itself (matching
-    Unity Editor drag-and-drop behavior). Returns (fileID, class_id).
+
+def _resolve_ref_for_field_type(node: Any, field_type: str | None) -> tuple[int, int]:
+    """Resolve the fileID and class_id for a node based on C# field type.
+
+    - None/Transform/RectTransform → Transform/RectTransform fileID
+    - GameObject → GameObject fileID
+    - Other (CanvasGroup, Button, Animator, etc.) → find matching component
     """
+    if field_type == "GameObject":
+        return node.file_id, 1
+
+    if field_type is None or field_type in _TRANSFORM_TYPES:
+        transform_id = getattr(node, "transform_id", 0)
+        if transform_id:
+            is_ui = getattr(node, "is_ui", False)
+            return transform_id, 224 if is_ui else 4
+        return node.file_id, 1
+
+    for comp in getattr(node, "components", []):
+        comp_name = comp.script_name or comp.class_name
+        if comp_name == field_type:
+            return comp.file_id, comp.class_id
+
     transform_id = getattr(node, "transform_id", 0)
     if transform_id:
         is_ui = getattr(node, "is_ui", False)
-        class_id = 224 if is_ui else 4
-        return transform_id, class_id
+        return transform_id, 224 if is_ui else 4
     return node.file_id, 1
 
 
-def _make_ref_for_node(node: Any, doc: Any = None, use_game_object: bool = False) -> dict[str, Any]:
+def _make_ref_for_node(
+    node: Any,
+    doc: Any = None,
+    field_type: str | None = None,
+) -> dict[str, Any]:
     """Build a fileID reference dict for a hierarchy node.
 
-    For bare #path references (no component suffix), returns the
-    Transform/RectTransform fileID to match Unity Editor behavior.
-    When use_game_object=True, returns the GameObject fileID instead.
-    For nested prefab nodes, computes the local fileID by XOR-chaining
-    all ancestor PrefabInstance fileIDs.
+    Uses field_type from C# script to select the correct component:
+    - Transform/RectTransform for bare paths (default)
+    - Specific component (CanvasGroup, Animator, etc.) when field_type matches
+    - GameObject when field_type is "GameObject"
     """
-    if use_game_object:
-        ref_id, ref_class_id = node.file_id, 1
-    else:
-        ref_id, ref_class_id = _get_node_ref_id(node)
+    ref_id, ref_class_id = _resolve_ref_for_field_type(node, field_type)
 
     outer = getattr(node, "outer_file_id", 0)
     if outer:
@@ -816,8 +833,7 @@ def resolve_internal_reference(
 
     target_node = hierarchy.find(raw_path)
     if target_node is not None:
-        use_game_object = field_type == "GameObject" if field_type else False
-        return _make_ref_for_node(target_node, doc=doc, use_game_object=use_game_object)
+        return _make_ref_for_node(target_node, doc=doc, field_type=field_type)
 
     parts = raw_path.rsplit("/", 1)
     if len(parts) == 2:

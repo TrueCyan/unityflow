@@ -366,10 +366,46 @@ class UnityPrefabNormalizer:
 
         result = parse_script_file(script_path)
         if result is not None:
+            self._merge_partial_class_fields(result, script_path)
             chain_complete = self._resolve_inheritance(result)
             result._inheritance_complete = chain_complete
         self._script_info_cache[script_guid] = result
         return result
+
+    def _merge_partial_class_fields(self, info, script_path: Path) -> None:
+        """Find other partial class files and merge their fields."""
+        try:
+            content = script_path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError):
+            return
+
+        if "partial" not in content:
+            return
+
+        from unityflow.script_parser import parse_script_file
+
+        existing_names = {f.unity_name for f in info.fields}
+        search_dir = script_path.parent
+
+        try:
+            for cs_file in search_dir.glob("*.cs"):
+                if cs_file == script_path:
+                    continue
+                try:
+                    cs_content = cs_file.read_text(encoding="utf-8-sig")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                if f"partial class {info.class_name}" not in cs_content:
+                    continue
+                partial_info = parse_script_file(cs_file)
+                if partial_info is None or partial_info.class_name != info.class_name:
+                    continue
+                for field in partial_info.fields:
+                    if field.unity_name not in existing_names:
+                        info.fields.append(field)
+                        existing_names.add(field.unity_name)
+        except OSError:
+            pass
 
     def _resolve_inheritance(self, info, visited: set[str] | None = None) -> bool:
         """Resolve inheritance chain and merge parent fields into info.
