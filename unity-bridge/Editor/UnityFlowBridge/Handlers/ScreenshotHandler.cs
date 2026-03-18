@@ -159,8 +159,6 @@ namespace UnityFlow.Bridge.Handlers
 
                 var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, holder.transform);
 
-                SuppressSideEffects(instance);
-
                 instance.transform.SetParent(null, false);
                 holder.SetActive(true);
 
@@ -231,51 +229,6 @@ namespace UnityFlow.Bridge.Handlers
             {
                 EditorSceneManager.ClosePreviewScene(previewScene);
             }
-        }
-
-        private static void SuppressSideEffects(GameObject instance)
-        {
-            var monoBehaviours = instance.GetComponentsInChildren<MonoBehaviour>(true);
-            foreach (var mb in monoBehaviours)
-            {
-                if (mb == null)
-                    continue;
-                var typeName = mb.GetType().FullName;
-                if (typeName == null)
-                    continue;
-                if (IsRenderingComponent(typeName))
-                    continue;
-                mb.enabled = false;
-            }
-        }
-
-        private static bool IsRenderingComponent(string typeName)
-        {
-            if (typeName.StartsWith("UnityEngine.UI."))
-                return true;
-            if (typeName.StartsWith("TMPro."))
-                return true;
-            if (typeName.StartsWith("UnityEngine.Rendering."))
-                return true;
-
-            switch (typeName)
-            {
-                case "UnityEngine.Canvas":
-                case "UnityEngine.CanvasScaler":
-                case "UnityEngine.CanvasRenderer":
-                case "UnityEngine.CanvasGroup":
-                case "UnityEngine.Animator":
-                case "UnityEngine.Animation":
-                case "UnityEngine.SpriteRenderer":
-                case "UnityEngine.MeshRenderer":
-                case "UnityEngine.SkinnedMeshRenderer":
-                case "UnityEngine.ParticleSystemRenderer":
-                case "UnityEngine.LineRenderer":
-                case "UnityEngine.TrailRenderer":
-                    return true;
-            }
-
-            return false;
         }
 
         private static void RebuildTextMeshPro(GameObject instance)
