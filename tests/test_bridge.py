@@ -259,6 +259,7 @@ class TestMcpServerImport:
             "get_inspector",
             "get_console_logs",
             "get_editor_state",
+            "refresh_assets",
             "capture_animation_frames",
             "get_animator_state",
             "control_playmode",
