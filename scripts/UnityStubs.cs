@@ -302,6 +302,7 @@ namespace UnityEditor
         public static T LoadAssetAtPath<T>(string p) where T : class => null;
         public static string[] FindAssets(string filter) => new string[0];
         public static string GUIDToAssetPath(string guid) => "";
+        public static void Refresh() {}
     }
     public class AssetPreview
     {

@@ -1323,7 +1323,7 @@ def _import_prefab_instance(data: dict[str, Any], raw_fields: dict[str, Any]) ->
         content["m_SourcePrefab"] = {
             "fileID": src.get("fileID", 0),
             "guid": src.get("guid", ""),
-            "type": src.get("type", 2),
+            "type": src.get("type", 3),
         }
     elif "m_SourcePrefab" in raw_fields:
         content["m_SourcePrefab"] = raw_fields["m_SourcePrefab"]
@@ -1367,8 +1367,6 @@ def _import_prefab_instance(data: dict[str, Any], raw_fields: dict[str, Any]) ->
 
     if "m_RemovedComponents" not in modification:
         modification["m_RemovedComponents"] = []
-    if "m_RemovedGameObjects" not in modification:
-        modification["m_RemovedGameObjects"] = []
 
     content["m_Modification"] = modification
 

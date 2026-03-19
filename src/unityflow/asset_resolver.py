@@ -281,10 +281,7 @@ ASSET_TYPE_FILE_IDS: dict[str, int] = {
 }
 
 # Reference type values
-REF_TYPE_NATIVE = 2  # Native/compiled asset (textures, audio, prefabs, etc.)
-REF_TYPE_SOURCE = 3  # Source asset (scripts like .cs)
-
-SOURCE_EXTENSIONS = frozenset((".cs",))
+REF_TYPE_EXTERNAL = 3  # External asset referenced by GUID (sprites, prefabs, scripts, etc.)
 
 
 @dataclass
@@ -293,7 +290,7 @@ class AssetResolveResult:
 
     file_id: int
     guid: str
-    ref_type: int = REF_TYPE_NATIVE
+    ref_type: int = REF_TYPE_EXTERNAL
     asset_path: str | None = None
     sub_asset: str | None = None
 
@@ -559,7 +556,7 @@ def resolve_asset_reference(
     normalized_path = asset_path.replace("\\", "/")
 
     suffix = Path(normalized_path).suffix.lower()
-    ref_type = REF_TYPE_SOURCE if suffix in SOURCE_EXTENSIONS else REF_TYPE_NATIVE
+    ref_type = REF_TYPE_EXTERNAL
 
     if guid_index:
         guid = guid_index.get_guid(Path(normalized_path))
@@ -928,7 +925,7 @@ def _try_resolve_prefab_component(
                 return {
                     "fileID": comp.file_id,
                     "guid": result.guid,
-                    "type": REF_TYPE_SOURCE,
+                    "type": REF_TYPE_EXTERNAL,
                 }
 
     return None

@@ -107,7 +107,7 @@ class MaterialReference:
 
     file_id: int
     guid: str | None = None
-    type: int = 2  # Unity reference type (2 for most assets)
+    type: int = 3  # Unity reference type (3 = external asset)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to Unity reference dictionary format."""

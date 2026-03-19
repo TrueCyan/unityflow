@@ -150,7 +150,9 @@ uvx unityflow set Prefab.prefab --path "Canvas/Panel" --batch '{"m_Layer": 5, "m
 ## Adding/Removing Components and Objects
 
 ```bash
-uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-component "Image"
+# Use "Core/Image" and "Core/InputField" for Unity built-in components
+# (plain "Image" or "InputField" may conflict with TextMeshPro types)
+uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-component "Core/Image"
 uvx unityflow set Prefab.prefab --path "Canvas/Panel" --remove-component "Button"
 uvx unityflow set Prefab.prefab --path "Canvas/Panel" --add-object "Child" --type rect-transform
 uvx unityflow set Prefab.prefab --path "Canvas/Panel" --remove-object "Child"

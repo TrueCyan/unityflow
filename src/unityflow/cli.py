@@ -2973,6 +2973,7 @@ def hierarchy_cmd(
         "m_EditorClassIdentifier",
         "m_Name",
         "serializedVersion",
+        "m_IsActive",
     }
 
     transform_skip_keys = skip_keys | {
@@ -3028,9 +3029,11 @@ def hierarchy_cmd(
         for comp in node.components:
             comp_type = comp.script_name or comp.class_name
             visible = {k: v for k, v in comp.data.items() if k not in skip_keys and v not in ({}, None)}
-            if not visible:
+            enabled = comp.data.get("m_Enabled", 1)
+            disabled_tag = " (disabled)" if enabled == 0 else ""
+            if not visible and not disabled_tag:
                 continue
-            click.echo(f"{line_prefix}  [{comp_type}]")
+            click.echo(f"{line_prefix}  [{comp_type}]{disabled_tag}")
             prop_indent = f"{line_prefix}    "
             for key, value in visible.items():
                 click.echo(f"{prop_indent}{key}: {format_value(value, prop_indent)}")

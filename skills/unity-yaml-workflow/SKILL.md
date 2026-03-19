@@ -127,6 +127,8 @@ uvx unityflow set Player.prefab --path "Player" --remove-object "Child"
 uvx unityflow set file.prefab --path "Root" --add-object "@Assets/Prefabs/Button.prefab"
 uvx unityflow set file.prefab --path "Root" --add-object "@Assets/Prefabs/Panel.prefab" --instance-name "MyPanel"
 
+# Use "Core/Image" and "Core/InputField" for Unity built-in components
+# (plain "Image" or "InputField" may conflict with TextMeshPro types)
 uvx unityflow set Player.prefab --path "Player" --add-component "Button"
 uvx unityflow set Player.prefab --path "Player" --remove-component "OldComponent"
 

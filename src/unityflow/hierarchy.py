@@ -1500,18 +1500,14 @@ class Hierarchy:
                 "m_ObjectHideFlags": 0,
                 "serializedVersion": 2,
                 "m_Modification": {
-                    "serializedVersion": 3,
                     "m_TransformParent": {"fileID": parent_transform_id},
                     "m_Modifications": modifications,
                     "m_RemovedComponents": [],
-                    "m_RemovedGameObjects": [],
-                    "m_AddedGameObjects": [],
-                    "m_AddedComponents": [],
                 },
                 "m_SourcePrefab": {
                     "fileID": 100100000,
                     "guid": source_guid,
-                    "type": 2,
+                    "type": 3,
                 },
             }
         }
@@ -1530,8 +1526,10 @@ class Hierarchy:
                 "m_CorrespondingSourceObject": {
                     "fileID": source_root_transform_id,
                     "guid": source_guid,
+                    "type": 3,
                 },
                 "m_PrefabInstance": {"fileID": prefab_instance_id},
+                "m_PrefabAsset": {"fileID": 0},
             }
         }
         stripped_transform_obj = UnityYAMLObject(
@@ -1549,8 +1547,10 @@ class Hierarchy:
                     "m_CorrespondingSourceObject": {
                         "fileID": source_root_go_id,
                         "guid": source_guid,
+                        "type": 3,
                     },
                     "m_PrefabInstance": {"fileID": prefab_instance_id},
+                    "m_PrefabAsset": {"fileID": 0},
                 }
             }
             stripped_go_obj = UnityYAMLObject(
