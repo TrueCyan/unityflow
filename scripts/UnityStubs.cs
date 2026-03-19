@@ -11,7 +11,12 @@ namespace UnityEngine
         public static T Instantiate<T>(T original) where T : Object => original;
         public static Object Instantiate(Object original) => original;
     }
-    public class Component : Object { public GameObject gameObject; public Transform transform; }
+    public class Component : Object
+    {
+        public GameObject gameObject;
+        public Transform transform;
+        public T GetComponent<T>() where T : class => default;
+    }
     public class Behaviour : Component { public bool enabled; }
     public class MonoBehaviour : Behaviour { }
     public class GameObject : Object
@@ -46,7 +51,11 @@ namespace UnityEngine
         public void SetParent(Transform parent, bool worldPositionStays) {}
         public T GetComponent<T>() where T : class => default;
     }
-    public struct Vector2 { public float x, y; }
+    public struct Vector2
+    {
+        public float x, y;
+        public Vector2(float x, float y) { this.x = x; this.y = y; }
+    }
     public struct Vector3
     {
         public float x, y, z;
