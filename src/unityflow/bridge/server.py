@@ -131,6 +131,23 @@ def get_editor_state() -> str:
 
 
 @mcp.tool()
+def refresh_assets() -> str:
+    """Trigger Unity AssetDatabase.Refresh() to detect file changes and recompile scripts.
+
+    Call this after modifying scripts or assets outside the editor.
+    Poll get_editor_state().isCompiling to wait for compilation to finish.
+
+    Returns:
+        JSON with success status and whether compilation started
+    """
+    try:
+        data = _client.refresh_assets()
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except UnityBridgeError as e:
+        return _error_text(e)
+
+
+@mcp.tool()
 def capture_animation_frames(
     target: str,
     clip: str | None = None,

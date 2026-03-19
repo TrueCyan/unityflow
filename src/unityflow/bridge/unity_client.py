@@ -80,6 +80,9 @@ class UnityClient:
     def editor_state(self):
         return self.get_json("/api/editor_state")
 
+    def refresh_assets(self):
+        return self.post_json("/api/refresh_assets")
+
     def animation_frames(self, target, clip=None, frame_count=8, width=512, height=512):
         return self.get_json(
             "/api/animation_frames",

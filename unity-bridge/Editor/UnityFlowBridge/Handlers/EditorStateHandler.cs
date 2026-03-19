@@ -11,6 +11,7 @@ namespace UnityFlow.Bridge.Handlers
         {
             server.RegisterRoute("/api/ping", HandlePing);
             server.RegisterRoute("/api/editor_state", HandleEditorState);
+            server.RegisterRoute("/api/refresh_assets", HandleRefreshAssets);
         }
 
         private static string HandlePing(HttpListenerRequest request, RequestContext ctx)
@@ -45,6 +46,29 @@ namespace UnityFlow.Bridge.Handlers
                 sceneIsDirty = activeScene.isDirty,
                 selection = selectionNames
             });
+        }
+
+        private static string HandleRefreshAssets(HttpListenerRequest request, RequestContext ctx)
+        {
+            if (request.HttpMethod != "POST")
+            {
+                ctx.StatusCode = 405;
+                return "{\"error\":\"Method not allowed. Use POST.\"}";
+            }
+
+            AssetDatabase.Refresh();
+            return JsonUtility.ToJson(new RefreshAssetsResponse
+            {
+                success = true,
+                isCompiling = EditorApplication.isCompiling
+            });
+        }
+
+        [System.Serializable]
+        private class RefreshAssetsResponse
+        {
+            public bool success;
+            public bool isCompiling;
         }
 
         [System.Serializable]
