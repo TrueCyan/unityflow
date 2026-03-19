@@ -49,6 +49,7 @@ namespace UnityFlow.Bridge.Handlers
             }
 
             var previewScene = EditorSceneManager.NewPreviewScene();
+            previewScene.name = "UnityFlowPreview";
 
             try
             {

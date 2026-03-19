@@ -150,6 +150,7 @@ namespace UnityFlow.Bridge.Handlers
             GameObject prefab, int width, int height, string angle, RequestContext ctx)
         {
             var previewScene = EditorSceneManager.NewPreviewScene();
+            previewScene.name = "UnityFlowPreview";
 
             try
             {
