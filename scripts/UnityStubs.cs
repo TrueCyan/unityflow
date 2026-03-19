@@ -145,6 +145,7 @@ namespace UnityEngine
     public enum RenderMode { ScreenSpaceOverlay, ScreenSpaceCamera, WorldSpace }
     public class RectTransform : Transform
     {
+        public Vector2 sizeDelta;
         public void GetWorldCorners(Vector3[] fourCornersArray) {}
     }
     public class Light : Behaviour { public LightType type; public float intensity; }
