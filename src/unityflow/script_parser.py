@@ -459,8 +459,17 @@ def parse_script(content: str, path: Path | None = None) -> ScriptInfo | None:
     namespace_match = NAMESPACE_PATTERN.search(content)
     namespace = namespace_match.group(1) if namespace_match else None
 
-    # Find class declaration
-    class_match = CLASS_PATTERN.search(content)
+    # Find class declaration matching the filename (Unity uses filename as main class)
+    class_match = None
+    if path is not None:
+        expected_name = path.stem
+        for m in CLASS_PATTERN.finditer(content):
+            if m.group(1) == expected_name:
+                class_match = m
+                break
+
+    if class_match is None:
+        class_match = CLASS_PATTERN.search(content)
     if not class_match:
         return None
 
