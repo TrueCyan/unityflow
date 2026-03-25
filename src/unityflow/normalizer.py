@@ -307,13 +307,13 @@ class UnityPrefabNormalizer:
     ) -> None:
         rename_mapping = nested_info.get_rename_mapping()
 
+        renamed_old_names = []
         for old_name, new_name in rename_mapping.items():
             if old_name in data and new_name not in data:
                 data[new_name] = data[old_name]
+                renamed_old_names.append(old_name)
 
-        valid_names = nested_info.get_valid_field_names()
-        fields_to_remove = [name for name in data if name not in valid_names]
-        for name in fields_to_remove:
+        for name in renamed_old_names:
             del data[name]
 
         existing_names = set(data.keys())

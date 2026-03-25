@@ -161,10 +161,10 @@ FIELD_PATTERN = re.compile(
 )
 
 # Match SerializeField attribute
-SERIALIZE_FIELD_ATTR = re.compile(r"\[\s*SerializeField\s*\]", re.IGNORECASE)
+SERIALIZE_FIELD_ATTR = re.compile(r"\[[^\]]*\bSerializeField\b[^\]]*\]", re.IGNORECASE)
 
 # Match NonSerialized attribute
-NON_SERIALIZED_ATTR = re.compile(r"\[\s*(?:System\.)?NonSerialized\s*\]", re.IGNORECASE)
+NON_SERIALIZED_ATTR = re.compile(r"\[[^\]]*\b(?:System\.)?NonSerialized\b[^\]]*\]", re.IGNORECASE)
 
 # Match HideInInspector attribute (still serialized, just hidden)
 HIDE_IN_INSPECTOR_ATTR = re.compile(r"\[\s*HideInInspector\s*\]", re.IGNORECASE)
