@@ -25,7 +25,7 @@ uvx unityflow hierarchy MainMenu.prefab
 uvx unityflow hierarchy MainMenu.prefab --detail
 uvx unityflow hierarchy MainMenu.prefab --no-components
 uvx unityflow inspect Scene.unity "Canvas/Panel/Button"
-uvx unityflow get Scene.unity "Canvas/Panel/Image/m_Color"
+uvx unityflow inspect Scene.unity "Canvas/Panel/Image" --json
 ```
 
 `--detail` shows all component properties inline in the tree, hiding default transform values and internal fields.

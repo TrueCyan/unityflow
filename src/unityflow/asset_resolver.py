@@ -847,6 +847,9 @@ def resolve_internal_reference(
                 comp_name = comp_spec
                 comp_index = None
 
+            if comp_name in ("Transform", "RectTransform"):
+                return _make_ref_for_node(parent_node, doc=doc, field_type=comp_name)
+
             matches = []
             for comp in parent_node.components:
                 name = comp.script_name or comp.class_name

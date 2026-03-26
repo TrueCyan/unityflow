@@ -882,11 +882,12 @@ def _export_value(value: Any) -> Any:
     if isinstance(value, dict):
         # Check if it's a reference
         if "fileID" in value:
-            return {
-                "fileID": value.get("fileID", 0),
-                "guid": value.get("guid"),
-                "type": value.get("type"),
-            }
+            ref: dict[str, Any] = {"fileID": value.get("fileID", 0)}
+            if "guid" in value and value["guid"] is not None:
+                ref["guid"] = value["guid"]
+            if "type" in value and value["type"] is not None:
+                ref["type"] = value["type"]
+            return ref
         # Check if it's a vector
         if set(value.keys()) <= {"x", "y", "z", "w"}:
             return {k: float(v) for k, v in value.items()}

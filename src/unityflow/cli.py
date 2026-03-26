@@ -1257,13 +1257,6 @@ def _get_script_info_for_component(
     return normalizer._get_script_info(script_guid)
 
 
-def _normalize_and_save(doc: UnityYAMLDocument, output_path: Path, project_root: Path | None) -> None:
-    if project_root:
-        normalizer = UnityPrefabNormalizer(project_root=project_root)
-        normalizer.normalize_document(doc)
-    doc.save(output_path)
-
-
 def _handle_add_component(
     doc: UnityYAMLDocument,
     go_path: str,
@@ -1489,7 +1482,7 @@ def _handle_add_component(
             components.insert(insert_idx, new_entry)
             go_content["m_Component"] = components
 
-    _normalize_and_save(doc, output_path, project_root)
+    doc.save(output_path)
     click.echo(f"Added {display_name} to {go_path}")
     if output:
         click.echo(f"Saved to: {output}")
@@ -1537,7 +1530,7 @@ def _handle_remove_component(
             new_components = [c for c in components if c.get("component", {}).get("fileID") != target_comp.file_id]
             go_content["m_Component"] = new_components
 
-    _normalize_and_save(doc, output_path, project_root)
+    doc.save(output_path)
     click.echo(f"Removed {comp_type} from {go_path}")
     if output:
         click.echo(f"Saved to: {output}")
@@ -1595,7 +1588,7 @@ def _handle_move_component(
 
     go_content["m_Component"] = components
 
-    _normalize_and_save(doc, output_path, project_root)
+    doc.save(output_path)
     if before_spec:
         click.echo(f"Moved {move_spec} before {before_spec} on {go_path}")
     else:
@@ -1652,7 +1645,7 @@ def _try_prefab_instance_override(
                         count += 1
                 if count == 0:
                     return False
-                _normalize_and_save(doc, output_path, project_root)
+                doc.save(output_path)
                 click.echo(f"Set {count} override(s) on PrefabInstance '{node.name}'")
                 if output:
                     click.echo(f"Saved to: {output}")
@@ -1666,7 +1659,7 @@ def _try_prefab_instance_override(
                 if not prop_path:
                     return False
                 if node.set_property(prop_path, parsed_value):
-                    _normalize_and_save(doc, output_path, project_root)
+                    doc.save(output_path)
                     click.echo(f"Set override '{prop_path}' on PrefabInstance '{node.name}'")
                     if output:
                         click.echo(f"Saved to: {output}")
@@ -1743,7 +1736,7 @@ def _handle_add_prefab(
         click.echo("Error: Failed to add prefab instance", err=True)
         sys.exit(1)
 
-    _normalize_and_save(doc, output_path, project_root)
+    doc.save(output_path)
     click.echo(f"Added prefab instance '{instance_name}' under '{parent_path}'")
     if output:
         click.echo(f"Saved to: {output}")
@@ -1809,7 +1802,7 @@ def _handle_add_object(
             children.append({"fileID": child_transform_id})
             t_content["m_Children"] = children
 
-    _normalize_and_save(doc, output_path, project_root)
+    doc.save(output_path)
     click.echo(f"Added '{child_name}' under '{parent_path}'")
     if output:
         click.echo(f"Saved to: {output}")
@@ -1891,7 +1884,7 @@ def _handle_remove_object(
     new_children = [c for c in children_refs if c.get("fileID", 0) != child_transform_id]
     t_content["m_Children"] = new_children
 
-    _normalize_and_save(doc, output_path, project_root)
+    doc.save(output_path)
     click.echo(f"Removed '{child_name}' from '{parent_path}'")
     if output:
         click.echo(f"Saved to: {output}")
@@ -1942,63 +1935,6 @@ def _collect_descendant_ids(doc: UnityYAMLDocument, transform_id: int) -> set[in
         result.update(_collect_descendant_ids(doc, c_id))
 
     return result
-
-
-@main.command(name="get")
-@click.argument("file", type=click.Path(exists=True, path_type=Path))
-@click.argument("path_spec", type=str)
-def get_value_cmd(
-    file: Path,
-    path_spec: str,
-) -> None:
-    """Get a value at a specific path in a Unity YAML file.
-
-    Path Format:
-        GameObject/ComponentType/property - Component property
-        GameObject/property               - GameObject property
-
-    Examples:
-
-        # Get Transform position
-        unityflow get Player.prefab "Player/Transform/localPosition"
-
-        # Get SpriteRenderer color
-        unityflow get Player.prefab "Player/SpriteRenderer/m_Color"
-
-        # Get GameObject name
-        unityflow get Player.prefab "Player/name"
-
-        # Get all properties of a component
-        unityflow get Player.prefab "Player/Transform"
-
-        # When multiple components of same type exist, use index
-        unityflow get Scene.unity "Canvas/Panel/Image[1]/m_Color"
-    """
-    import json
-
-    from unityflow.asset_tracker import find_unity_project_root
-    from unityflow.parser import UnityYAMLDocument
-    from unityflow.query import get_value
-
-    try:
-        doc = UnityYAMLDocument.load(file)
-    except Exception as e:
-        click.echo(f"Error: Failed to load {file}: {e}", err=True)
-        sys.exit(1)
-
-    project_root = find_unity_project_root(file)
-    resolved_path, error = _resolve_component_path(doc, path_spec, project_root=project_root)
-    if error:
-        click.echo(f"Error: {error}", err=True)
-        sys.exit(1)
-
-    # Get the value
-    value = get_value(doc, resolved_path)
-    if value is None:
-        click.echo(f"Error: No value found at path '{path_spec}'", err=True)
-        sys.exit(1)
-
-    click.echo(json.dumps(value, indent=2, default=str))
 
 
 @main.command(name="set")
@@ -2350,7 +2286,7 @@ def set_value_cmd(
             click.echo(f"Error: Path not found or no fields set: {original_path}", err=True)
             sys.exit(1)
 
-        _normalize_and_save(doc, output_path, project_root)
+        doc.save(output_path)
         click.echo(f"Set {updated + created} fields at {original_path}")
         click.echo(f"  Updated: {updated}, Created: {created}")
 
@@ -2397,7 +2333,7 @@ def set_value_cmd(
             sys.exit(1)
 
         if set_value(doc, set_path, resolved_value, create=True):
-            _normalize_and_save(doc, output_path, project_root)
+            doc.save(output_path)
             if is_internal_ref:
                 click.echo(f"Set {original_path} = {value[1:]}")  # Remove # prefix for display
             elif is_asset_ref:
@@ -2836,6 +2772,12 @@ repos:
     type=click.Path(exists=True, path_type=Path),
     help="Unity project root (auto-detected if not specified)",
 )
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output hierarchy as JSON",
+)
 def hierarchy_cmd(
     file: Path,
     depth: int | None,
@@ -2843,6 +2785,7 @@ def hierarchy_cmd(
     no_components: bool,
     detail: bool,
     project_root: Path | None,
+    output_json: bool,
 ) -> None:
     """Show hierarchy structure of a Unity YAML file.
 
@@ -3071,6 +3014,27 @@ def hierarchy_cmd(
         for i, child in enumerate(children):
             print_tree(child, child_prefix, i == len(children) - 1, current_depth + 1)
 
+    if output_json:
+        import json
+
+        def node_to_dict(nd, current_depth=0):
+            result = {"name": nd.name, "path": nd.path, "active": nd.active}
+            comp_list = []
+            for comp in nd.components:
+                comp_type = comp.script_name or comp.class_name
+                comp_list.append(comp_type)
+            if comp_list:
+                result["components"] = comp_list
+            if depth is None or current_depth < depth:
+                kids = [node_to_dict(c, current_depth + 1) for c in nd.children]
+                if kids:
+                    result["children"] = kids
+            return result
+
+        data = [node_to_dict(r) for r in root_nodes]
+        click.echo(json.dumps(data[0] if len(data) == 1 else data, indent=2))
+        return
+
     click.echo(f"Hierarchy: {file.name}")
     click.echo()
 
@@ -3097,10 +3061,24 @@ def hierarchy_cmd(
     type=click.Path(exists=True, path_type=Path),
     help="Unity project root (auto-detected if not specified)",
 )
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output as JSON (suitable for piping to set --batch)",
+)
+@click.option(
+    "--raw",
+    "output_raw",
+    is_flag=True,
+    help="Show raw YAML values including fileIDs and internal fields",
+)
 def inspect_cmd(
     file: Path,
     object_path: str | None,
     project_root: Path | None,
+    output_json: bool,
+    output_raw: bool,
 ) -> None:
     """Inspect a GameObject or component in detail.
 
@@ -3293,6 +3271,12 @@ def inspect_cmd(
         else:
             filter_name = component_filter
 
+    if output_json or output_raw:
+        _output_inspect_data(
+            node, doc, filter_name, filter_index, output_json, output_raw, guid_index, hier, resolved_project_root
+        )
+        return
+
     inspect_skip_keys = {
         "m_ObjectHideFlags",
         "m_CorrespondingSourceObject",
@@ -3331,6 +3315,68 @@ def inspect_cmd(
                 click.echo(f"  {key}: {format_value(value, '  ')}")
 
         click.echo()
+
+    if filter_name and filter_match_count == 0:
+        click.echo(f"Warning: No component '{filter_name}' found on '{node.name}'", err=True)
+
+
+def _output_inspect_data(
+    node,
+    doc,
+    filter_name: str | None,
+    filter_index: int | None,
+    output_json: bool,
+    output_raw: bool,
+    guid_index,
+    hier,
+    project_root,
+) -> None:
+    import json
+
+    unity_internal_keys = {
+        "m_ObjectHideFlags",
+        "m_CorrespondingSourceObject",
+        "m_PrefabInstance",
+        "m_PrefabAsset",
+        "m_GameObject",
+        "m_Enabled",
+        "m_EditorHideFlags",
+        "m_EditorClassIdentifier",
+        "m_Name",
+        "serializedVersion",
+    }
+
+    components = []
+    filter_match_count = 0
+
+    for comp in node.components:
+        comp_type = comp.script_name or comp.class_name
+        if filter_name:
+            if comp_type.lower() != filter_name.lower() and comp.class_name.lower() != filter_name.lower():
+                continue
+            if filter_index is not None and filter_match_count != filter_index:
+                filter_match_count += 1
+                continue
+            filter_match_count += 1
+
+        if output_raw:
+            fields = dict(comp.data)
+        else:
+            fields = {k: v for k, v in comp.data.items() if k not in unity_internal_keys}
+
+        if output_json:
+            components.append({"type": comp_type, "fields": fields})
+        else:
+            click.echo(f"[{comp_type}]")
+            for key, value in fields.items():
+                click.echo(f"  {key}: {json.dumps(value, default=str)}")
+            click.echo()
+
+    if output_json:
+        if filter_name and len(components) == 1:
+            click.echo(json.dumps(components[0]["fields"], indent=2, default=str))
+        else:
+            click.echo(json.dumps(components, indent=2, default=str))
 
     if filter_name and filter_match_count == 0:
         click.echo(f"Warning: No component '{filter_name}' found on '{node.name}'", err=True)

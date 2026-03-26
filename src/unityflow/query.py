@@ -403,9 +403,14 @@ def _convert_value(value: Any) -> Any:
         # Check if it's a vector
         if set(value.keys()) <= {"x", "y", "z", "w"}:
             return {k: float(v) for k, v in value.items()}
-        # Check if it's a reference
+        # Check if it's a reference — strip null guid/type to keep internal refs clean
         if "fileID" in value:
-            return value
+            ref: dict[str, Any] = {"fileID": value["fileID"]}
+            if value.get("guid") is not None:
+                ref["guid"] = value["guid"]
+            if value.get("type") is not None:
+                ref["type"] = value["type"]
+            return ref
         # Recursive conversion
         return {k: _convert_value(v) for k, v in value.items()}
     elif isinstance(value, list):

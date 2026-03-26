@@ -23,10 +23,9 @@ Use unity-ui-workflow for UI-specific tasks. Use unity-animation-workflow for an
 ## Available Commands
 
 - `uvx unityflow create` - Create new Unity file
-- `uvx unityflow hierarchy` - View hierarchy structure
-- `uvx unityflow inspect` - View object/component details
-- `uvx unityflow get` - Get value at path
-- `uvx unityflow set` - Modify values, add/remove components and objects
+- `uvx unityflow hierarchy` - View hierarchy structure (`--json` for machine-readable output)
+- `uvx unityflow inspect` - View object/component details (`--json` for batch piping, `--raw` for internal fields)
+- `uvx unityflow set` - Modify values, add/remove components and objects (does not normalize)
 - `uvx unityflow diff` - Compare two files
 - `uvx unityflow validate` - Check file integrity
 - `uvx unityflow normalize` - Deterministic serialization for Git
@@ -52,13 +51,17 @@ hierarchy shows PrefabInstance source paths when project root is available:
 ├── MyButton [Prefab: Assets/Prefabs/Button.prefab]
 ```
 
-### Inspect and Get
+### Inspect
 
 ```bash
 uvx unityflow inspect Player.prefab "Player"
 uvx unityflow inspect Player.prefab "Player/Transform"
-uvx unityflow get Player.prefab "Player/Transform/m_LocalPosition"
-uvx unityflow get Scene.unity "Canvas/Panel/Image[1]/m_Color"
+
+# JSON output (pipe to set --batch)
+uvx unityflow inspect Player.prefab "Player/Transform" --json
+
+# Raw output (includes internal fields like m_Script, fileIDs)
+uvx unityflow inspect Player.prefab "Player/Transform" --raw
 ```
 
 ---
