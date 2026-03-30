@@ -169,6 +169,13 @@ uvx unityflow set Prefab.prefab --path "Canvas/Panel" --move-component "Mask[0]"
 
 ## PrefabInstance Properties
 
+Use `inspect --overrides` to see only the property overrides on a PrefabInstance:
+
+```bash
+uvx unityflow inspect Scene.unity "Canvas/MyButton" --overrides
+uvx unityflow inspect Scene.unity "Canvas/MyButton" --overrides --json
+```
+
 Nested prefab instances can be edited with the same path syntax:
 
 ```bash
@@ -201,3 +208,15 @@ uvx unityflow set Scene.unity \
 | **Scroll** | ScrollRect, Mask, RectMask2D |
 | **Text** | TextMeshProUGUI, TMP_InputField |
 | **Canvas** | CanvasScaler, GraphicRaycaster |
+
+### Name Conflicts
+
+Some components exist in multiple assemblies (e.g., Unity Core vs TextMeshPro).
+Use the full path to avoid ambiguity:
+
+| Component | Full Path | Conflicts With |
+|-----------|-----------|----------------|
+| Image | `Core/Image` | TextMeshPro `TMP_SpriteAsset/Image` |
+| InputField | `Core/InputField` | TextMeshPro `TMP_InputField` |
+
+Always use `--add-component "Core/Image"` and `--add-component "Core/InputField"` for Unity built-in versions.

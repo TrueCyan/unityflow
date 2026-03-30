@@ -2949,7 +2949,30 @@ def hierarchy_cmd(
             return all(value.get(k) == v for k, v in default.items())
         return value == default
 
+    go_skip_keys = skip_keys | {"m_Component", "m_Icon", "m_NavMeshLayer", "m_StaticEditorFlags"}
+    default_go_values = {
+        "m_Layer": 0,
+        "m_TagString": "Untagged",
+    }
+
     def print_detail(node, line_prefix: str):
+        go_obj = doc.get_by_file_id(node.file_id)
+        if go_obj and go_obj.class_id == 1:
+            gc = go_obj.get_content() or {}
+            go_visible = {
+                k: v
+                for k, v in gc.items()
+                if k not in go_skip_keys and v not in ({}, None) and v != default_go_values.get(k)
+            }
+            if go_visible:
+                click.echo(f"{line_prefix}  [GameObject]")
+                prop_indent = f"{line_prefix}    "
+                for key, val in go_visible.items():
+                    display_key = key
+                    if key.startswith("m_"):
+                        display_key = key[2:3].lower() + key[3:]
+                    click.echo(f"{prop_indent}{display_key}: {format_value(val, prop_indent)}")
+
         if node.transform_id:
             transform_obj = doc.get_by_file_id(node.transform_id)
             if transform_obj:
@@ -3073,12 +3096,19 @@ def hierarchy_cmd(
     is_flag=True,
     help="Show raw YAML values including fileIDs and internal fields",
 )
+@click.option(
+    "--overrides",
+    "show_overrides",
+    is_flag=True,
+    help="Show only PrefabInstance property overrides (modifications)",
+)
 def inspect_cmd(
     file: Path,
     object_path: str | None,
     project_root: Path | None,
     output_json: bool,
     output_raw: bool,
+    show_overrides: bool,
 ) -> None:
     """Inspect a GameObject or component in detail.
 
@@ -3096,6 +3126,9 @@ def inspect_cmd(
 
         # Inspect specific object by path
         unityflow inspect Player.prefab "Body/Armature/Spine"
+
+        # Show PrefabInstance overrides only
+        unityflow inspect Scene.unity "Canvas/Panel" --overrides
     """
     from unityflow import UnityYAMLDocument, build_hierarchy
     from unityflow.asset_resolver import humanize_references
@@ -3208,6 +3241,10 @@ def inspect_cmd(
                 click.echo("Source Prefab: (unknown)")
 
     click.echo()
+
+    if show_overrides:
+        _print_prefab_overrides(node, doc, hier, guid_index, resolved_project_root, output_json)
+        return
 
     if node.transform_id:
         transform_obj = doc.get_by_file_id(node.transform_id)
@@ -3380,6 +3417,87 @@ def _output_inspect_data(
 
     if filter_name and filter_match_count == 0:
         click.echo(f"Warning: No component '{filter_name}' found on '{node.name}'", err=True)
+
+
+def _print_prefab_overrides(node, doc, hier, guid_index, project_root, output_json: bool) -> None:
+    import json
+
+    from unityflow.asset_resolver import humanize_references
+
+    if not node.is_prefab_instance:
+        click.echo("Not a PrefabInstance.", err=True)
+        return
+
+    prefab_id = node.prefab_instance_id if node.prefab_instance_id else node.file_id
+    prefab_obj = doc.get_by_file_id(prefab_id)
+    if prefab_obj is None:
+        click.echo("Error: PrefabInstance object not found in document.", err=True)
+        return
+
+    content = prefab_obj.get_content()
+    if content is None:
+        click.echo("Error: PrefabInstance has no content.", err=True)
+        return
+
+    modification = content.get("m_Modification", {})
+    modifications = modification.get("m_Modifications", [])
+
+    if not modifications:
+        click.echo("No overrides.")
+        return
+
+    mods_by_target = {}
+    for mod in modifications:
+        target = mod.get("target", {})
+        target_id = target.get("fileID", 0)
+        mods_by_target.setdefault(target_id, []).append(mod)
+
+    target_names: dict[int, str] = {}
+    if node.nested_prefab_loaded:
+        all_nodes = [node] + list(node.iter_descendants())
+        for n in all_nodes:
+            if n.file_id:
+                target_names[n.file_id] = n.name
+            if n.transform_id:
+                target_names[n.transform_id] = f"{n.name}/Transform"
+            for comp in n.components:
+                comp_type = comp.script_name or comp.class_name
+                target_names[comp.file_id] = f"{n.name}/{comp_type}"
+
+    if output_json:
+        json_output = []
+        for target_id, mods in sorted(mods_by_target.items()):
+            target_label = target_names.get(target_id, f"fileID={target_id}")
+            for mod in mods:
+                entry = {
+                    "target": target_label,
+                    "targetFileID": target_id,
+                    "propertyPath": mod.get("propertyPath", ""),
+                    "value": mod.get("value"),
+                }
+                obj_ref = mod.get("objectReference", {})
+                if isinstance(obj_ref, dict) and obj_ref.get("fileID", 0) != 0:
+                    entry["objectReference"] = obj_ref
+                json_output.append(entry)
+        click.echo(json.dumps(json_output, indent=2, default=str))
+        return
+
+    click.echo(f"Overrides: {len(modifications)}")
+    click.echo()
+
+    for target_id, mods in sorted(mods_by_target.items()):
+        target_label = target_names.get(target_id, f"(fileID={target_id})")
+        click.echo(f"  [{target_label}]")
+        for mod in mods:
+            prop_path = mod.get("propertyPath", "")
+            value = mod.get("value")
+            obj_ref = mod.get("objectReference", {})
+            if isinstance(obj_ref, dict) and obj_ref.get("fileID", 0) != 0:
+                resolved = humanize_references(obj_ref, guid_index, hier, project_root)
+                click.echo(f"    {prop_path}: {resolved}")
+            else:
+                click.echo(f"    {prop_path}: {value}")
+        click.echo()
 
 
 @main.command(name="refs")
