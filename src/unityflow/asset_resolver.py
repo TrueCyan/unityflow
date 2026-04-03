@@ -1196,9 +1196,15 @@ def _humanize_single_reference(
             return f"#{ref_node.path}"
 
         for n in hierarchy.iter_all():
+            if n.outer_file_id == file_id:
+                return f"#{n.path}"
             for c in n.components:
                 if c.file_id == file_id:
                     return f"#{n.path}/{c.script_name or c.class_name}"
+
+        resolved_node = hierarchy.resolve_file_id(file_id)
+        if resolved_node:
+            return f"#{resolved_node.path}"
 
         return ref
 
