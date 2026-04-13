@@ -1049,6 +1049,9 @@ def _resolve_component_path(
                                 matching_components.append(comp_id)
 
             if not matching_components:
+                full_go_id, full_go_error = _resolve_gameobject_by_path(doc, path_spec)
+                if full_go_id is not None:
+                    return f"gameObjects/{full_go_id}", None
                 return None, f"Component '{last_component_type}' not found on '{go_path}'"
 
             if len(matching_components) == 1:
@@ -2316,6 +2319,14 @@ def set_value_cmd(
             single_hier = Hierarchy.build(doc, guid_index=guid_index, project_root=project_root)
             single_hier.load_all_nested_prefabs()
 
+        single_field_type = None
+        single_script_info = _get_script_info_for_component(doc, set_path, project_root)
+        if single_script_info:
+            for f in single_script_info.fields:
+                if f.unity_name == field_name:
+                    single_field_type = f.field_type
+                    break
+
         try:
             resolved_value = resolve_value(
                 parsed_value,
@@ -2324,6 +2335,8 @@ def set_value_cmd(
                 doc=doc,
                 hierarchy=single_hier,
                 guid_index=guid_index,
+                field_type=single_field_type,
+                script_info=single_script_info,
             )
         except AssetTypeMismatchError as e:
             click.echo(f"Error: {e}", err=True)

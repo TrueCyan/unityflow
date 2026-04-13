@@ -281,7 +281,42 @@ ASSET_TYPE_FILE_IDS: dict[str, int] = {
 }
 
 # Reference type values
-REF_TYPE_EXTERNAL = 3  # External asset referenced by GUID (sprites, prefabs, scripts, etc.)
+REF_TYPE_SERIALIZED = 2  # Serialized Unity asset (.mat, .anim, .controller, .asset, .playable, etc.)
+REF_TYPE_IMPORTED = 3  # Imported asset processed by importer (.cs, .png, .wav, .fbx, etc.)
+
+_SERIALIZED_ASSET_EXTENSIONS = frozenset(
+    {
+        ".mat",
+        ".anim",
+        ".controller",
+        ".overrideController",
+        ".asset",
+        ".playable",
+        ".shadergraph",
+        ".shadersubgraph",
+        ".prefab",
+        ".unity",
+        ".lighting",
+        ".signal",
+        ".mixer",
+        ".preset",
+        ".brush",
+        ".guiskin",
+        ".fontsettings",
+        ".cubemap",
+        ".rendertexture",
+        ".flare",
+        ".physicmaterial",
+        ".physicsmaterial2d",
+        ".mask",
+        ".terrainlayer",
+        ".spriteatlas",
+    }
+)
+
+
+def _get_ref_type(suffix: str) -> int:
+    return REF_TYPE_SERIALIZED if suffix in _SERIALIZED_ASSET_EXTENSIONS else REF_TYPE_IMPORTED
 
 
 @dataclass
@@ -290,7 +325,7 @@ class AssetResolveResult:
 
     file_id: int
     guid: str
-    ref_type: int = REF_TYPE_EXTERNAL
+    ref_type: int = REF_TYPE_IMPORTED
     asset_path: str | None = None
     sub_asset: str | None = None
 
@@ -556,7 +591,7 @@ def resolve_asset_reference(
     normalized_path = asset_path.replace("\\", "/")
 
     suffix = Path(normalized_path).suffix.lower()
-    ref_type = REF_TYPE_EXTERNAL
+    ref_type = _get_ref_type(suffix)
 
     if guid_index:
         guid = guid_index.get_guid(Path(normalized_path))
@@ -928,7 +963,7 @@ def _try_resolve_prefab_component(
                 return {
                     "fileID": comp.file_id,
                     "guid": result.guid,
-                    "type": REF_TYPE_EXTERNAL,
+                    "type": REF_TYPE_SERIALIZED,
                 }
 
     return None
@@ -1202,7 +1237,7 @@ def _humanize_single_reference(
                 if c.file_id == file_id:
                     return f"#{n.path}/{c.script_name or c.class_name}"
 
-        resolved_node = hierarchy.resolve_file_id(file_id)
+        resolved_node = hierarchy.resolve_game_object(file_id)
         if resolved_node:
             return f"#{resolved_node.path}"
 
