@@ -773,12 +773,11 @@ def _validate_field_value(field_name: str, value) -> tuple[bool, str | None]:
         return True, None
 
     if field_type == FieldType.ASSET_REF:
-        # Asset references are validated separately by asset_resolver
-        # Skip validation here if it's already a resolved reference
         if isinstance(value, dict) and "fileID" in value:
             return True, None
-        # If it's a string starting with @, it will be resolved later
         if isinstance(value, str) and value.startswith("@"):
+            return True, None
+        if value == "" or value == "None" or value is None:
             return True, None
         return False, f"'{field_name}'은(는) 에셋 참조여야 합니다: @Assets/path.ext"
 

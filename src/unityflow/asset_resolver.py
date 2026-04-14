@@ -1000,7 +1000,7 @@ def resolve_value(
         AssetTypeMismatchError: If the asset type doesn't match the field type
     """
     if isinstance(value, str):
-        if value == "":
+        if value in ("", "None"):
             return {"fileID": 0}
 
         if is_asset_reference(value):
