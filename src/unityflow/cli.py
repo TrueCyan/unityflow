@@ -3383,6 +3383,8 @@ def _output_inspect_data(
 ) -> None:
     import json
 
+    from unityflow.asset_resolver import humanize_references
+
     unity_internal_keys = {
         "m_ObjectHideFlags",
         "m_CorrespondingSourceObject",
@@ -3413,6 +3415,9 @@ def _output_inspect_data(
             fields = dict(comp.data)
         else:
             fields = {k: v for k, v in comp.data.items() if k not in unity_internal_keys}
+
+        if output_json and not output_raw:
+            fields = humanize_references(fields, guid_index, hier, project_root)
 
         if output_json:
             components.append({"type": comp_type, "fields": fields})
