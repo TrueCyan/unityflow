@@ -3467,15 +3467,17 @@ def _print_prefab_overrides(node, doc, hier, guid_index, project_root, output_js
 
     target_names: dict[int, str] = {}
     if node.nested_prefab_loaded:
+        node_prefix = node.path + "/"
         all_nodes = [node] + list(node.iter_descendants())
         for n in all_nodes:
+            rel_path = n.path[len(node_prefix) :] if n.path.startswith(node_prefix) else n.name
             if n.file_id:
-                target_names[n.file_id] = n.name
+                target_names[n.file_id] = rel_path
             if n.transform_id:
-                target_names[n.transform_id] = f"{n.name}/Transform"
+                target_names[n.transform_id] = f"{rel_path}/Transform"
             for comp in n.components:
                 comp_type = comp.script_name or comp.class_name
-                target_names[comp.file_id] = f"{n.name}/{comp_type}"
+                target_names[comp.file_id] = f"{rel_path}/{comp_type}"
 
     if output_json:
         json_output = []
