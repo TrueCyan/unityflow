@@ -1,6 +1,6 @@
 {
   "name": "com.truecyan.unityflow-bridge",
-  "version": "0.10.29",
+  "version": "0.10.30",
   "displayName": "UnityFlow Bridge",
   "description": "Unity Editor HTTP bridge for Claude Code visual feedback",
   "unity": "2021.3",
