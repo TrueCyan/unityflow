@@ -170,6 +170,7 @@ class HierarchyNode:
     is_from_nested_prefab: bool = False
     nested_prefab_loaded: bool = False
     outer_file_id: int = 0
+    outer_transform_id: int = 0
     _document: UnityYAMLDocument | None = field(default=None, repr=False)
     _hierarchy: Hierarchy | None = field(default=None, repr=False)
 
@@ -616,6 +617,7 @@ class HierarchyNode:
             is_from_nested_prefab=True,
             nested_prefab_loaded=source_node.nested_prefab_loaded,
             outer_file_id=source_to_outer.get(source_node.file_id, 0),
+            outer_transform_id=source_to_outer.get(source_node.transform_id, 0),
             _document=source_node._document,
             _hierarchy=self._hierarchy,
         )
@@ -665,6 +667,8 @@ class HierarchyNode:
 
         outer_fid = source_to_outer.get(source_child.file_id, 0) if source_to_outer else 0
 
+        outer_transform_fid = source_to_outer.get(source_child.transform_id, 0) if source_to_outer else 0
+
         merged_child = HierarchyNode(
             file_id=source_child.file_id,
             name=source_child.name,
@@ -682,6 +686,7 @@ class HierarchyNode:
             is_from_nested_prefab=True,
             nested_prefab_loaded=source_child.nested_prefab_loaded,
             outer_file_id=outer_fid,
+            outer_transform_id=outer_transform_fid,
             _document=source_child._document,
             _hierarchy=self._hierarchy,
         )
