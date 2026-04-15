@@ -1322,6 +1322,21 @@ class Hierarchy:
 
     def _build_outer_id_cache(self) -> None:
         self._outer_id_cache.clear()
+        pi_mask_cache: dict[int, int] = {}
+
+        def _get_pi_xor_mask(node: HierarchyNode) -> int:
+            nid = id(node)
+            if nid in pi_mask_cache:
+                return pi_mask_cache[nid]
+            mask = 0
+            current = node.parent
+            while current:
+                if current.is_prefab_instance:
+                    mask ^= current.file_id
+                current = current.parent
+            pi_mask_cache[nid] = mask
+            return mask
+
         for node in self.iter_all():
             if node.transform_id:
                 self._outer_id_cache[node.transform_id] = (
@@ -1330,24 +1345,15 @@ class Hierarchy:
                 )
             if not node.is_from_nested_prefab:
                 continue
-            pi_node = node.parent
-            while pi_node and not pi_node.is_prefab_instance:
-                pi_node = pi_node.parent
-            if pi_node is None:
-                if node.is_prefab_instance:
-                    pi_node = node
-                else:
-                    continue
-            pi_id = pi_node.file_id
-            go_outer = node.file_id ^ pi_id
-            self._outer_id_cache[go_outer] = (node, "GameObject")
+            mask = _get_pi_xor_mask(node)
+            if not mask:
+                continue
+            self._outer_id_cache[node.file_id ^ mask] = (node, "GameObject")
             if node.transform_id:
-                t_outer = node.transform_id ^ pi_id
                 t_type = "RectTransform" if node.is_ui else "Transform"
-                self._outer_id_cache[t_outer] = (node, t_type)
+                self._outer_id_cache[node.transform_id ^ mask] = (node, t_type)
             for comp in node.components:
-                c_outer = comp.file_id ^ pi_id
-                self._outer_id_cache[c_outer] = (
+                self._outer_id_cache[comp.file_id ^ mask] = (
                     node,
                     comp.script_name or comp.class_name,
                 )
