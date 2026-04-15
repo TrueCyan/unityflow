@@ -1231,11 +1231,6 @@ def _humanize_single_reference(
             return f"#{ref_node.path}"
 
         for n in hierarchy.iter_all():
-            if n.outer_file_id == file_id:
-                return f"#{n.path}"
-            if n.outer_transform_id == file_id:
-                t_type = "RectTransform" if n.is_ui else "Transform"
-                return f"#{n.path}/{t_type}"
             for c in n.components:
                 if c.file_id == file_id:
                     return f"#{n.path}/{c.script_name or c.class_name}"
@@ -1243,6 +1238,13 @@ def _humanize_single_reference(
         resolved_node = hierarchy.resolve_game_object(file_id)
         if resolved_node:
             return f"#{resolved_node.path}"
+
+        outer_info = hierarchy.resolve_outer_id(file_id)
+        if outer_info:
+            node, type_name = outer_info
+            if type_name == "GameObject":
+                return f"#{node.path}"
+            return f"#{node.path}/{type_name}"
 
         return ref
 

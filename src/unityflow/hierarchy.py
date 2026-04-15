@@ -761,6 +761,7 @@ class Hierarchy:
     # Cache for loaded nested prefab hierarchies (guid -> Hierarchy)
     # This prevents re-loading and re-parsing the same prefab multiple times
     _nested_prefab_cache: dict[str, Hierarchy] = field(default_factory=dict, repr=False)
+    _outer_id_cache: dict[int, tuple[HierarchyNode, str]] = field(default_factory=dict, repr=False)
 
     @classmethod
     def build(
@@ -1316,7 +1317,43 @@ class Hierarchy:
                     loaded_count += 1
                     loaded_count += self._load_nested_in_children(node, loading_prefabs)
 
+        self._build_outer_id_cache()
         return loaded_count
+
+    def _build_outer_id_cache(self) -> None:
+        self._outer_id_cache.clear()
+        for node in self.iter_all():
+            if node.transform_id:
+                self._outer_id_cache[node.transform_id] = (
+                    node,
+                    "RectTransform" if node.is_ui else "Transform",
+                )
+            if not node.is_from_nested_prefab:
+                continue
+            pi_node = node.parent
+            while pi_node and not pi_node.is_prefab_instance:
+                pi_node = pi_node.parent
+            if pi_node is None:
+                if node.is_prefab_instance:
+                    pi_node = node
+                else:
+                    continue
+            pi_id = pi_node.file_id
+            go_outer = node.file_id ^ pi_id
+            self._outer_id_cache[go_outer] = (node, "GameObject")
+            if node.transform_id:
+                t_outer = node.transform_id ^ pi_id
+                t_type = "RectTransform" if node.is_ui else "Transform"
+                self._outer_id_cache[t_outer] = (node, t_type)
+            for comp in node.components:
+                c_outer = comp.file_id ^ pi_id
+                self._outer_id_cache[c_outer] = (
+                    node,
+                    comp.script_name or comp.class_name,
+                )
+
+    def resolve_outer_id(self, file_id: int) -> tuple[HierarchyNode, str] | None:
+        return self._outer_id_cache.get(file_id)
 
     def _load_nested_in_children(
         self,
