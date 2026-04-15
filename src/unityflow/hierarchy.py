@@ -1322,20 +1322,26 @@ class Hierarchy:
 
     def _build_outer_id_cache(self) -> None:
         self._outer_id_cache.clear()
-        pi_mask_cache: dict[int, int] = {}
+        pi_masks_cache: dict[int, list[int]] = {}
 
-        def _get_pi_xor_mask(node: HierarchyNode) -> int:
+        def _get_pi_xor_masks(node: HierarchyNode) -> list[int]:
             nid = id(node)
-            if nid in pi_mask_cache:
-                return pi_mask_cache[nid]
-            mask = 0
+            if nid in pi_masks_cache:
+                return pi_masks_cache[nid]
+            masks = []
+            cumulative = 0
             current = node.parent
             while current:
                 if current.is_prefab_instance:
-                    mask ^= current.file_id
+                    cumulative ^= current.file_id
+                    masks.append(cumulative)
                 current = current.parent
-            pi_mask_cache[nid] = mask
-            return mask
+            pi_masks_cache[nid] = masks
+            return masks
+
+        def _add_to_cache(file_id: int, node: HierarchyNode, type_name: str, masks: list[int]) -> None:
+            for mask in masks:
+                self._outer_id_cache[file_id ^ mask] = (node, type_name)
 
         for node in self.iter_all():
             if node.transform_id:
@@ -1345,18 +1351,15 @@ class Hierarchy:
                 )
             if not node.is_from_nested_prefab:
                 continue
-            mask = _get_pi_xor_mask(node)
-            if not mask:
+            masks = _get_pi_xor_masks(node)
+            if not masks:
                 continue
-            self._outer_id_cache[node.file_id ^ mask] = (node, "GameObject")
+            _add_to_cache(node.file_id, node, "GameObject", masks)
             if node.transform_id:
                 t_type = "RectTransform" if node.is_ui else "Transform"
-                self._outer_id_cache[node.transform_id ^ mask] = (node, t_type)
+                _add_to_cache(node.transform_id, node, t_type, masks)
             for comp in node.components:
-                self._outer_id_cache[comp.file_id ^ mask] = (
-                    node,
-                    comp.script_name or comp.class_name,
-                )
+                _add_to_cache(comp.file_id, node, comp.script_name or comp.class_name, masks)
 
     def resolve_outer_id(self, file_id: int) -> tuple[HierarchyNode, str] | None:
         return self._outer_id_cache.get(file_id)
