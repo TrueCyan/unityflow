@@ -1231,6 +1231,11 @@ def _humanize_single_reference(
             return f"#{ref_node.path}"
 
         for n in hierarchy.iter_all():
+            if n.file_id == file_id:
+                return f"#{n.path}"
+            if n.transform_id == file_id:
+                t_type = "RectTransform" if n.is_ui else "Transform"
+                return f"#{n.path}/{t_type}"
             for c in n.components:
                 if c.file_id == file_id:
                     return f"#{n.path}/{c.script_name or c.class_name}"
