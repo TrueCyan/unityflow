@@ -1198,7 +1198,7 @@ def _humanize_single_reference(
     if guid:
         asset_path = guid_index.get_path(guid) if guid_index else None
         if asset_path is None:
-            return ref
+            return f"(missing asset guid={guid} fileID={file_id})"
 
         posix_path = asset_path.as_posix()
         suffix = asset_path.suffix.lower()
