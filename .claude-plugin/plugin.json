@@ -1,6 +1,6 @@
 {
   "name": "unityflow",
-  "version": "0.10.33",
+  "version": "0.10.34",
   "description": "Edit Unity prefabs, scenes, and animations via CLI. Create, modify, diff, and merge Unity YAML files. Visual feedback from Unity Editor via MCP.",
   "author": {
     "name": "TrueCyan",
