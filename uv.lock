@@ -905,7 +905,7 @@ wheels = [
 
 [[package]]
 name = "unityflow"
-version = "0.9.11"
+version = "0.11.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -941,7 +941,7 @@ requires-dist = [
     { name = "packaging", specifier = ">=21.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = "==6.0.0" },
-    { name = "rapidyaml", specifier = ">=0.10.0" },
+    { name = "rapidyaml", specifier = ">=0.10.0,<0.12" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.14.14" },
     { name = "ufbx", specifier = ">=0.0.5" },
     { name = "unityflow", extras = ["bridge"], marker = "extra == 'all'" },
