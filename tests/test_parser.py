@@ -222,17 +222,19 @@ MonoBehaviour:
 
         assert content_data2["m_SomeField"] == "-", "'-' value should survive roundtrip"
 
-    def test_multiline_string_uses_double_quote(self):
-        """Strings with line breaks must be double-quoted with escapes, not folded."""
+    def test_multiline_string_uses_unity_single_quote_encoding(self):
+        """Line breaks are encoded the way Unity writes them: single-quoted with a
+        blank line per newline (K newlines in the content -> K+1 line breaks), so
+        YAML folding restores the exact value."""
         from unityflow.fast_parser import _format_scalar
 
-        assert _format_scalar("OK\n") == '"OK\\n"'
-        assert _format_scalar("a\nb") == '"a\\nb"'
-        assert _format_scalar("a\r\nb") == '"a\\r\\nb"'
+        assert _format_scalar("OK\n") == "'OK\n\n'"
+        assert _format_scalar("a\nb") == "'a\n\nb'"
+        assert _format_scalar("a\n\nb") == "'a\n\n\nb'"
 
     def test_multiline_scalar_values_survive_roundtrip(self):
         """Line breaks in scalar values must not be folded into spaces on roundtrip."""
-        values = ["OK\n", "a\nb", "Line one\nLine two\n", "a\n\nb", "carriage\r\nreturn", "   "]
+        values = ["OK\n", "a\nb", "Line one\nLine two\n", "a\n\nb", "   "]
         for value in values:
             content = "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!114 &12345\n" "MonoBehaviour:\n"
             doc = UnityYAMLDocument.parse(content)
@@ -261,6 +263,43 @@ MonoBehaviour:
         reparsed_mods = reparsed.get_by_file_id(5000).get_content()["m_Modification"]["m_Modifications"]
         reparsed_mod_text = next(m["value"] for m in reparsed_mods if m["propertyPath"] == "m_text")
         assert reparsed_mod_text == mod_text
+
+
+class TestCanonicalFormStability:
+    """Guardian tests for the canonical-form goal.
+
+    Unity does not emit byte-identical files for equivalent data, so unityflow picks
+    one canonical representation (chosen from the forms Unity actually writes) and
+    always emits that. A file already in canonical form must be reproduced unchanged
+    by load->dump. This is what keeps diffs limited to real edits once both sides are
+    normalized; it is NOT an attempt to match arbitrary Unity output byte-for-byte.
+    """
+
+    CANONICAL_FIXTURES = [
+        "basic_prefab.prefab",
+        "children_order.prefab",
+        "negative_quaternion.prefab",
+        "nested_prefab.prefab",
+        "nested_prefab_multiline.prefab",
+        "prefab_with_modifications.prefab",
+        "unsorted_prefab.prefab",
+    ]
+
+    def test_canonical_fixtures_round_trip_unchanged(self):
+        """Fixtures already in canonical form are reproduced exactly (idempotent)."""
+        for name in self.CANONICAL_FIXTURES:
+            path = FIXTURES_DIR / name
+            original = path.read_text(encoding="utf-8")
+            dumped = UnityYAMLDocument.load(path).dump()
+            assert dumped == original, f"{name} was not reproduced unchanged"
+
+    def test_multiline_scalar_canonical_form_is_single_quoted_blank_lines(self):
+        """The canonical form for multi-line scalars is Unity's single-quoted,
+        blank-line encoding (not double-quoted escapes)."""
+        path = FIXTURES_DIR / "nested_prefab_multiline.prefab"
+        original = path.read_text(encoding="utf-8")
+        assert "m_text: 'Line one\n\nLine two\n\n'" in original
+        assert UnityYAMLDocument.load(path).dump() == original
 
 
 class TestSaveRoundTripSafety:

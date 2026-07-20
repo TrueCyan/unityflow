@@ -528,31 +528,6 @@ def _to_flow(d: dict) -> str:
     return "{" + ", ".join(parts) + "}"
 
 
-def _to_double_quoted(value: str) -> str:
-    """Serialize a string as a double-quoted YAML scalar with escapes.
-
-    Used for values containing line breaks or control characters, which single-quoted
-    and plain scalars cannot represent without folding or indentation corruption.
-    """
-    parts: list[str] = []
-    for c in value:
-        if c == "\\":
-            parts.append("\\\\")
-        elif c == '"':
-            parts.append('\\"')
-        elif c == "\n":
-            parts.append("\\n")
-        elif c == "\r":
-            parts.append("\\r")
-        elif c == "\t":
-            parts.append("\\t")
-        elif ord(c) < 0x20:
-            parts.append(f"\\x{ord(c):02X}")
-        else:
-            parts.append(c)
-    return '"' + "".join(parts) + '"'
-
-
 def _format_scalar(value: Any) -> str:
     """Format a scalar value for YAML output."""
     if value is None:
@@ -568,13 +543,6 @@ def _format_scalar(value: Any) -> str:
         # Empty string - no value after colon
         if not value:
             return ""
-        # Strings containing line breaks or other control characters cannot be
-        # represented in single-quoted or plain style without corruption:
-        # single-quote folding collapses line breaks into spaces, and a raw line
-        # break drops the continuation to column 0, producing invalid indentation
-        # on reparse. Double-quoted style with escapes is unambiguous and single-line.
-        if any(ord(c) < 0x20 and c != "\t" for c in value):
-            return _to_double_quoted(value)
         if value in ("true", "false", "null", "yes", "no", "on", "off", "True", "False"):
             return f"'{value}'"
         # Standalone '-' or '~' are interpreted as null in YAML - must quote them
@@ -597,6 +565,10 @@ def _format_scalar(value: Any) -> str:
         if needs_quote:
             # Use single quotes, escape internal quotes
             escaped = value.replace("'", "''")
+            # Unity encodes literal newlines the way YAML single-quote folding
+            # requires: a run of K newlines in the content is written as K+1 line
+            # breaks (one blank line per newline), which folds back to K newlines.
+            escaped = re.sub(r"\n+", lambda m: m.group(0) + "\n", escaped)
             return f"'{escaped}'"
         # Check if it looks like a number (but not strings with leading zeros)
         if not (value.lstrip("-").startswith("0") and len(value.lstrip("-")) > 1):
