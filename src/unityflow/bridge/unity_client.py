@@ -1,9 +1,18 @@
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from unityflow.bridge.config import UNITY_BRIDGE_TIMEOUT, base_url
+
+CONNECT_RETRY_ATTEMPTS = 3
+CONNECT_RETRY_BASE_DELAY = 0.5
+
+_TRANSIENT_GUIDANCE = (
+    "The editor may be compiling or reloading the AppDomain — wait a few seconds and try again. "
+    "Also confirm the Unity Editor is running with the unityflow bridge active."
+)
 
 
 class UnityBridgeError(Exception):
@@ -20,22 +29,33 @@ class UnityClient:
             if filtered:
                 url += "?" + urllib.parse.urlencode(filtered)
         timeout = timeout or UNITY_BRIDGE_TIMEOUT
-        req = urllib.request.Request(url, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = resp.read()
-                content_type = resp.headers.get("Content-Type", "")
-                return data, content_type
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")
+
+        last_error: Exception | None = None
+        for attempt in range(CONNECT_RETRY_ATTEMPTS):
+            req = urllib.request.Request(url, method=method)
             try:
-                err = json.loads(body)
-                msg = err.get("error", body)
-            except (json.JSONDecodeError, KeyError):
-                msg = body
-            raise UnityBridgeError(msg, status_code=e.code) from None
-        except urllib.error.URLError as e:
-            raise UnityBridgeError(f"Cannot connect to Unity Editor: {e.reason}") from None
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = resp.read()
+                    content_type = resp.headers.get("Content-Type", "")
+                    return data, content_type
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                try:
+                    err = json.loads(body)
+                    msg = err.get("error", body)
+                except (json.JSONDecodeError, KeyError):
+                    msg = body
+                raise UnityBridgeError(msg, status_code=e.code) from None
+            except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+                last_error = e
+                if attempt + 1 < CONNECT_RETRY_ATTEMPTS:
+                    time.sleep(CONNECT_RETRY_BASE_DELAY * (2**attempt))
+
+        reason = getattr(last_error, "reason", last_error)
+        raise UnityBridgeError(
+            f"Cannot connect to Unity Editor ({reason}) after {CONNECT_RETRY_ATTEMPTS} attempts. "
+            f"{_TRANSIENT_GUIDANCE}"
+        ) from None
 
     def get_json(self, path, params=None, timeout=None, method="GET"):
         data, _ = self._request(path, params, timeout, method)

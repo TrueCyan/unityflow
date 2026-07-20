@@ -97,6 +97,49 @@ class TestUnityClient:
                 self.client.get_json("/api/inspector")
             assert exc_info.value.status_code == 404
 
+    def test_retries_transient_connection_error_then_succeeds(self):
+        import urllib.error
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"status":"ok"}'
+        mock_resp.headers.get.return_value = "application/json"
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        side_effects = [urllib.error.URLError("connection refused"), mock_resp]
+        with patch("time.sleep"), patch("urllib.request.urlopen", side_effect=side_effects) as mock_open:
+            result = self.client.get_json("/api/ping")
+        assert result == {"status": "ok"}
+        assert mock_open.call_count == 2
+
+    def test_raises_helpful_error_after_exhausting_retries(self):
+        import urllib.error
+
+        from unityflow.bridge.unity_client import CONNECT_RETRY_ATTEMPTS
+
+        with (
+            patch("time.sleep"),
+            patch("urllib.request.urlopen", side_effect=urllib.error.URLError("refused")) as mock_open,
+        ):
+            with pytest.raises(UnityBridgeError, match="wait a few seconds and try again"):
+                self.client.get_json("/api/editor_state")
+        assert mock_open.call_count == CONNECT_RETRY_ATTEMPTS
+
+    def test_http_error_is_not_retried(self):
+        import urllib.error
+
+        http_error = urllib.error.HTTPError(
+            url="http://localhost:29184/api/inspector",
+            code=404,
+            msg="Not Found",
+            hdrs={},
+            fp=MagicMock(read=MagicMock(return_value=b'{"error":"missing"}')),
+        )
+        with patch("time.sleep"), patch("urllib.request.urlopen", side_effect=http_error) as mock_open:
+            with pytest.raises(UnityBridgeError, match="missing"):
+                self.client.get_json("/api/inspector")
+        assert mock_open.call_count == 1
+
     def test_playmode_methods(self):
         mock_resp = MagicMock()
         mock_resp.read.return_value = b'{"isPlaying":false,"isPaused":false,"isCompiling":false}'

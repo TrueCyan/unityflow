@@ -75,6 +75,13 @@ def _load_class_ids() -> dict[int, str]:
 CLASS_IDS: dict[int, str] = _load_class_ids()
 
 
+class UnityYAMLRoundTripError(ValueError):
+    """Raised when serialized output fails to round-trip, indicating corruption.
+
+    The write is aborted before touching disk so the existing file is preserved.
+    """
+
+
 def get_parser_backend() -> str:
     """Get the current parser backend name."""
     return "rapidyaml"
@@ -367,11 +374,53 @@ class UnityYAMLDocument:
             if obj.data:
                 yield from iter_dump_unity_object(obj.data)
 
-    def save(self, path: str | Path) -> None:
-        """Save the document to a file."""
+    def save(self, path: str | Path, verify: bool = True) -> None:
+        """Save the document to a file.
+
+        Args:
+            path: Output file path.
+            verify: When True, the serialized output is re-parsed and re-serialized
+                before writing. If it does not round-trip identically the write is
+                aborted, leaving any existing file untouched, so silent corruption
+                cannot be reported as success.
+        """
         path = Path(path)
         content = self.dump()
+        if verify:
+            self._verify_roundtrip(content)
         path.write_text(content, encoding="utf-8", newline="\n")
+
+    @staticmethod
+    def _verify_roundtrip(content: str) -> None:
+        """Raise UnityYAMLRoundTripError if serialized content does not round-trip.
+
+        A stable, correct serialization is a fixed point: re-parsing it and
+        re-serializing must reproduce it byte-for-byte. A mismatch means the
+        output loses or alters data when read back (e.g. folded line breaks) or
+        fails to parse at all.
+        """
+        try:
+            reparsed = UnityYAMLDocument.parse(content)
+        except Exception as e:
+            raise UnityYAMLRoundTripError(
+                f"Refusing to write: serialized output failed to re-parse ({e}). "
+                "The existing file was left unchanged."
+            ) from e
+        redump = reparsed.dump()
+        if redump != content:
+            written = content.split("\n")
+            roundtripped = redump.split("\n")
+            detail = ""
+            for i, (a, b) in enumerate(zip(written, roundtripped, strict=False)):
+                if a != b:
+                    detail = f" First difference at line {i + 1}: wrote {a!r}, read back {b!r}."
+                    break
+            if not detail and len(written) != len(roundtripped):
+                detail = f" Output has {len(written)} lines, re-parsed to {len(roundtripped)}."
+            raise UnityYAMLRoundTripError(
+                "Refusing to write: serialized output does not round-trip, which would "
+                "corrupt the file." + detail + " The existing file was left unchanged."
+            )
 
     def save_streaming(self, path: str | Path) -> None:
         """Save the document to a file using streaming mode.

@@ -49,11 +49,26 @@ install_python() {
     fi
 }
 
+venv_python() {
+    for candidate in "$VENV_DIR/bin/python" "$VENV_DIR/bin/python3" "$VENV_DIR/Scripts/python.exe"; do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
 create_venv() {
     python_cmd="$1"
+
     if [ -d "$VENV_DIR" ]; then
-        log_info "Virtual environment already exists at $VENV_DIR"
-        return 0
+        if vpy=$(venv_python) && "$vpy" -c 'import sys' >/dev/null 2>&1; then
+            log_info "Virtual environment already exists at $VENV_DIR"
+            return 0
+        fi
+        log_warn "Existing virtual environment at $VENV_DIR is broken; recreating it."
+        rm -rf "$VENV_DIR"
     fi
 
     log_info "Creating virtual environment at $VENV_DIR..."
@@ -62,29 +77,42 @@ create_venv() {
 }
 
 install_unityflow() {
-    pip_cmd="$VENV_DIR/bin/pip"
+    vpy=$(venv_python) || {
+        log_error "Could not locate the virtual environment's Python interpreter under $VENV_DIR."
+        return 1
+    }
 
-    if "$pip_cmd" show unityflow >/dev/null 2>&1; then
-        version=$("$pip_cmd" show unityflow | grep "^Version:" | cut -d' ' -f2)
+    if "$vpy" -m pip show unityflow >/dev/null 2>&1; then
+        version=$("$vpy" -m pip show unityflow | grep "^Version:" | cut -d' ' -f2)
         log_info "unityflow $version is already installed."
         return 0
     fi
 
     log_info "Installing unityflow[bridge] from PyPI..."
-    "$pip_cmd" install --quiet "unityflow[bridge]"
+    if ! install_output=$("$vpy" -m pip install "unityflow[bridge]" 2>&1); then
+        log_error "Failed to install unityflow. pip output:"
+        printf '%s\n' "$install_output"
+        return 1
+    fi
 
-    if "$pip_cmd" show unityflow >/dev/null 2>&1; then
-        version=$("$pip_cmd" show unityflow | grep "^Version:" | cut -d' ' -f2)
+    if "$vpy" -m pip show unityflow >/dev/null 2>&1; then
+        version=$("$vpy" -m pip show unityflow | grep "^Version:" | cut -d' ' -f2)
         log_info "unityflow $version installed successfully!"
     else
-        log_error "Failed to install unityflow"
+        log_error "Failed to install unityflow. pip output:"
+        printf '%s\n' "$install_output"
         return 1
     fi
 }
 
 setup_path() {
-    unityflow_bin="$VENV_DIR/bin/unityflow"
-    unityflow_bridge_bin="$VENV_DIR/bin/unityflow-bridge"
+    if [ -d "$VENV_DIR/bin" ]; then
+        venv_bin="$VENV_DIR/bin"
+    else
+        venv_bin="$VENV_DIR/Scripts"
+    fi
+    unityflow_bin="$venv_bin/unityflow"
+    unityflow_bridge_bin="$venv_bin/unityflow-bridge"
 
     if [ -w "/usr/local/bin" ]; then
         ln -sf "$unityflow_bin" "/usr/local/bin/unityflow"

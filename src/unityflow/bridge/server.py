@@ -4,7 +4,7 @@ import json
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.utilities.types import Image
 
-from unityflow.bridge.unity_client import UnityBridgeError, UnityClient
+from unityflow.bridge.unity_client import UnityClient
 
 mcp = FastMCP(
     "unityflow-bridge",
@@ -12,10 +12,6 @@ mcp = FastMCP(
 )
 
 _client = UnityClient()
-
-
-def _error_text(e):
-    return f"Error: {e}"
 
 
 @mcp.tool()
@@ -73,11 +69,8 @@ def get_runtime_hierarchy(scene_path: str | None = None) -> str:
     Returns:
         JSON tree with name, instanceId, active state, components, and children for each GameObject
     """
-    try:
-        data = _client.hierarchy(scene_path=scene_path)
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.hierarchy(scene_path=scene_path)
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -91,11 +84,8 @@ def get_inspector(object_path: str | None = None, instance_id: int | None = None
     Returns:
         JSON with transform, components, and serialized property values
     """
-    try:
-        data = _client.inspector(instance_id=instance_id, object_path=object_path)
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.inspector(instance_id=instance_id, object_path=object_path)
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -109,11 +99,8 @@ def get_console_logs(severity: str = "all", count: int = 100) -> str:
     Returns:
         JSON array of log entries with message, stackTrace, type, and timestamp
     """
-    try:
-        data = _client.console_logs(severity=severity, count=count)
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.console_logs(severity=severity, count=count)
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -123,11 +110,8 @@ def get_editor_state() -> str:
     Returns:
         JSON with playMode, isPaused, isCompiling, scene info, and current selection
     """
-    try:
-        data = _client.editor_state()
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.editor_state()
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -140,11 +124,8 @@ def refresh_assets() -> str:
     Returns:
         JSON with success status and whether compilation started
     """
-    try:
-        data = _client.refresh_assets()
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.refresh_assets()
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -189,11 +170,8 @@ def get_animator_state(target: str) -> str:
     Returns:
         JSON with current state, parameters, transition info, and layer weights
     """
-    try:
-        data = _client.animator_state(target=target)
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.animator_state(target=target)
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -211,22 +189,18 @@ def control_playmode(action: str) -> str:
     Returns:
         JSON with success status and current state
     """
-    try:
-        if action == "state":
-            data = _client.playmode_state()
-        elif action == "play":
-            data = _client.playmode_play()
-        elif action == "stop":
-            data = _client.playmode_stop()
-        elif action == "pause":
-            data = _client.playmode_pause()
-        elif action == "step":
-            data = _client.playmode_step()
-        else:
-            return f"Error: Invalid action '{action}'. Use: play, stop, pause, step, or state"
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    actions = {
+        "state": _client.playmode_state,
+        "play": _client.playmode_play,
+        "stop": _client.playmode_stop,
+        "pause": _client.playmode_pause,
+        "step": _client.playmode_step,
+    }
+    handler = actions.get(action)
+    if handler is None:
+        raise ValueError(f"Invalid action '{action}'. Use: play, stop, pause, step, or state")
+    data = handler()
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -240,11 +214,8 @@ def load_scene(scene_path: str, additive: bool = False) -> str:
     Returns:
         JSON with success status and loaded scene info
     """
-    try:
-        data = _client.scene_load(path=scene_path, additive=additive)
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.scene_load(path=scene_path, additive=additive)
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -254,11 +225,8 @@ def list_scenes() -> str:
     Returns:
         JSON array of scenes with index, path, and name
     """
-    try:
-        data = _client.scene_list()
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.scene_list()
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -268,11 +236,8 @@ def get_scene_camera() -> str:
     Returns:
         JSON with pivot position, rotation, size, orthographic mode, and 2D mode
     """
-    try:
-        data = _client.scene_view_camera()
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.scene_view_camera()
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -301,20 +266,17 @@ def set_scene_camera(
     Returns:
         JSON with the updated camera state
     """
-    try:
-        data = _client.set_scene_view_camera(
-            pivot_x=pivot_x,
-            pivot_y=pivot_y,
-            pivot_z=pivot_z,
-            rotation_x=rotation_x,
-            rotation_y=rotation_y,
-            rotation_z=rotation_z,
-            size=size,
-            orthographic=orthographic,
-        )
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.set_scene_view_camera(
+        pivot_x=pivot_x,
+        pivot_y=pivot_y,
+        pivot_z=pivot_z,
+        rotation_x=rotation_x,
+        rotation_y=rotation_y,
+        rotation_z=rotation_z,
+        size=size,
+        orthographic=orthographic,
+    )
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -328,11 +290,8 @@ def frame_object(object_path: str | None = None, instance_id: int | None = None)
     Returns:
         JSON with success status and new camera pivot position
     """
-    try:
-        data = _client.frame_object(path=object_path, instance_id=instance_id)
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except UnityBridgeError as e:
-        return _error_text(e)
+    data = _client.frame_object(path=object_path, instance_id=instance_id)
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 def main():

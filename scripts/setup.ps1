@@ -84,8 +84,13 @@ function Install-Unityflow {
         return $true
     }
 
-    Write-Log "Installing unityflow from PyPI..."
-    & $PipCmd install --quiet unityflow
+    Write-Log "Installing unityflow[bridge] from PyPI..."
+    $installOutput = & $PipCmd install 'unityflow[bridge]' 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-LogError "Failed to install unityflow. pip output:"
+        $installOutput | ForEach-Object { Write-Host $_ }
+        return $false
+    }
 
     $installed = & $PipCmd show unityflow 2>$null
     if ($installed) {
@@ -93,7 +98,8 @@ function Install-Unityflow {
         Write-Log "unityflow $version installed successfully!"
         return $true
     } else {
-        Write-LogError "Failed to install unityflow"
+        Write-LogError "Failed to install unityflow. pip output:"
+        $installOutput | ForEach-Object { Write-Host $_ }
         return $false
     }
 }

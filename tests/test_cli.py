@@ -604,6 +604,42 @@ class TestSetAddComponent:
         go_content = go.get_content()
         assert len(go_content["m_Component"]) == 2
 
+    def test_add_component_preserves_multiline_nested_prefab(self, runner, tmp_path):
+        import shutil
+
+        from unityflow.parser import UnityYAMLDocument
+
+        test_file = tmp_path / "nested_multiline.prefab"
+        shutil.copy(FIXTURES_DIR / "nested_prefab_multiline.prefab", test_file)
+
+        before = UnityYAMLDocument.load(test_file)
+        before_mb_text = before.get_by_file_id(1002).get_content()["m_text"]
+        before_mods = before.get_by_file_id(5000).get_content()["m_Modification"]["m_Modifications"]
+        before_mod_text = next(m["value"] for m in before_mods if m["propertyPath"] == "m_text")
+
+        result = runner.invoke(
+            main,
+            [
+                "set",
+                str(test_file),
+                "--path",
+                "Root",
+                "--add-component",
+                "CanvasRenderer",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        after = UnityYAMLDocument.load(test_file)
+        after_mb_text = after.get_by_file_id(1002).get_content()["m_text"]
+        after_mods = after.get_by_file_id(5000).get_content()["m_Modification"]["m_Modifications"]
+        after_mod_text = next(m["value"] for m in after_mods if m["propertyPath"] == "m_text")
+
+        assert after_mb_text == before_mb_text, "MonoBehaviour multi-line m_text was corrupted"
+        assert after_mod_text == before_mod_text, "nested PrefabInstance override m_text was corrupted"
+        assert len(after.get_by_file_id(1000).get_content()["m_Component"]) == 3
+
     def test_add_component_duplicate_transform_blocked(self, runner, tmp_path):
         import shutil
 

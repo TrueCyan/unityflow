@@ -2879,7 +2879,7 @@ def hierarchy_cmd(
         if guid_index and node.source_guid:
             source_path = guid_index.get_path(node.source_guid)
             if source_path:
-                return f" [Prefab: {source_path}]"
+                return f" [Prefab: {source_path.as_posix()}]"
         return " [Prefab]"
 
     def format_value(value, base_indent=""):
@@ -3248,7 +3248,7 @@ def inspect_cmd(
         if node.source_guid and guid_index:
             source_path = guid_index.get_path(node.source_guid)
             if source_path:
-                click.echo(f"Source Prefab: {source_path}")
+                click.echo(f"Source Prefab: {source_path.as_posix()}")
             else:
                 click.echo("Source Prefab: (unknown)")
 
@@ -3629,10 +3629,10 @@ def refs_cmd(
         rel_asset = resolved_asset
 
     if not results:
-        click.echo(f"No references found for {rel_asset}")
+        click.echo(f"No references found for {rel_asset.as_posix()}")
         return
 
-    click.echo(f"Found {len(results)} references to {rel_asset}:")
+    click.echo(f"Found {len(results)} references to {rel_asset.as_posix()}:")
     click.echo()
     for file_path, refs in results:
         try:
@@ -3641,7 +3641,7 @@ def refs_cmd(
             rel_path = file_path
         count = len(refs)
         suffix = "ref" if count == 1 else "refs"
-        click.echo(f"  {rel_path} ({count} {suffix})")
+        click.echo(f"  {rel_path.as_posix()} ({count} {suffix})")
 
 
 @main.command(name="create")

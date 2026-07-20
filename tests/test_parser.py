@@ -222,6 +222,84 @@ MonoBehaviour:
 
         assert content_data2["m_SomeField"] == "-", "'-' value should survive roundtrip"
 
+    def test_multiline_string_uses_double_quote(self):
+        """Strings with line breaks must be double-quoted with escapes, not folded."""
+        from unityflow.fast_parser import _format_scalar
+
+        assert _format_scalar("OK\n") == '"OK\\n"'
+        assert _format_scalar("a\nb") == '"a\\nb"'
+        assert _format_scalar("a\r\nb") == '"a\\r\\nb"'
+
+    def test_multiline_scalar_values_survive_roundtrip(self):
+        """Line breaks in scalar values must not be folded into spaces on roundtrip."""
+        values = ["OK\n", "a\nb", "Line one\nLine two\n", "a\n\nb", "carriage\r\nreturn", "   "]
+        for value in values:
+            content = "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!114 &12345\n" "MonoBehaviour:\n"
+            doc = UnityYAMLDocument.parse(content)
+            doc.get_by_file_id(12345).data["MonoBehaviour"] = {"m_text": value}
+
+            dumped = doc.dump()
+            reparsed = UnityYAMLDocument.parse(dumped)
+            got = reparsed.get_by_file_id(12345).get_content()["m_text"]
+            assert got == value, f"value {value!r} corrupted to {got!r}"
+
+    def test_multiline_nested_prefab_roundtrip_preserves_data(self):
+        """A nested PrefabInstance with multi-line m_text must round-trip without loss."""
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab_multiline.prefab")
+
+        mb_text = doc.get_by_file_id(1002).get_content()["m_text"]
+        mods = doc.get_by_file_id(5000).get_content()["m_Modification"]["m_Modifications"]
+        mod_text = next(m["value"] for m in mods if m["propertyPath"] == "m_text")
+        assert mb_text == "Line one\nLine two\n"
+        assert mod_text == "Multi\nline\noverride\n"
+
+        dumped = doc.dump()
+        assert dumped == UnityYAMLDocument.parse(dumped).dump(), "serialization not idempotent"
+
+        reparsed = UnityYAMLDocument.parse(dumped)
+        assert reparsed.get_by_file_id(1002).get_content()["m_text"] == mb_text
+        reparsed_mods = reparsed.get_by_file_id(5000).get_content()["m_Modification"]["m_Modifications"]
+        reparsed_mod_text = next(m["value"] for m in reparsed_mods if m["propertyPath"] == "m_text")
+        assert reparsed_mod_text == mod_text
+
+
+class TestSaveRoundTripSafety:
+    """Tests for the save() round-trip safety net."""
+
+    def test_save_verifies_and_writes_valid_document(self, tmp_path):
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "nested_prefab_multiline.prefab")
+        out = tmp_path / "out.prefab"
+        doc.save(out)
+        assert out.exists()
+        UnityYAMLDocument.load(out)
+
+    def test_save_aborts_and_preserves_original_on_corruption(self, tmp_path, monkeypatch):
+        from unityflow.parser import UnityYAMLRoundTripError
+
+        out = tmp_path / "out.prefab"
+        out.write_text("ORIGINAL CONTENT", encoding="utf-8")
+
+        doc = UnityYAMLDocument.load(FIXTURES_DIR / "basic_prefab.prefab")
+        corrupt = "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!114 &1\n" "MonoBehaviour:\n  m_text: 'OK\n'\n"
+        monkeypatch.setattr(doc, "dump", lambda: corrupt)
+
+        import pytest
+
+        with pytest.raises(UnityYAMLRoundTripError):
+            doc.save(out)
+        assert out.read_text(encoding="utf-8") == "ORIGINAL CONTENT"
+
+    def test_verify_roundtrip_detects_parse_failure(self):
+        import pytest
+
+        from unityflow.parser import UnityYAMLRoundTripError
+
+        broken = (
+            "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!114 &1\n" "MonoBehaviour:\n  a:\n     b: 1\n   c: 2\n"
+        )
+        with pytest.raises(UnityYAMLRoundTripError):
+            UnityYAMLDocument._verify_roundtrip(broken)
+
 
 class TestParserEdgeCases:
     """Tests for parser edge cases and error handling."""

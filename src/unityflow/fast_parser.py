@@ -528,6 +528,31 @@ def _to_flow(d: dict) -> str:
     return "{" + ", ".join(parts) + "}"
 
 
+def _to_double_quoted(value: str) -> str:
+    """Serialize a string as a double-quoted YAML scalar with escapes.
+
+    Used for values containing line breaks or control characters, which single-quoted
+    and plain scalars cannot represent without folding or indentation corruption.
+    """
+    parts: list[str] = []
+    for c in value:
+        if c == "\\":
+            parts.append("\\\\")
+        elif c == '"':
+            parts.append('\\"')
+        elif c == "\n":
+            parts.append("\\n")
+        elif c == "\r":
+            parts.append("\\r")
+        elif c == "\t":
+            parts.append("\\t")
+        elif ord(c) < 0x20:
+            parts.append(f"\\x{ord(c):02X}")
+        else:
+            parts.append(c)
+    return '"' + "".join(parts) + '"'
+
+
 def _format_scalar(value: Any) -> str:
     """Format a scalar value for YAML output."""
     if value is None:
@@ -543,6 +568,13 @@ def _format_scalar(value: Any) -> str:
         # Empty string - no value after colon
         if not value:
             return ""
+        # Strings containing line breaks or other control characters cannot be
+        # represented in single-quoted or plain style without corruption:
+        # single-quote folding collapses line breaks into spaces, and a raw line
+        # break drops the continuation to column 0, producing invalid indentation
+        # on reparse. Double-quoted style with escapes is unambiguous and single-line.
+        if any(ord(c) < 0x20 and c != "\t" for c in value):
+            return _to_double_quoted(value)
         if value in ("true", "false", "null", "yes", "no", "on", "off", "True", "False"):
             return f"'{value}'"
         # Standalone '-' or '~' are interpreted as null in YAML - must quote them
@@ -556,6 +588,10 @@ def _format_scalar(value: Any) -> str:
         elif any(c in value for c in ":\n#"):
             needs_quote = True
         elif value.startswith("- ") or value.startswith("? ") or value.startswith("-\t"):
+            needs_quote = True
+        elif value != value.strip():
+            # Leading/trailing whitespace is stripped from plain scalars, turning
+            # "   " into null and " x " into "x". Quote to preserve it.
             needs_quote = True
 
         if needs_quote:
