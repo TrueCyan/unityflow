@@ -90,7 +90,7 @@ black src/ tests/
 
 #### Change Management
 - Make only the minimum changes needed to achieve the goal
-- Propagate structural improvements immediately before bad patterns spread
+- Propagate structural improvements across the code the current change touches; report issues outside the task scope instead of fixing them
 - Consolidate business logic that changes for the same reason
 - Duplication of simple utilities or stable infrastructure is acceptable
 
@@ -100,14 +100,14 @@ black src/ tests/
 - Be careful with logic called from Update/LateUpdate/FixedUpdate (per-frame hot paths)
 - Optimize based on profiling; verify effectiveness on the current version
 
-#### No Comments Policy
+#### Comments
 
-Do not add comments to code. Code should be self-explanatory.
+Write a comment only for what code cannot express.
 
-- Use clear variable and function names instead of comments
-- Extract complex logic into functions with descriptive names
-- If you feel a comment is needed, refactor the code to clarify intent
-- Remove existing comments when modifying code
+- Allowed: the reason for a non-obvious choice, an external constraint (Unity serialization quirk, dependency version pin, sync with external data), or an issue/spec reference
+- Never write comments that describe what the code does — use names and structure instead
+- If renaming or restructuring can make a comment unnecessary, do that instead
+- Preserve existing comments; remove one only when your change makes it false
 
 ## Pull Request Guidelines
 
