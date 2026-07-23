@@ -59,6 +59,14 @@ https://github.com/TrueCyan/unityflow.git?path=unity-bridge
 pip install unityflow[bridge]
 ```
 
+**Claude Code에 MCP 서버 등록**:
+
+Plugin을 설치하면 MCP 서버가 자동으로 등록됩니다. Plugin 없이 단독으로 사용하려면 직접 등록합니다:
+
+```bash
+claude mcp add unityflow-bridge -- unityflow-bridge
+```
+
 **MCP Tools**:
 | Tool | 설명 |
 |------|------|
@@ -125,7 +133,7 @@ pip install .
 ```bash
 git clone https://github.com/TrueCyan/unityflow
 cd unityflow
-pip install -e ".[dev]"
+pip install -e ".[all]"
 ```
 
 ## 요구 사항
@@ -133,10 +141,12 @@ pip install -e ".[dev]"
 - Python 3.12 이상
 - 의존성:
   - `unityparser>=4.0.0`
-  - `rapidyaml>=0.10.0`
+  - `rapidyaml>=0.10.0,<0.12`
   - `click>=8.0.0`
+  - `packaging>=21.0`
+  - `ufbx>=0.0.5`
 - Bridge 의존성 (선택):
-  - `mcp>=1.0.0`
+  - `mcp>=1.26.0,<2`
 - Unity Editor Bridge:
   - Unity 2021.3 이상
 
@@ -307,8 +317,8 @@ doc.save("MyObject.prefab")  # 또는 .unity, .asset
 ## 개발
 
 ```bash
-# 개발 환경 설치
-pip install -e ".[dev]"
+# 개발 환경 설치 (dev + bridge)
+pip install -e ".[all]"
 
 # 테스트 실행
 pytest tests/

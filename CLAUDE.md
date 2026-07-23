@@ -5,17 +5,19 @@
 작업 시작 전 반드시 환경을 세팅합니다:
 
 ```bash
-# 의존성 설치
-pip install rapidyaml pytest click
+# 의존성 설치 (dev + bridge, pyproject.toml의 버전 제약 포함)
+pip install -e ".[all]"
 
-# 테스트 실행 (PYTHONPATH 설정 필수)
-PYTHONPATH=src python -m pytest tests/ -v
+# 테스트 실행
+pytest tests/
 ```
 
 ### 주의사항
 
-- Python 3.12+ 권장이지만, Python 3.11에서도 PYTHONPATH 설정으로 동작
-- `pip install -e .`는 Python 버전 제약으로 실패할 수 있음 → PYTHONPATH 방식 사용
+- Python 3.12 이상 필요 (pyproject.toml `requires-python` 기준)
+- 의존성 버전은 pyproject.toml을 따름 (rapidyaml은 `>=0.10.0,<0.12`로 핀 — 0.12부터 Unity 멀티라인 스칼라 로딩이 깨짐)
+- pytest는 pyproject.toml의 `pythonpath = ["src"]` 설정으로 소스를 찾으므로 별도 PYTHONPATH 설정 없이 동작
+- tests/test_bridge.py는 `mcp` 패키지를 요구하므로 `[all]` extra로 설치해야 전체 테스트가 통과
 
 ## Before Completing Any Task
 

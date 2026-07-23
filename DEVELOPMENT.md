@@ -24,6 +24,13 @@ unityflow/
 ├── tests/
 │   ├── fixtures/         # 테스트용 Unity 파일
 │   └── test_*.py
+├── skills/               # Claude Code plugin skills (unity-yaml-workflow 등)
+├── hooks/                # Claude Code plugin hook 정의 (SessionStart 자동 설치)
+├── scripts/              # plugin 자동 설치 스크립트, C# 검증 스크립트
+├── git-setup/            # Git diff/merge 드라이버 수동 설정 예시
+├── unity-bridge/         # Unity Editor Bridge UPM 패키지 (C#)
+├── data/                 # Unity ClassID 레퍼런스 데이터
+├── broken_examples/      # 손상된 Unity 파일 재현 샘플
 └── pyproject.toml
 ```
 
@@ -137,10 +144,10 @@ rapidyaml 백엔드 처리량: ~3,985 KB/s
 ## 기여 가이드
 
 ```bash
-# 개발 환경
+# 개발 환경 (dev + bridge)
 git clone https://github.com/TrueCyan/unityflow
 cd unityflow
-pip install -e ".[dev]"
+pip install -e ".[all]"
 
 # 테스트
 pytest tests/
