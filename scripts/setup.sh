@@ -2,6 +2,7 @@
 set -e
 
 VENV_DIR="${HOME}/.unityflow-venv"
+UPDATE_STAMP_FILE="${VENV_DIR}/.last-update-check"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -76,15 +77,46 @@ create_venv() {
     log_info "Virtual environment created."
 }
 
+installed_version() {
+    "$1" -m pip show unityflow 2>/dev/null | grep "^Version:" | cut -d' ' -f2
+}
+
+update_check_due() {
+    [ ! -f "$UPDATE_STAMP_FILE" ] || [ -n "$(find "$UPDATE_STAMP_FILE" -mtime +0 2>/dev/null)" ]
+}
+
+upgrade_unityflow() {
+    vpy="$1"
+    current_version="$2"
+
+    log_info "Checking for unityflow updates..."
+    if ! "$vpy" -m pip install --upgrade "unityflow[bridge]" >/dev/null 2>&1; then
+        log_warn "Update check failed; keeping unityflow $current_version."
+        return 0
+    fi
+
+    touch "$UPDATE_STAMP_FILE"
+    new_version=$(installed_version "$vpy")
+    if [ "$new_version" != "$current_version" ]; then
+        log_info "unityflow upgraded: $current_version -> $new_version"
+    else
+        log_info "unityflow $current_version is up to date."
+    fi
+}
+
 install_unityflow() {
     vpy=$(venv_python) || {
         log_error "Could not locate the virtual environment's Python interpreter under $VENV_DIR."
         return 1
     }
 
-    if "$vpy" -m pip show unityflow >/dev/null 2>&1; then
-        version=$("$vpy" -m pip show unityflow | grep "^Version:" | cut -d' ' -f2)
-        log_info "unityflow $version is already installed."
+    version=$(installed_version "$vpy")
+    if [ -n "$version" ]; then
+        if update_check_due; then
+            upgrade_unityflow "$vpy" "$version"
+        else
+            log_info "unityflow $version is already installed."
+        fi
         return 0
     fi
 
@@ -95,14 +127,22 @@ install_unityflow() {
         return 1
     fi
 
-    if "$vpy" -m pip show unityflow >/dev/null 2>&1; then
-        version=$("$vpy" -m pip show unityflow | grep "^Version:" | cut -d' ' -f2)
+    version=$(installed_version "$vpy")
+    if [ -n "$version" ]; then
+        touch "$UPDATE_STAMP_FILE"
         log_info "unityflow $version installed successfully!"
     else
         log_error "Failed to install unityflow. pip output:"
         printf '%s\n' "$install_output"
         return 1
     fi
+}
+
+warn_if_missing_from_path() {
+    case ":$PATH:" in
+    *":$1:"*) ;;
+    *) log_warn "Add $1 to your PATH to run the unityflow command." ;;
+    esac
 }
 
 setup_path() {
@@ -119,6 +159,7 @@ setup_path() {
         ln -sf "$unityflow_bridge_bin" "/usr/local/bin/unityflow-bridge"
         log_info "Symlink: /usr/local/bin/unityflow"
         log_info "Symlink: /usr/local/bin/unityflow-bridge"
+        warn_if_missing_from_path "/usr/local/bin"
     else
         local_bin="$HOME/.local/bin"
         mkdir -p "$local_bin"
@@ -126,6 +167,7 @@ setup_path() {
         ln -sf "$unityflow_bridge_bin" "$local_bin/unityflow-bridge"
         log_info "Symlink: $local_bin/unityflow"
         log_info "Symlink: $local_bin/unityflow-bridge"
+        warn_if_missing_from_path "$local_bin"
     fi
 }
 

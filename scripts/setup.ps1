@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Continue"
 
 $VenvDir = Join-Path $env:USERPROFILE ".unityflow-venv"
+$UpdateStampFile = Join-Path $VenvDir ".last-update-check"
 
 function Write-Log { param($Message) Write-Host "[unityflow] $Message" -ForegroundColor Green }
 function Write-LogWarn { param($Message) Write-Host "[unityflow] $Message" -ForegroundColor Yellow }
@@ -74,13 +75,50 @@ function New-Venv {
     return $true
 }
 
+function Get-InstalledVersion {
+    param($PipCmd)
+    $installed = & $PipCmd show unityflow 2>$null
+    if ($installed) {
+        return ($installed | Select-String "^Version:").ToString().Split(":")[1].Trim()
+    }
+    return $null
+}
+
+function Test-UpdateCheckDue {
+    if (-not (Test-Path $UpdateStampFile)) { return $true }
+    $lastCheck = (Get-Item $UpdateStampFile).LastWriteTime
+    return ((Get-Date) - $lastCheck).TotalHours -ge 24
+}
+
+function Update-Unityflow {
+    param($PipCmd, $CurrentVersion)
+
+    Write-Log "Checking for unityflow updates..."
+    & $PipCmd install --upgrade 'unityflow[bridge]' 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-LogWarn "Update check failed; keeping unityflow $CurrentVersion."
+        return
+    }
+
+    Set-Content -Path $UpdateStampFile -Value ""
+    $newVersion = Get-InstalledVersion -PipCmd $PipCmd
+    if ($newVersion -ne $CurrentVersion) {
+        Write-Log "unityflow upgraded: $CurrentVersion -> $newVersion"
+    } else {
+        Write-Log "unityflow $CurrentVersion is up to date."
+    }
+}
+
 function Install-Unityflow {
     $PipCmd = Join-Path $VenvDir "Scripts\pip.exe"
 
-    $installed = & $PipCmd show unityflow 2>$null
-    if ($installed) {
-        $version = ($installed | Select-String "^Version:").ToString().Split(":")[1].Trim()
-        Write-Log "unityflow $version is already installed."
+    $version = Get-InstalledVersion -PipCmd $PipCmd
+    if ($version) {
+        if (Test-UpdateCheckDue) {
+            Update-Unityflow -PipCmd $PipCmd -CurrentVersion $version
+        } else {
+            Write-Log "unityflow $version is already installed."
+        }
         return $true
     }
 
@@ -92,9 +130,9 @@ function Install-Unityflow {
         return $false
     }
 
-    $installed = & $PipCmd show unityflow 2>$null
-    if ($installed) {
-        $version = ($installed | Select-String "^Version:").ToString().Split(":")[1].Trim()
+    $version = Get-InstalledVersion -PipCmd $PipCmd
+    if ($version) {
+        Set-Content -Path $UpdateStampFile -Value ""
         Write-Log "unityflow $version installed successfully!"
         return $true
     } else {
